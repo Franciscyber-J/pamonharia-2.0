@@ -1,0 +1,13 @@
+# Ignorar dependências do Node.js
+/backend/node_modules
+/frontend/dashboard/node_modules
+/frontend/cardapio/node_modules
+
+# Ignorar ficheiros de variáveis de ambiente
+.env
+*/.env
+
+# Ignorar logs
+logs
+*.log
+npm-debug.log*
