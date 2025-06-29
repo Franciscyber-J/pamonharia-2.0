@@ -79,3 +79,209 @@ input:checked + .slider:before { transform: translateX(20px); }
 .save-button { padding: 12px 25px; border: 1px solid var(--secondary-color); background-color: transparent; color: var(--secondary-color); font-weight: 600; border-radius: 8px; cursor: pointer; font-size: 1.1rem; transition: all 0.3s; box-shadow: 0 0 15px var(--glow-color); }
 .save-button:hover { background-color: var(--secondary-color); color: var(--dark-bg); box-shadow: 0 0 25px var(--glow-color); transform: translateY(-2px); }
 #save-feedback { margin-right: 20px; color: var(--success-color); font-weight: 600; }
+
+/* --- NOVOS ESTILOS PARA O PAINEL DE PEDIDOS --- */
+.orders-panel {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    height: calc(100vh - 160px); /* Altura total menos o header e padding */
+}
+
+.order-column {
+    background-color: var(--card-bg);
+    border-radius: 12px;
+    width: 300px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    max-height: 100%;
+}
+
+.order-column h3 {
+    padding: 15px 20px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 1.1rem;
+    color: var(--secondary-color);
+}
+
+.order-list {
+    padding: 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.order-card {
+    background-color: var(--input-bg);
+    border-radius: 8px;
+    padding: 15px;
+    border-left: 4px solid var(--primary-color);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.order-card-header {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+.order-card-body p {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    margin-bottom: 5px;
+}
+.order-card-actions {
+    margin-top: 15px;
+    display: flex;
+    gap: 10px;
+}
+.order-card-actions button {
+    flex-grow: 1;
+    padding: 8px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    background-color: var(--primary-color);
+    color: white;
+    font-weight: 500;
+}
+.order-card-actions button.cancel {
+    background-color: #c53030;
+}
+
+/* Estilos para o botão de status do som */
+#sound-status {
+    padding: 10px 20px;
+    border: 1px solid var(--text-color);
+    background: transparent;
+    color: var(--text-color);
+    border-radius: 6px;
+    cursor: pointer;
+    opacity: 0.7;
+    transition: all 0.3s ease;
+}
+#sound-status.active {
+    border-color: var(--success-color);
+    color: var(--success-color);
+    opacity: 1;
+    box-shadow: 0 0 10px rgba(56, 161, 105, 0.5);
+}
+
+/* --- NOVOS ESTILOS PARA A PÁGINA DE GESTÃO DE PRODUTOS --- */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+.page-header h2 {
+    font-size: 1.5rem;
+}
+.btn-primary {
+    padding: 10px 20px;
+    border: none;
+    background-image: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+.btn-primary:hover {
+    box-shadow: 0 0 20px var(--glow-color);
+    transform: translateY(-2px);
+}
+
+.product-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: var(--card-bg);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px 0 rgba(0,0,0,0.37);
+}
+.product-table th, .product-table td {
+    padding: 15px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+.product-table th {
+    background-color: rgba(0,0,0,0.2);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
+}
+.product-table tr:last-child td {
+    border-bottom: none;
+}
+.product-table .status-badge {
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.product-table .status-badge.active {
+    background-color: rgba(79, 209, 197, 0.2);
+    color: var(--secondary-color);
+}
+.product-table .status-badge.inactive {
+    background-color: rgba(113, 128, 150, 0.2);
+    color: #a0aec0;
+}
+.product-table .action-buttons button {
+    margin-right: 10px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-color);
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+.product-table .action-buttons button:hover {
+    opacity: 1;
+    color: var(--secondary-color);
+}
+
+/* Estilos do Modal */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(5px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+.modal-content {
+    background: var(--dark-bg);
+    padding: 30px;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 500px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 0 40px rgba(0,0,0,0.5);
+}
+.modal-content h3 {
+    font-size: 1.5rem;
+    margin-bottom: 25px;
+}
+.modal-content .form-buttons {
+    margin-top: 30px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 15px;
+}
+.modal-content .btn-secondary {
+    padding: 10px 20px;
+    border: 1px solid var(--text-color);
+    background: transparent;
+    color: var(--text-color);
+    border-radius: 8px;
+    cursor: pointer;
+}

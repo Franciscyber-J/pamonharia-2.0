@@ -30,8 +30,12 @@ routes.get('/settings', SettingsController.show);
 routes.put('/settings', authMiddleware, SettingsController.update);
 routes.get('/cloudinary-signature', authMiddleware, SettingsController.generateCloudinarySignature);
 
-// ROTA PARA RECEBER NOVOS PEDIDOS (Pública)
-routes.post('/orders', OrderController.create); // 2. ADICIONAR
+// Rotas de Pedidos (Dashboard)
+routes.get('/orders', authMiddleware, OrderController.index);
+routes.patch('/orders/:id/status', authMiddleware, OrderController.updateStatus);
+
+// Rota para RECEBER NOVOS PEDIDOS (Pública)
+routes.post('/orders', OrderController.create);
 
 routes.post('/test-order-notification', authMiddleware, (request, response) => {
     request.io.emit('new_order', { id: 999, client_name: 'Cliente Teste', total_price: 50.00 });

@@ -32,6 +32,7 @@
         <main class="content">
             <header class="header">
                 <h1 id="page-title">Painel de Pedidos</h1>
+                <button id="sound-status"></button>
             </header>
             <div id="dashboard-content">
                 </div>
@@ -40,28 +41,135 @@
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
+        // --- VARIÁVEIS GLOBAIS E SELETORES DO DOM ---
         const pageTitle = document.getElementById('page-title');
         const dashboardContent = document.getElementById('dashboard-content');
+        const soundStatusBtn = document.getElementById('sound-status');
         let notificationAudio;
+        let isSoundEnabled = false; // O estado inicial será definido pelo localStorage
 
         // --- LÓGICA DE ÁUDIO E SOCKET.IO ---
-        function setupAudioPlayer(soundUrl) { if (soundUrl) { notificationAudio = new Audio(soundUrl); notificationAudio.loop = true; } else { notificationAudio = null; } }
-        function playNotification() { if (notificationAudio) notificationAudio.play().catch(e => console.error("Erro ao tocar áudio:", e)); }
-        function stopNotification() { if (notificationAudio) { notificationAudio.pause(); notificationAudio.currentTime = 0; } }
+        function setupAudioPlayer(soundUrl) {
+            if (soundUrl) {
+                console.log('Configurando player com o som:', soundUrl);
+                notificationAudio = new Audio(soundUrl);
+                notificationAudio.loop = true;
+            } else {
+                notificationAudio = null;
+                console.log('Nenhum som de notificação configurado.');
+            }
+        }
+        function playNotification() {
+            if (isSoundEnabled && notificationAudio) {
+                notificationAudio.play().catch(e => console.error("Erro ao tocar áudio:", e));
+            }
+        }
+        function stopNotification() {
+            if (notificationAudio) {
+                notificationAudio.pause();
+                notificationAudio.currentTime = 0;
+            }
+        }
         
         const socket = io('http://localhost:10000');
         socket.on('connect', () => console.log('Conectado ao servidor via Socket.IO com ID:', socket.id));
-        socket.on('new_order', (order) => { alert('Novo Pedido Recebido!'); playNotification(); });
         
-        // --- FUNÇÕES DE RENDERIZAÇÃO DE PÁGINA ---
-        function renderPedidosPage() { pageTitle.textContent = 'Painel de Pedidos'; dashboardContent.innerHTML = `<p>Use o Insomnia para enviar uma requisição POST para http://localhost:10000/test-order-notification (com token de autorização) para testar o som.</p><br><button onclick="stopNotification()" class="save-button" style="background: #e53e3e; border-color: #e53e3e;">Parar Som Manualmente</button>`; }
+        socket.on('new_order', (order) => {
+            console.log('NOVO PEDIDO RECEBIDO!', order);
+            playNotification();
+            // Apenas adiciona o cartão se a página de pedidos estiver ativa
+            if (document.querySelector('.orders-panel')) {
+                addOrderCard(order);
+            }
+        });
+
+        socket.on('order_status_updated', ({ id, status }) => {
+            console.log(`Status do pedido ${id} atualizado para ${status}`);
+            moveOrderCard(id, status);
+        });
+
+        // --- LÓGICA DE RENDERIZAÇÃO DAS PÁGINAS ---
+
+        // LÓGICA COMPLETA PARA O PAINEL DE PEDIDOS
+        function renderPedidosPage() {
+            pageTitle.textContent = 'Painel de Pedidos';
+            dashboardContent.innerHTML = `
+                <div class="orders-panel">
+                    <div class="order-column">
+                        <h3>Novos</h3>
+                        <div class="order-list" id="col-novo"></div>
+                    </div>
+                    <div class="order-column">
+                        <h3>Em Preparo</h3>
+                        <div class="order-list" id="col-em-preparo"></div>
+                    </div>
+                    <div class="order-column">
+                        <h3>Pronto para Entrega</h3>
+                        <div class="order-list" id="col-pronto"></div>
+                    </div>
+                </div>
+            `;
+            fetchAndRenderOrders();
+        }
+        
+        async function fetchAndRenderOrders() {
+            try {
+                const response = await fetch('/orders', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (!response.ok) throw new Error('Falha ao buscar pedidos');
+                const orders = await response.json();
+                document.getElementById('col-novo').innerHTML = '';
+                document.getElementById('col-em-preparo').innerHTML = '';
+                document.getElementById('col-pronto').innerHTML = '';
+                orders.forEach(order => addOrderCard(order, false));
+            } catch (error) {
+                console.error("Erro ao buscar pedidos:", error);
+                dashboardContent.innerHTML = `<p>Não foi possível carregar os pedidos.</p>`;
+            }
+        }
+
+        function createOrderCard(order) {
+            const card = document.createElement('div');
+            card.className = 'order-card';
+            card.id = `order-${order.id}`;
+            let actionsHtml = '';
+            if (order.status === 'Novo') { actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar e Preparar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`; }
+            else if (order.status === 'Em Preparo') { actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto para Entrega</button>`; }
+            else if (order.status === 'Pronto para Entrega') { actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Marcar como Entregue</button>`; }
+            card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Endereço:</strong> ${order.client_address}</p></div><div class="order-card-actions">${actionsHtml}</div>`;
+            return card;
+        }
+
+        function addOrderCard(order, prepend = true) {
+            const statusToColumnId = { 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' };
+            const columnId = statusToColumnId[order.status];
+            const column = document.getElementById(columnId);
+            if (column) { const card = createOrderCard(order); if (prepend) { column.prepend(card); } else { column.appendChild(card); } }
+        }
+
+        function moveOrderCard(orderId, newStatus) {
+            const card = document.getElementById(`order-${orderId}`);
+            if (!card) return;
+            stopNotification();
+            const statusToColumnId = { 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' };
+            const targetColumnId = statusToColumnId[newStatus];
+            if (targetColumnId) {
+                document.getElementById(targetColumnId).prepend(card);
+                const cardData = {id: orderId, total_price: card.querySelector('span:last-child').textContent.replace('R$ ','').replace(',','.'), client_name: card.querySelector('strong').nextSibling.textContent.trim(), client_address: card.querySelector('p:last-child').textContent.replace('Endereço: ','') };
+                const newCard = createOrderCard({ ...cardData, status: newStatus });
+                card.innerHTML = newCard.innerHTML;
+            } else { card.remove(); }
+        }
+
+        async function updateOrderStatus(orderId, newStatus) { try { await fetch(`/orders/${orderId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ status: newStatus }) }); } catch (error) { console.error(`Falha ao atualizar o status do pedido ${orderId}:`, error); alert('Não foi possível atualizar o pedido.'); } }
+        
+        // PLACEHOLDERS PARA FUTURAS PÁGINAS
         function renderProdutosPage() { pageTitle.textContent = 'Gestão de Produtos'; dashboardContent.innerHTML = `<p>A interface de CRUD de produtos aparecerá aqui.</p>`; }
         function renderComplementosPage() { pageTitle.textContent = 'Gestão de Complementos'; dashboardContent.innerHTML = `<p>A interface de CRUD de complementos aparecerá aqui.</p>`; }
         function renderCombosPage() { pageTitle.textContent = 'Gestão de Combos'; dashboardContent.innerHTML = `<p>A interface de CRUD de combos aparecerá aqui.</p>`; }
         
+        // LÓGICA COMPLETA E RESTAURADA PARA A PÁGINA DE CONFIGURAÇÕES
         function renderSettingsPage() {
             pageTitle.textContent = 'Configurações da Loja';
-            // CORREÇÃO: HTML COMPLETO DO FORMULÁRIO RESTAURADO
             dashboardContent.innerHTML = `
                 <form id="settings-form">
                     <div class="settings-card">
@@ -100,132 +208,104 @@
             `;
             fetchAndPopulateSettings();
         }
-        
         async function fetchAndPopulateSettings() {
             try {
                 const response = await fetch('/settings', { headers: { 'Authorization': 'Bearer ' + token } });
                 const settings = await response.json();
-                if (!window.audioPlayerConfigured) { setupAudioPlayer(settings.notification_sound_url); window.audioPlayerConfigured = true; }
-                
-                // Popula todos os campos
-                document.getElementById('store_name').value = settings.store_name;
-                document.getElementById('address').value = settings.address;
-                document.getElementById('location_link').value = settings.location_link;
-                document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2);
+                document.getElementById('store_name').value = settings.store_name; document.getElementById('address').value = settings.address; document.getElementById('location_link').value = settings.location_link; document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2);
                 document.querySelectorAll('#status-buttons button').forEach(button => { button.classList.remove('selected'); if (String(button.dataset.status) === String(settings.is_open_manual_override)) button.classList.add('selected'); });
-                
-                const soundFeedback = document.getElementById('sound-feedback');
-                const removeSoundBtn = document.getElementById('remove-sound-btn');
-                if (settings.notification_sound_filename) {
-                    soundFeedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`;
-                    removeSoundBtn.style.display = 'inline-block';
-                } else {
-                    soundFeedback.textContent = 'Nenhum som configurado.';
-                    removeSoundBtn.style.display = 'none';
-                }
-
+                const soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
+                if (settings.notification_sound_filename) { soundFeedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`; removeSoundBtn.style.display = 'inline-block'; } else { soundFeedback.textContent = 'Nenhum som configurado.'; removeSoundBtn.style.display = 'none'; }
                 const hoursGrid = document.getElementById('hours-grid');
-                hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre às</div><div class="grid-header">Fecha às</div><div class="grid-header">Aberto?</div>`; // Limpa e adiciona o cabeçalho
+                hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre às</div><div class="grid-header">Fecha às</div><div class="grid-header">Aberto?</div>`;
                 ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => {
                     const daySettings = settings.operating_hours[day] || { open: '00:00', close: '00:00', enabled: false };
-                    hoursGrid.innerHTML += ` <div class="day">${day}</div> <input type="time" id="open-${day}" value="${daySettings.open}"> <input type="time" id="close-${day}" value="${daySettings.close}"> <label class="toggle-switch"> <input type="checkbox" id="enabled-${day}" ${daySettings.enabled?"checked":""}> <span class="slider"></span> </label> `;
+                    hoursGrid.innerHTML += ` <div class="day">${day}</div> <input type="time" id="open-${day}" value="${daySettings.open}"> <input type="time" id="close-${day}" value="${daySettings.close}"> <label class="toggle-switch"> <input type="checkbox" id="enabled-${day}" ${daySettings.enabled ? "checked" : ""}> <span class="slider"></span> </label> `;
                 });
-                
                 addSettingsListeners(settings);
             } catch (error) { console.error("Falha ao buscar configurações:", error); }
         }
-        
         function addSettingsListeners(currentSettings) {
-            const settingsForm = document.getElementById('settings-form');
-            if (!settingsForm) return;
-
-            const soundInput = document.getElementById('notification_sound');
-            const soundFeedback = document.getElementById('sound-feedback');
-            const removeSoundBtn = document.getElementById('remove-sound-btn');
-
-            removeSoundBtn.onclick = () => {
-                currentSettings.notification_sound_url = null;
-                currentSettings.notification_sound_filename = null;
-                soundInput.value = '';
-                soundFeedback.textContent = 'O som será removido ao salvar.';
-                removeSoundBtn.style.display = 'none';
-            };
-
+            const settingsForm = document.getElementById('settings-form'); if (!settingsForm) return;
+            const soundInput = document.getElementById('notification_sound'), soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
+            removeSoundBtn.onclick = () => { currentSettings.notification_sound_url = null; currentSettings.notification_sound_filename = null; soundInput.value = ''; soundFeedback.textContent = 'O som será removido ao salvar.'; removeSoundBtn.style.display = 'none'; };
             settingsForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                const feedback = document.getElementById('save-feedback');
-                feedback.textContent = 'Salvando...';
-
-                let soundUrlToSave = currentSettings.notification_sound_url;
-                let soundFilenameToSave = currentSettings.notification_sound_filename;
-
+                const feedback = document.getElementById('save-feedback'); feedback.textContent = 'Salvando...';
+                let soundUrlToSave = currentSettings.notification_sound_url, soundFilenameToSave = currentSettings.notification_sound_filename;
                 if (soundInput.files.length > 0) {
                     soundFeedback.textContent = 'A fazer upload do som...';
                     try {
                         const sigResponse = await fetch('/cloudinary-signature', { headers: { 'Authorization': 'Bearer ' + token } });
                         const { timestamp, signature } = await sigResponse.json();
-                        const formData = new FormData();
-                        const soundFile = soundInput.files[0];
-                        formData.append('file', soundFile);
-                        formData.append('api_key', '351266855176353');
-                        formData.append('timestamp', timestamp);
-                        formData.append('signature', signature);
-                        const cloudinaryUrl = `https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`;
-                        const cloudinaryResponse = await fetch(cloudinaryUrl, { method: 'POST', body: formData });
+                        const formData = new FormData(), soundFile = soundInput.files[0];
+                        formData.append('file', soundFile); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature);
+                        const cloudinaryResponse = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`, { method: 'POST', body: formData });
                         const cloudinaryData = await cloudinaryResponse.json();
-                        if (cloudinaryData.secure_url) {
-                            soundUrlToSave = cloudinaryData.secure_url;
-                            soundFilenameToSave = soundFile.name;
-                            soundFeedback.textContent = 'Upload com sucesso!';
-                        } else { throw new Error('Falha no upload para o Cloudinary'); }
-                    } catch (error) {
-                        feedback.textContent = 'Erro no upload do som.';
-                        setTimeout(() => { feedback.textContent = ''; fetchAndPopulateSettings(); }, 3000);
-                        return;
-                    }
+                        if (cloudinaryData.secure_url) { soundUrlToSave = cloudinaryData.secure_url; soundFilenameToSave = soundFile.name; } else { throw new Error('Falha no upload para o Cloudinary'); }
+                    } catch (error) { feedback.textContent = 'Erro no upload do som.'; setTimeout(() => { feedback.textContent = ''; fetchAndPopulateSettings(); }, 3000); return; }
                 }
-                
                 const operating_hours = {};
                 ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { operating_hours[day] = { open: document.getElementById(`open-${day}`).value, close: document.getElementById(`close-${day}`).value, enabled: document.getElementById(`enabled-${day}`).checked }; });
                 let overrideStatus = document.querySelector('#status-buttons button.selected')?.dataset.status;
                 if (overrideStatus === 'null') overrideStatus = null; else overrideStatus = overrideStatus === 'true';
-                
-                const dataToSend = {
-                    store_name: document.getElementById('store_name').value, address: document.getElementById('address').value, location_link: document.getElementById('location_link').value,
-                    delivery_fee: document.getElementById('delivery_fee').value, is_open_manual_override: overrideStatus, operating_hours: operating_hours,
-                    notification_sound_url: soundUrlToSave, notification_sound_filename: soundFilenameToSave
-                };
-
+                const dataToSend = { store_name: document.getElementById('store_name').value, address: document.getElementById('address').value, location_link: document.getElementById('location_link').value, delivery_fee: document.getElementById('delivery_fee').value, is_open_manual_override: overrideStatus, operating_hours: operating_hours, notification_sound_url: soundUrlToSave, notification_sound_filename: soundFilenameToSave };
                 try {
-                    const response = await fetch('/settings', {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                        body: JSON.stringify(dataToSend)
-                    });
+                    const response = await fetch('/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(dataToSend) });
                     if (!response.ok) throw new Error('Falha ao salvar');
                     feedback.textContent = 'Salvo com sucesso!';
-                    currentSettings.notification_sound_url = soundUrlToSave;
-                    currentSettings.notification_sound_filename = soundFilenameToSave;
                     setupAudioPlayer(soundUrlToSave);
                     setTimeout(() => { feedback.textContent = ''; fetchAndPopulateSettings(); }, 2000);
                 } catch (error) { feedback.textContent = 'Erro ao salvar.'; }
             });
         }
         
+        // --- INICIALIZAÇÃO E NAVEGAÇÃO ---
         document.addEventListener('DOMContentLoaded', () => {
             const navLinks = { pedidos: document.getElementById('nav-pedidos'), produtos: document.getElementById('nav-produtos'), complementos: document.getElementById('nav-complementos'), combos: document.getElementById('nav-combos'), configuracoes: document.getElementById('nav-configuracoes') };
+            
+            const savedSoundState = localStorage.getItem('soundEnabled');
+            isSoundEnabled = savedSoundState === 'false' ? false : true; 
+            
+            function updateSoundButton() {
+                if (isSoundEnabled) { soundStatusBtn.textContent = '🔊 Som Ativado'; soundStatusBtn.classList.add('active'); } 
+                else { soundStatusBtn.textContent = '🔇 Som Desativado'; soundStatusBtn.classList.remove('active'); }
+            }
+            updateSoundButton();
+
+            soundStatusBtn.addEventListener('click', () => {
+                if (!notificationAudio) { alert('Configure um som de notificação primeiro!'); return; }
+                isSoundEnabled = !isSoundEnabled;
+                localStorage.setItem('soundEnabled', isSoundEnabled);
+                updateSoundButton();
+                if (isSoundEnabled) { playNotification(); setTimeout(() => stopNotification(), 100); } 
+                else { stopNotification(); }
+            });
+
             function handleNavigation(e) {
                 e.preventDefault();
                 Object.values(navLinks).forEach(link => link.classList.remove('active'));
                 const link = e.currentTarget; link.classList.add('active');
                 const page = link.id.split('-')[1];
-                if (page === 'pedidos') renderPedidosPage(); else if (page === 'produtos') renderProdutosPage(); else if (page === 'complementos') renderComplementosPage(); else if (page === 'combos') renderCombosPage(); else if (page === 'configuracoes') renderSettingsPage();
+                if (page === 'pedidos') renderPedidosPage();
+                else if (page === 'produtos') renderProdutosPage();
+                else if (page === 'complementos') renderComplementosPage();
+                else if (page === 'combos') renderCombosPage();
+                else if (page === 'configuracoes') renderSettingsPage();
             }
+            
             Object.values(navLinks).forEach(link => link.addEventListener('click', handleNavigation));
-            fetch('/settings', { headers: { 'Authorization': 'Bearer ' + token }}).then(res => res.json()).then(settings => { if (!window.audioPlayerConfigured) { setupAudioPlayer(settings.notification_sound_url); window.audioPlayerConfigured = true; } });
+            
+            fetch('/settings', { headers: { 'Authorization': 'Bearer ' + token }}).then(res => res.json()).then(settings => { if (!window.audioPlayerConfigured) { setupAudioPlayer(settings.notification_sound_url); window.audioPlayerConfigured = true; }});
+
             renderPedidosPage();
             navLinks.pedidos.classList.add('active');
-            document.getElementById('logout-button').addEventListener('click', () => { localStorage.removeItem('authToken'); window.location.href = '/'; });
+            
+            document.getElementById('logout-button').addEventListener('click', () => {
+                localStorage.removeItem('authToken');
+                localStorage.removeItem('soundEnabled'); // Limpa a preferência do som ao sair
+                window.location.href = '/';
+            });
         });
     </script>
 </body>
