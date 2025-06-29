@@ -1,34 +1,32 @@
-// Importa o framework Express, que nos ajuda a construir o servidor e as rotas.
 const express = require('express');
-
-// Importa as nossas rotas definidas no ficheiro routes.js
+const http = require('http');
+const { Server } = require('socket.io');
+const path = require('path'); // 1. IMPORTAR O MÓDULO 'path'
 const routes = require('./routes');
 
-// Cria a instância principal da nossa aplicação. A variável 'app' é o nosso servidor.
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*", methods: ["GET", "POST"] }
+});
 
-/**
- * Middlewares Essenciais
- */
+app.use((request, response, next) => {
+  request.io = io;
+  return next();
+});
 
-// Este middleware diz ao Express para "aprender" a ler corpos de requisição em formato JSON.
-// Sem ele, o 'request.body' chegaria como indefinido (undefined).
-app.use(express.json()); 
+app.use(express.json());
 
-// Este middleware diz ao nosso app para usar todas as rotas que definimos no ficheiro importado.
+// 2. ADICIONAR O MIDDLEWARE DE FICHEIROS ESTÁTICOS
+// Ele diz ao Express: "Sirva qualquer ficheiro pedido diretamente da pasta 'frontend'"
+app.use(express.static(path.resolve(__dirname, '..', '..', 'frontend')));
+
 app.use(routes);
 
-
-/**
- * Inicialização do Servidor
- */
-
-// Define a porta em que nosso servidor irá "ouvir" por requisições.
 const PORT = 10000;
 
-// O comando que efetivamente inicia o servidor e o faz esperar por requisições na porta definida.
-// A função de callback '() => { ... }' é executada assim que o servidor está pronto.
-app.listen(PORT, () => {
+// 6. Usamos 'server.listen' em vez de 'app.listen' para iniciar tudo junto
+server.listen(PORT, () => {
   console.log('----------------------------------------------------');
   console.log('✅ Servidor Backend da Pamonharia 2.0 INICIADO');
   console.log(`🚀 API rodando em: http://localhost:${PORT}`);
@@ -36,13 +34,10 @@ app.listen(PORT, () => {
   console.log('       -- ACESSO ÀS PÁGINAS (FRONTEND) --');
   console.log('');
   console.log('🔑 Dashboard Login:');
-  console.log(`   http://localhost:${PORT}/`); // MUDANÇA AQUI
+  console.log(`   http://localhost:${PORT}/`);
   console.log('');
   console.log('🍽️ Cardápio Público:');
-  console.log(`   http://localhost:${PORT}/cardapio`); // MUDANÇA AQUI
+  console.log(`   http://localhost:${PORT}/cardapio`);
   console.log('----------------------------------------------------');
   console.log('Aguardando requisições...');
-
-  // Dica: Para abrir os ficheiros acima com auto-reload,
-  // use a extensão "Live Server" no VS Code (clique com o botão direito no ficheiro > Open with Live Server).
 });

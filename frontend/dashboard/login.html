@@ -41,85 +41,24 @@
             text-align: center;
             margin-bottom: 30px;
             font-weight: 600;
-            background: -webkit-linear-gradient(45deg, var(--primary-color), var(--secondary-color));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            background: linear-gradient(45deg, var(--primary-color), var(--secondary-color)); /* Gradiente padrão */
+            -webkit-background-clip: text; /* Prefixo para compatibilidade */
+            background-clip: text; /* CORREÇÃO: Propriedade padrão adicionada */
+            color: transparent; /* CORREÇÃO: Usar color transparent em vez de -webkit-text-fill-color */
         }
         .input-group { margin-bottom: 20px; }
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-            opacity: 0.8;
-        }
-        .password-wrapper {
-            position: relative;
-            display: flex;
-            align-items: center;
-        }
-        input {
-            width: 100%;
-            padding: 12px;
-            background-color: rgba(0,0,0,0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
-            color: var(--text-color);
-            font-size: 1rem;
-            transition: all 0.3s ease;
-        }
-        input[type="password"] { padding-right: 45px; }
-        input[type="text"] { padding-right: 45px; }
-        input:focus {
-            outline: none;
-            border-color: var(--primary-color);
-            box-shadow: 0 0 10px var(--glow-color-1);
-        }
-        #toggle-password {
-            position: absolute;
-            right: 15px;
-            cursor: pointer;
-            user-select: none;
-            font-size: 1.2rem;
-            opacity: 0.7;
-        }
-        .options {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.9rem;
-            margin-bottom: 20px;
-        }
-        .remember-me {
-            display: flex;
-            align-items: center;
-            cursor: pointer;
-        }
-        .remember-me input {
-            width: auto;
-            margin-right: 8px;
-        }
-        button {
-            width: 100%;
-            padding: 15px;
-            border: none;
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 1rem;
-            cursor: pointer;
-            color: #fff;
-            background-image: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
-            transition: all 0.3s ease;
-        }
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-        }
-        #error-message {
-            color: #f56565;
-            text-align: center;
-            margin-top: 15px;
-            height: 20px;
-        }
+        label { display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.8; }
+        .password-wrapper { position: relative; display: flex; align-items: center; }
+        input { width: 100%; padding: 12px; background-color: rgba(0,0,0,0.3); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 6px; color: var(--text-color); font-size: 1rem; transition: all 0.3s ease; }
+        input[type="password"], input[type="text"] { padding-right: 45px; }
+        input:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 10px var(--glow-color-1); }
+        #toggle-password { position: absolute; right: 15px; cursor: pointer; user-select: none; font-size: 1.2rem; opacity: 0.7; }
+        .options { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; margin-bottom: 20px; }
+        .remember-me { display: flex; align-items: center; cursor: pointer; }
+        .remember-me input { width: auto; margin-right: 8px; }
+        button { width: 100%; padding: 15px; border: none; border-radius: 6px; font-weight: 600; font-size: 1rem; cursor: pointer; color: #fff; background-image: linear-gradient(45deg, var(--primary-color), var(--secondary-color)); transition: all 0.3s ease; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,0.2); }
+        #error-message { color: #f56565; text-align: center; margin-top: 15px; height: 20px; }
     </style>
 </head>
 <body>
@@ -147,79 +86,11 @@
             <p id="error-message"></p>
         </form>
     </div>
-
     <script>
-        // --- Seleção dos Elementos do DOM ---
-        const loginForm = document.getElementById('login-form');
-        const emailInput = document.getElementById('email');
-        const passwordInput = document.getElementById('password');
-        const rememberMeCheckbox = document.getElementById('remember-me');
-        const togglePassword = document.getElementById('toggle-password');
-        const errorMessage = document.getElementById('error-message');
-
-        // --- Lógica do "Olhinho" (Ponto 04) ---
-        togglePassword.addEventListener('click', () => {
-            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-            passwordInput.setAttribute('type', type);
-            // Altera o ícone
-            togglePassword.textContent = type === 'password' ? '👁️' : '🙈';
-        });
-
-        // --- Lógica de "Salvar Login" (Ponto 05) ---
-        document.addEventListener('DOMContentLoaded', () => {
-            if (localStorage.getItem('rememberMe') === 'true') {
-                emailInput.value = localStorage.getItem('savedEmail') || '';
-                passwordInput.value = localStorage.getItem('savedPassword') || '';
-                rememberMeCheckbox.checked = true;
-            } else {
-                // Define os valores padrão se "Salvar Login" não estiver ativo
-                emailInput.value = 'admin@pamonharia.com';
-                passwordInput.value = 'admin123';
-            }
-        });
-
-        // --- Lógica de Submissão do Formulário (Login) ---
-        loginForm.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            errorMessage.textContent = '';
-
-            const email = emailInput.value;
-            const password = passwordInput.value;
-
-            // Lógica para salvar ou limpar os dados (Ponto 05)
-            if (rememberMeCheckbox.checked) {
-                localStorage.setItem('rememberMe', 'true');
-                localStorage.setItem('savedEmail', email);
-                localStorage.setItem('savedPassword', password);
-            } else {
-                localStorage.setItem('rememberMe', 'false');
-                localStorage.removeItem('savedEmail');
-                localStorage.removeItem('savedPassword');
-            }
-
-            try {
-                const response = await fetch('http://localhost:10000/sessions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email, password }),
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error || 'Falha no login');
-                }
-
-                localStorage.setItem('authToken', data.token);
-                
-                // Correção do Redirecionamento (Ponto 02)
-                window.location.href = '/dashboard'; 
-
-            } catch (error) {
-                errorMessage.textContent = 'Email ou senha inválidos.';
-                console.error('Catch no login:', error);
-            }
-        });
+        const loginForm = document.getElementById('login-form'), emailInput = document.getElementById('email'), passwordInput = document.getElementById('password'), rememberMeCheckbox = document.getElementById('remember-me'), togglePassword = document.getElementById('toggle-password'), errorMessage = document.getElementById('error-message');
+        togglePassword.addEventListener('click', ()=>{ const e = "password" === passwordInput.getAttribute("type") ? "text" : "password"; passwordInput.setAttribute("type", e), togglePassword.textContent = "password" === e ? "👁️" : "🙈" });
+        document.addEventListener('DOMContentLoaded', ()=>{ "true" === localStorage.getItem("rememberMe") ? (emailInput.value = localStorage.getItem("savedEmail") || "", passwordInput.value = localStorage.getItem("savedPassword") || "", rememberMeCheckbox.checked = !0) : (emailInput.value = "admin@pamonharia.com", passwordInput.value = "admin123") });
+        loginForm.addEventListener('submit', async e=>{ e.preventDefault(), errorMessage.textContent = ""; const t = emailInput.value, o = passwordInput.value; rememberMeCheckbox.checked ? (localStorage.setItem("rememberMe", "true"), localStorage.setItem("savedEmail", t), localStorage.setItem("savedPassword", o)) : (localStorage.setItem("rememberMe", "false"), localStorage.removeItem("savedEmail"), localStorage.removeItem("savedPassword")); try { const e = await fetch("http://localhost:10000/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: t, password: o }) }), n = await e.json(); if (!e.ok) throw new Error(n.error || "Falha no login"); localStorage.setItem("authToken", n.token), window.location.href = "/dashboard" } catch (e) { errorMessage.textContent = "Email ou senha inválidos.", console.error("Catch no login:", e) } });
     </script>
 </body>
 </html>
