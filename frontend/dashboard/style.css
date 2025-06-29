@@ -1,21 +1,46 @@
 :root {
     --primary-color: #9f7aea;
     --secondary-color: #4fd1c5;
-    --dark-bg: #1a202c;
-    --card-bg: rgba(45, 55, 72, 0.6);
+    --dark-bg: #111827; /* Fundo principal, um azul bem escuro */
+    --card-bg: rgba(30, 41, 59, 0.5);
     --text-color: #e2e8f0;
-    --input-bg: #2d3748; 
-    --input-shadow-light: rgba(74, 85, 104, 0.5); 
-    --input-shadow-dark: rgba(26, 32, 44, 0.8);  
-    --border-color: rgba(255, 255, 255, 0.1);
-    --success-color: #38a169;
-    --glow-color: rgba(79, 209, 197, 0.5);
+    --input-bg: rgba(15, 23, 42, 0.7);
+    --border-color: rgba(255, 255, 255, 0.15); /* Bordas um pouco mais definidas */
+    --glow-color: rgba(79, 209, 197, 0.6);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Poppins', sans-serif; background-color: var(--dark-bg); color: var(--text-color); background-image: linear-gradient(45deg, var(--dark-bg) 0%, #111827 100%); }
-.main-container { display: flex; min-height: 100vh; }
-.sidebar { width: 250px; background-color: #111827; padding: 20px; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; }
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Poppins', sans-serif;
+    background-color: var(--dark-bg);
+    color: var(--text-color);
+}
+
+/* EFEITO FINAL: Textura de ruído estático e subtil */
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none; /* Garante que a camada não interfere com cliques */
+    z-index: -1;
+    /* Este SVG cria um ruído granulado */
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.5' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    opacity: 0.025; /* Muito, muito subtil */
+}
+
+
+/* --- O resto do CSS permanece o mesmo, garantindo a funcionalidade --- */
+.main-container { display: flex; height: 100vh; }
+.content { flex-grow: 1; padding: 40px; overflow-y: auto; }
+.sidebar { width: 250px; background-color: rgba(17, 24, 39, 0.8); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 20px; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; flex-shrink: 0; }
 .sidebar h2 { text-align: center; margin-bottom: 40px; font-weight: 600; background: linear-gradient(45deg, var(--primary-color), var(--secondary-color)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .sidebar nav { flex-grow: 1; }
 .sidebar nav ul { list-style: none; }
@@ -23,30 +48,34 @@ body { font-family: 'Poppins', sans-serif; background-color: var(--dark-bg); col
 .sidebar nav ul li a:hover, .sidebar nav ul li a.active { background-color: rgba(159, 122, 234, 0.2); color: white; }
 #logout-button { width: 100%; padding: 10px 20px; border: 1px solid var(--primary-color); background-color: transparent; color: var(--primary-color); border-radius: 6px; cursor: pointer; transition: all 0.3s; margin-top: 20px; }
 #logout-button:hover { background-color: var(--primary-color); color: #fff; }
-.content { flex-grow: 1; padding: 40px; }
+
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
 .header h1 { font-size: 2rem; }
 .settings-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 25px; margin-bottom: 30px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 8px 32px 0 rgba(0,0,0,0.37); }
 .card-header { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; border-bottom: 1px solid var(--border-color); padding-bottom: 15px; }
 .card-header .icon { color: var(--secondary-color); }
 .card-header h3 { font-size: 1.25rem; font-weight: 600; }
-.settings-form label { display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.8; }
-.settings-form input[type="text"], .settings-form input[type="number"], .settings-form input[type="time"] { width: 100%; padding: 12px 15px; background-color: var(--input-bg); border: none; border-radius: 10px; color: var(--text-color); font-size: 1rem; transition: all 0.3s ease; box-shadow: inset 2px 2px 5px var(--input-shadow-dark), inset -2px -2px 5px var(--input-shadow-light); }
-.settings-form input:focus { outline: none; box-shadow: 0 0 15px var(--glow-color); }
-.info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px 30px; }
+#settings-form label { display: block; margin-bottom: 8px; font-size: 0.9rem; opacity: 0.8; }
+#settings-form input[type="text"], #settings-form input[type="number"], #settings-form input[type="time"] { width: 100%; padding: 12px 15px; background-color: var(--input-bg); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-color); font-size: 1rem; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+#settings-form input:focus { outline: none; border-color: var(--secondary-color); box-shadow: 0 0 15px var(--glow-color); background-color: rgba(45, 55, 72, 0.8); }
+input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1) grayscale(1) brightness(1.5); opacity: 0.6; cursor: pointer; }
+.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px 30px; }
+.grid-col-span-2 { grid-column: span 2; }
 .status-buttons { display: flex; gap: 10px; }
 .status-buttons button { padding: 10px 15px; border-radius: 6px; cursor: pointer; border: 2px solid transparent; background-color: var(--input-bg); color: var(--text-color); transition: all 0.2s; font-weight: 500; }
 .status-buttons button.selected { border-color: var(--secondary-color); box-shadow: 0 0 15px var(--glow-color); color: white; }
-.operating-hours-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 50px; gap: 15px 20px; align-items: center; }
+.operating-hours-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; align-items: center; gap: 15px 20px; max-width: 600px; }
 .operating-hours-grid .grid-header { font-weight: 600; opacity: 0.7; font-size: 0.9rem; padding-bottom: 5px; }
-.operating-hours-grid .day { text-transform: capitalize; font-weight: 500; }
+.operating-hours-grid .grid-header:first-child, .operating-hours-grid .day { text-align: left; }
+.operating-hours-grid .toggle-switch { justify-self: center; }
+
 .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #4a5568; transition: .4s; border-radius: 24px; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #2d3748; transition: .4s; border-radius: 24px; box-shadow: inset 2px 2px 4px rgba(0,0,0,0.4); }
 .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
-input:checked + .slider { background-color: var(--secondary-color); }
+input:checked + .slider { background-color: var(--secondary-color); box-shadow: 0 0 8px var(--secondary-color); }
 input:checked + .slider:before { transform: translateX(20px); }
-.save-button-container { text-align: right; margin-top: 20px; }
-.save-button { padding: 15px 30px; border: none; background-image: linear-gradient(45deg, var(--primary-color), var(--secondary-color)); color: white; font-weight: 600; border-radius: 8px; cursor: pointer; font-size: 1.1rem; transition: all 0.3s; }
-.save-button:hover { box-shadow: 0 0 20px var(--glow-color); transform: translateY(-2px); }
-#save-feedback { margin-left: 20px; color: var(--success-color); font-weight: 600; }
+.save-button-container { display: flex; justify-content: flex-end; align-items: center; margin-top: 20px; }
+.save-button { padding: 12px 25px; border: 1px solid var(--secondary-color); background-color: transparent; color: var(--secondary-color); font-weight: 600; border-radius: 8px; cursor: pointer; font-size: 1.1rem; transition: all 0.3s; box-shadow: 0 0 15px var(--glow-color); }
+.save-button:hover { background-color: var(--secondary-color); color: var(--dark-bg); box-shadow: 0 0 25px var(--glow-color); transform: translateY(-2px); }
+#save-feedback { margin-right: 20px; color: var(--success-color); font-weight: 600; }

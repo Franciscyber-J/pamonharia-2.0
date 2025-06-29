@@ -3,7 +3,11 @@ require('dotenv').config();
 module.exports = {
   development: {
     client: 'pg',
-    connection: process.env.DATABASE_URL, // Simples assim!
+    connection: {
+      connectionString: process.env.DATABASE_URL,
+      // ADIÇÃO IMPORTANTE: Força o Node.js a usar a família de endereços IPv4.
+      family: 4, 
+    },
     migrations: {
       directory: './src/database/migrations'
     },
@@ -14,7 +18,11 @@ module.exports = {
 
   production: {
     client: 'pg',
-    connection: process.env.DATABASE_URL, // Já está pronto para o deploy!
+    connection: {
+      connectionString: process.env.DATABASE_URL,
+      // Adicionando também ao ambiente de produção por segurança.
+      family: 4, 
+    },
     migrations: {
       directory: './src/database/migrations'
     },

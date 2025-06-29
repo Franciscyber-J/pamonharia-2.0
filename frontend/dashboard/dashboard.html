@@ -10,11 +10,11 @@
     <link rel="stylesheet" href="/dashboard/style.css">
 </head>
 <body>
+    <div class="background-bubbles"></div>
     <script>
         const token = localStorage.getItem('authToken');
         if (!token) { window.location.href = '/'; }
     </script>
-
     <div class="main-container">
         <aside class="sidebar">
             <h2>Pamonharia 2.0</h2>
@@ -29,7 +29,6 @@
             </nav>
             <button id="logout-button">Sair</button>
         </aside>
-
         <main class="content">
             <header class="header">
                 <h1 id="page-title">Painel de Pedidos</h1>
@@ -39,80 +38,64 @@
         </main>
     </div>
 
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         const pageTitle = document.getElementById('page-title');
         const dashboardContent = document.getElementById('dashboard-content');
+        let notificationAudio;
 
-        function renderPedidosPage() { pageTitle.textContent = 'Painel de Pedidos'; dashboardContent.innerHTML = `<p>A interface de gestão de pedidos aparecerá aqui.</p>`; }
+        // --- LÓGICA DE ÁUDIO E SOCKET.IO ---
+        function setupAudioPlayer(soundUrl) { if (soundUrl) { notificationAudio = new Audio(soundUrl); notificationAudio.loop = true; } else { notificationAudio = null; } }
+        function playNotification() { if (notificationAudio) notificationAudio.play().catch(e => console.error("Erro ao tocar áudio:", e)); }
+        function stopNotification() { if (notificationAudio) { notificationAudio.pause(); notificationAudio.currentTime = 0; } }
+        
+        const socket = io('http://localhost:10000');
+        socket.on('connect', () => console.log('Conectado ao servidor via Socket.IO com ID:', socket.id));
+        socket.on('new_order', (order) => { alert('Novo Pedido Recebido!'); playNotification(); });
+        
+        // --- FUNÇÕES DE RENDERIZAÇÃO DE PÁGINA ---
+        function renderPedidosPage() { pageTitle.textContent = 'Painel de Pedidos'; dashboardContent.innerHTML = `<p>Use o Insomnia para enviar uma requisição POST para http://localhost:10000/test-order-notification (com token de autorização) para testar o som.</p><br><button onclick="stopNotification()" class="save-button" style="background: #e53e3e; border-color: #e53e3e;">Parar Som Manualmente</button>`; }
         function renderProdutosPage() { pageTitle.textContent = 'Gestão de Produtos'; dashboardContent.innerHTML = `<p>A interface de CRUD de produtos aparecerá aqui.</p>`; }
         function renderComplementosPage() { pageTitle.textContent = 'Gestão de Complementos'; dashboardContent.innerHTML = `<p>A interface de CRUD de complementos aparecerá aqui.</p>`; }
         function renderCombosPage() { pageTitle.textContent = 'Gestão de Combos'; dashboardContent.innerHTML = `<p>A interface de CRUD de combos aparecerá aqui.</p>`; }
         
         function renderSettingsPage() {
             pageTitle.textContent = 'Configurações da Loja';
+            // CORREÇÃO: HTML COMPLETO DO FORMULÁRIO RESTAURADO
             dashboardContent.innerHTML = `
                 <form id="settings-form">
                     <div class="settings-card">
-                        <div class="card-header">
-                            <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 17.58A5 5 0 0 0 15 12.58A5 5 0 0 0 10 17.58a5 5 0 0 0 1.95 3.9A5 5 0 0 0 8.58 22a5 5 0 0 0 4.27-2.05A5 5 0 0 0 17.42 22a5 5 0 0 0 3.9-1.95A5 5 0 0 0 20 17.58Z"/><path d="M12 2.58A5 5 0 0 0 7 7.58A5 5 0 0 0 12 12.58a5 5 0 0 0 3.05-1.07A5 5 0 0 0 18.58 5a5 5 0 0 0-4.27-2.95A5 5 0 0 0 12 2.58Z"/></svg></span>
-                            <h3>Status da Loja</h3>
-                        </div>
-                        <div id="status-buttons" class="status-buttons">
-                            <button type="button" data-status="true">Forçar Aberta</button>
-                            <button type="button" data-status="false">Forçar Fechada</button>
-                            <button type="button" data-status="null">Seguir Horário</button>
+                        <div class="card-header"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 17.58A5 5 0 0 0 15 12.58A5 5 0 0 0 10 17.58a5 5 0 0 0 1.95 3.9A5 5 0 0 0 8.58 22a5 5 0 0 0 4.27-2.05A5 5 0 0 0 17.42 22a5 5 0 0 0 3.9-1.95A5 5 0 0 0 20 17.58Z"/><path d="M12 2.58A5 5 0 0 0 7 7.58A5 5 0 0 0 12 12.58a5 5 0 0 0 3.05-1.07A5 5 0 0 0 18.58 5a5 5 0 0 0-4.27-2.95A5 5 0 0 0 12 2.58Z"/></svg></span><h3>Status da Loja</h3></div>
+                        <div id="status-buttons" class="status-buttons"><button type="button" data-status="true">Forçar Aberta</button><button type="button" data-status="false">Forçar Fechada</button><button type="button" data-status="null">Seguir Horário</button></div>
+                    </div>
+                    <div class="settings-card">
+                         <div class="card-header"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9"/><path d="m20 9-8-5-8 5"/><path d="M9 22V12h6v10"/></svg></span><h3>Informações Gerais</h3></div>
+                         <div class="info-grid">
+                            <div class="grid-col-span-2"><label for="address">Endereço</label><input type="text" id="address" name="address"></div>
+                            <div><label for="store_name">Nome da Loja</label><input type="text" id="store_name" name="store_name"></div>
+                            <div><label for="location_link">Link do Google Maps</label><input type="text" id="location_link" name="location_link"></div>
                         </div>
                     </div>
-
                     <div class="settings-card">
-                         <div class="card-header">
-                            <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9"/><path d="m20 9-8-5-8 5"/><path d="M9 22V12h6v10"/></svg></span>
-                            <h3>Informações Gerais</h3>
-                        </div>
-                        <div class="info-grid">
-                            <div>
-                                <label for="store_name">Nome da Loja</label>
-                                <input type="text" id="store_name" name="store_name">
-                            </div>
-                            <div>
-                                <label for="address">Endereço</label>
-                                <input type="text" id="address" name="address">
-                            </div>
-                            <div style="grid-column: span 2;">
-                                <label for="location_link">Link do Google Maps</label>
-                                <input type="text" id="location_link" name="location_link">
-                            </div>
-                        </div>
+                         <div class="card-header"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><h3>Financeiro</h3></div>
+                        <div><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" name="delivery_fee" step="0.50"></div>
                     </div>
-                    
                     <div class="settings-card">
-                         <div class="card-header">
-                            <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
-                            <h3>Financeiro</h3>
-                        </div>
-                        <div>
-                            <label for="delivery_fee">Taxa de Entrega (R$)</label>
-                            <input type="number" id="delivery_fee" name="delivery_fee" step="0.50">
-                        </div>
-                        </div>
-
-                    <div class="settings-card">
-                        <div class="card-header">
-                           <span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span>
-                           <h3>Horários de Funcionamento</h3>
-                        </div>
+                        <div class="card-header"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><h3>Horários de Funcionamento</h3></div>
                         <div class="operating-hours-grid" id="hours-grid">
-                            <div class="grid-header">Dia</div>
-                            <div class="grid-header">Abre às</div>
-                            <div class="grid-header">Fecha às</div>
-                            <div class="grid-header">Aberto?</div>
+                            <div class="grid-header">Dia</div><div class="grid-header">Abre às</div><div class="grid-header">Fecha às</div><div class="grid-header">Aberto?</div>
                         </div>
                     </div>
-                    
-                    <div class="save-button-container">
-                        <span id="save-feedback"></span>
-                        <button type="submit" class="save-button">Salvar Alterações</button>
+                    <div class="settings-card">
+                        <div class="card-header"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.58A5 5 0 0 0 7 7.58A5 5 0 0 0 12 12.58a5 5 0 0 0 3.05-1.07A5 5 0 0 0 18.58 5a5 5 0 0 0-4.27-2.95A5 5 0 0 0 12 2.58Z"/><path d="M20 17.58A5 5 0 0 0 15 12.58A5 5 0 0 0 10 17.58a5 5 0 0 0 1.95 3.9A5 5 0 0 0 8.58 22a5 5 0 0 0 4.27-2.05A5 5 0 0 0 17.42 22a5 5 0 0 0 3.9-1.95A5 5 0 0 0 20 17.58Z"/></svg></span><h3>Notificações</h3></div>
+                        <label for="notification_sound">Carregar Novo Som (MP3, WAV)</label>
+                        <input type="file" id="notification_sound" name="notification_sound" accept="audio/*">
+                        <div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;">
+                           <p id="sound-feedback" style="font-size: 0.9rem; opacity: 0.9;"></p>
+                           <button type="button" id="remove-sound-btn" style="display: none; background: #c53030; border: none; color: white; padding: 5px 10px; border-radius: 5px; cursor: pointer;">Remover</button>
+                        </div>
                     </div>
+                    <div class="save-button-container"><span id="save-feedback"></span><button type="submit" class="save-button">Salvar Alterações</button></div>
                 </form>
             `;
             fetchAndPopulateSettings();
@@ -122,73 +105,95 @@
             try {
                 const response = await fetch('/settings', { headers: { 'Authorization': 'Bearer ' + token } });
                 const settings = await response.json();
-
+                if (!window.audioPlayerConfigured) { setupAudioPlayer(settings.notification_sound_url); window.audioPlayerConfigured = true; }
+                
+                // Popula todos os campos
                 document.getElementById('store_name').value = settings.store_name;
                 document.getElementById('address').value = settings.address;
                 document.getElementById('location_link').value = settings.location_link;
                 document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2);
+                document.querySelectorAll('#status-buttons button').forEach(button => { button.classList.remove('selected'); if (String(button.dataset.status) === String(settings.is_open_manual_override)) button.classList.add('selected'); });
                 
-                document.querySelectorAll('#status-buttons button').forEach(button => {
-                    button.classList.remove('selected');
-                    if (String(button.dataset.status) === String(settings.is_open_manual_override)) button.classList.add('selected');
-                });
+                const soundFeedback = document.getElementById('sound-feedback');
+                const removeSoundBtn = document.getElementById('remove-sound-btn');
+                if (settings.notification_sound_filename) {
+                    soundFeedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`;
+                    removeSoundBtn.style.display = 'inline-block';
+                } else {
+                    soundFeedback.textContent = 'Nenhum som configurado.';
+                    removeSoundBtn.style.display = 'none';
+                }
 
                 const hoursGrid = document.getElementById('hours-grid');
-                const days = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
-                days.forEach(day => {
-                    const daySettings = settings.operating_hours[day];
-                    hoursGrid.innerHTML += `
-                        <div class="day">${day}</div>
-                        <input type="time" id="open-${day}" value="${daySettings.open}">
-                        <input type="time" id="close-${day}" value="${daySettings.close}">
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="enabled-${day}" ${daySettings.enabled ? 'checked' : ''}>
-                            <span class="slider"></span>
-                        </label>
-                    `;
+                hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre às</div><div class="grid-header">Fecha às</div><div class="grid-header">Aberto?</div>`; // Limpa e adiciona o cabeçalho
+                ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => {
+                    const daySettings = settings.operating_hours[day] || { open: '00:00', close: '00:00', enabled: false };
+                    hoursGrid.innerHTML += ` <div class="day">${day}</div> <input type="time" id="open-${day}" value="${daySettings.open}"> <input type="time" id="close-${day}" value="${daySettings.close}"> <label class="toggle-switch"> <input type="checkbox" id="enabled-${day}" ${daySettings.enabled?"checked":""}> <span class="slider"></span> </label> `;
                 });
-                addSettingsListeners();
+                
+                addSettingsListeners(settings);
             } catch (error) { console.error("Falha ao buscar configurações:", error); }
         }
         
-        function addSettingsListeners() {
-            // A lógica de listeners para salvar os dados permanece a mesma
+        function addSettingsListeners(currentSettings) {
             const settingsForm = document.getElementById('settings-form');
             if (!settingsForm) return;
-            
-            const statusButtons = document.getElementById('status-buttons');
-            statusButtons.addEventListener('click', (e) => {
-                if (e.target.tagName === 'BUTTON') {
-                    statusButtons.querySelectorAll('button').forEach(btn => btn.classList.remove('selected'));
-                    e.target.classList.add('selected');
-                }
-            });
-            
+
+            const soundInput = document.getElementById('notification_sound');
+            const soundFeedback = document.getElementById('sound-feedback');
+            const removeSoundBtn = document.getElementById('remove-sound-btn');
+
+            removeSoundBtn.onclick = () => {
+                currentSettings.notification_sound_url = null;
+                currentSettings.notification_sound_filename = null;
+                soundInput.value = '';
+                soundFeedback.textContent = 'O som será removido ao salvar.';
+                removeSoundBtn.style.display = 'none';
+            };
+
             settingsForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const feedback = document.getElementById('save-feedback');
                 feedback.textContent = 'Salvando...';
 
-                const operating_hours = {};
-                ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => {
-                    operating_hours[day] = {
-                        open: document.getElementById(`open-${day}`).value,
-                        close: document.getElementById(`close-${day}`).value,
-                        enabled: document.getElementById(`enabled-${day}`).checked
-                    };
-                });
+                let soundUrlToSave = currentSettings.notification_sound_url;
+                let soundFilenameToSave = currentSettings.notification_sound_filename;
+
+                if (soundInput.files.length > 0) {
+                    soundFeedback.textContent = 'A fazer upload do som...';
+                    try {
+                        const sigResponse = await fetch('/cloudinary-signature', { headers: { 'Authorization': 'Bearer ' + token } });
+                        const { timestamp, signature } = await sigResponse.json();
+                        const formData = new FormData();
+                        const soundFile = soundInput.files[0];
+                        formData.append('file', soundFile);
+                        formData.append('api_key', '351266855176353');
+                        formData.append('timestamp', timestamp);
+                        formData.append('signature', signature);
+                        const cloudinaryUrl = `https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`;
+                        const cloudinaryResponse = await fetch(cloudinaryUrl, { method: 'POST', body: formData });
+                        const cloudinaryData = await cloudinaryResponse.json();
+                        if (cloudinaryData.secure_url) {
+                            soundUrlToSave = cloudinaryData.secure_url;
+                            soundFilenameToSave = soundFile.name;
+                            soundFeedback.textContent = 'Upload com sucesso!';
+                        } else { throw new Error('Falha no upload para o Cloudinary'); }
+                    } catch (error) {
+                        feedback.textContent = 'Erro no upload do som.';
+                        setTimeout(() => { feedback.textContent = ''; fetchAndPopulateSettings(); }, 3000);
+                        return;
+                    }
+                }
                 
+                const operating_hours = {};
+                ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { operating_hours[day] = { open: document.getElementById(`open-${day}`).value, close: document.getElementById(`close-${day}`).value, enabled: document.getElementById(`enabled-${day}`).checked }; });
                 let overrideStatus = document.querySelector('#status-buttons button.selected')?.dataset.status;
-                if (overrideStatus === 'null') overrideStatus = null;
-                else overrideStatus = overrideStatus === 'true';
+                if (overrideStatus === 'null') overrideStatus = null; else overrideStatus = overrideStatus === 'true';
                 
                 const dataToSend = {
-                    store_name: document.getElementById('store_name').value,
-                    address: document.getElementById('address').value,
-                    location_link: document.getElementById('location_link').value,
-                    delivery_fee: document.getElementById('delivery_fee').value,
-                    is_open_manual_override: overrideStatus,
-                    operating_hours: operating_hours,
+                    store_name: document.getElementById('store_name').value, address: document.getElementById('address').value, location_link: document.getElementById('location_link').value,
+                    delivery_fee: document.getElementById('delivery_fee').value, is_open_manual_override: overrideStatus, operating_hours: operating_hours,
+                    notification_sound_url: soundUrlToSave, notification_sound_filename: soundFilenameToSave
                 };
 
                 try {
@@ -199,42 +204,28 @@
                     });
                     if (!response.ok) throw new Error('Falha ao salvar');
                     feedback.textContent = 'Salvo com sucesso!';
-                    setTimeout(() => feedback.textContent = '', 3000);
+                    currentSettings.notification_sound_url = soundUrlToSave;
+                    currentSettings.notification_sound_filename = soundFilenameToSave;
+                    setupAudioPlayer(soundUrlToSave);
+                    setTimeout(() => { feedback.textContent = ''; fetchAndPopulateSettings(); }, 2000);
                 } catch (error) { feedback.textContent = 'Erro ao salvar.'; }
             });
         }
-
+        
         document.addEventListener('DOMContentLoaded', () => {
-            const navLinks = { 
-                pedidos: document.getElementById('nav-pedidos'), 
-                produtos: document.getElementById('nav-produtos'), 
-                complementos: document.getElementById('nav-complementos'),
-                combos: document.getElementById('nav-combos'),
-                configuracoes: document.getElementById('nav-configuracoes') 
-            };
-            
+            const navLinks = { pedidos: document.getElementById('nav-pedidos'), produtos: document.getElementById('nav-produtos'), complementos: document.getElementById('nav-complementos'), combos: document.getElementById('nav-combos'), configuracoes: document.getElementById('nav-configuracoes') };
             function handleNavigation(e) {
                 e.preventDefault();
                 Object.values(navLinks).forEach(link => link.classList.remove('active'));
-                const link = e.currentTarget;
-                link.classList.add('active');
+                const link = e.currentTarget; link.classList.add('active');
                 const page = link.id.split('-')[1];
-                if (page === 'pedidos') renderPedidosPage();
-                if (page === 'produtos') renderProdutosPage();
-                if (page === 'complementos') renderComplementosPage();
-                if (page === 'combos') renderCombosPage();
-                if (page === 'configuracoes') renderSettingsPage();
+                if (page === 'pedidos') renderPedidosPage(); else if (page === 'produtos') renderProdutosPage(); else if (page === 'complementos') renderComplementosPage(); else if (page === 'combos') renderCombosPage(); else if (page === 'configuracoes') renderSettingsPage();
             }
-            
             Object.values(navLinks).forEach(link => link.addEventListener('click', handleNavigation));
-            
+            fetch('/settings', { headers: { 'Authorization': 'Bearer ' + token }}).then(res => res.json()).then(settings => { if (!window.audioPlayerConfigured) { setupAudioPlayer(settings.notification_sound_url); window.audioPlayerConfigured = true; } });
             renderPedidosPage();
             navLinks.pedidos.classList.add('active');
-
-            document.getElementById('logout-button').addEventListener('click', () => {
-                localStorage.removeItem('authToken');
-                window.location.href = '/';
-            });
+            document.getElementById('logout-button').addEventListener('click', () => { localStorage.removeItem('authToken'); window.location.href = '/'; });
         });
     </script>
 </body>
