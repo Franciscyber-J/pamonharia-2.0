@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pamonharia 2.0 - Login</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #9f7aea; /* Roxo */
+            --secondary-color: #4fd1c5; /* Ciano */
+            --dark-bg: #1a202c;
+            --card-bg: #2d3748;
+            --text-color: #e2e8f0;
+            --glow-color-1: rgba(159, 122, 234, 0.5);
+            --glow-color-2: rgba(79, 209, 197, 0.5);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--dark-bg);
+            color: var(--text-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-image: linear-gradient(45deg, var(--dark-bg) 0%, #111827 100%);
+        }
+        .login-container {
+            background-color: var(--card-bg);
+            padding: 40px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 400px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 0 25px var(--glow-color-1), 0 0 50px var(--glow-color-2);
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 600;
+            background: -webkit-linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .input-group { margin-bottom: 20px; }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+        .password-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            background-color: rgba(0,0,0,0.3);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            color: var(--text-color);
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        input[type="password"] { padding-right: 45px; }
+        input[type="text"] { padding-right: 45px; }
+        input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 10px var(--glow-color-1);
+        }
+        #toggle-password {
+            position: absolute;
+            right: 15px;
+            cursor: pointer;
+            user-select: none;
+            font-size: 1.2rem;
+            opacity: 0.7;
+        }
+        .options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+        }
+        .remember-me {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        .remember-me input {
+            width: auto;
+            margin-right: 8px;
+        }
+        button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            color: #fff;
+            background-image: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+            transition: all 0.3s ease;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        #error-message {
+            color: #f56565;
+            text-align: center;
+            margin-top: 15px;
+            height: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h1>Pamonharia 2.0<br>Dashboard</h1>
+        <form id="login-form">
+            <div class="input-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" required>
+            </div>
+            <div class="input-group">
+                <label for="password">Senha</label>
+                <div class="password-wrapper">
+                    <input type="password" id="password" required>
+                    <span id="toggle-password">👁️</span>
+                </div>
+            </div>
+            <div class="options">
+                <div class="remember-me">
+                    <input type="checkbox" id="remember-me">
+                    <label for="remember-me">Salvar login</label>
+                </div>
+            </div>
+            <button type="submit">Entrar</button>
+            <p id="error-message"></p>
+        </form>
+    </div>
+
+    <script>
+        // --- Seleção dos Elementos do DOM ---
+        const loginForm = document.getElementById('login-form');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const rememberMeCheckbox = document.getElementById('remember-me');
+        const togglePassword = document.getElementById('toggle-password');
+        const errorMessage = document.getElementById('error-message');
+
+        // --- Lógica do "Olhinho" (Ponto 04) ---
+        togglePassword.addEventListener('click', () => {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            // Altera o ícone
+            togglePassword.textContent = type === 'password' ? '👁️' : '🙈';
+        });
+
+        // --- Lógica de "Salvar Login" (Ponto 05) ---
+        document.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('rememberMe') === 'true') {
+                emailInput.value = localStorage.getItem('savedEmail') || '';
+                passwordInput.value = localStorage.getItem('savedPassword') || '';
+                rememberMeCheckbox.checked = true;
+            } else {
+                // Define os valores padrão se "Salvar Login" não estiver ativo
+                emailInput.value = 'admin@pamonharia.com';
+                passwordInput.value = 'admin123';
+            }
+        });
+
+        // --- Lógica de Submissão do Formulário (Login) ---
+        loginForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            errorMessage.textContent = '';
+
+            const email = emailInput.value;
+            const password = passwordInput.value;
+
+            // Lógica para salvar ou limpar os dados (Ponto 05)
+            if (rememberMeCheckbox.checked) {
+                localStorage.setItem('rememberMe', 'true');
+                localStorage.setItem('savedEmail', email);
+                localStorage.setItem('savedPassword', password);
+            } else {
+                localStorage.setItem('rememberMe', 'false');
+                localStorage.removeItem('savedEmail');
+                localStorage.removeItem('savedPassword');
+            }
+
+            try {
+                const response = await fetch('http://localhost:10000/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password }),
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Falha no login');
+                }
+
+                localStorage.setItem('authToken', data.token);
+                
+                // Correção do Redirecionamento (Ponto 02)
+                window.location.href = '/dashboard'; 
+
+            } catch (error) {
+                errorMessage.textContent = 'Email ou senha inválidos.';
+                console.error('Catch no login:', error);
+            }
+        });
+    </script>
+</body>
+</html>

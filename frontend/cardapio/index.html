@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cardápio - Pamonharia Sabor do Goiás</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-brand-color: #f59e0b; /* Amarelo milho */
+            --dark-text: #1f2937;
+            --light-text: #6b7280;
+            --bg-color: #f9fafb;
+            --card-bg: #ffffff;
+            --border-color: #e5e7eb;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--dark-text);
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            padding: 40px 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .header h1 {
+            font-size: 2.5rem;
+            color: var(--primary-brand-color);
+            font-weight: 700;
+        }
+        .header p {
+            font-size: 1.1rem;
+            color: var(--light-text);
+            margin-top: 10px;
+        }
+        .products-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 30px;
+            padding: 40px 0;
+        }
+        .product-card {
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .product-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px rgba(0,0,0,0.1);
+        }
+        .product-image {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            background-color: #ccc; /* Cor de fundo enquanto a imagem não carrega */
+        }
+        .product-info {
+            padding: 20px;
+        }
+        .product-info h3 {
+            font-size: 1.25rem;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+        .product-info .description {
+            font-size: 0.9rem;
+            color: var(--light-text);
+            min-height: 60px;
+            margin-bottom: 15px;
+        }
+        .product-price {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary-brand-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Pamonharia Sabor do Goiás</h1>
+            <p>O verdadeiro sabor da fazenda, direto para a sua mesa!</p>
+        </header>
+
+        <main>
+            <div id="products-grid" class="products-grid">
+                <p>Carregando cardápio...</p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const productsGrid = document.getElementById('products-grid');
+
+            async function fetchAndDisplayProducts() {
+                console.log('Buscando produtos da API para o cardápio...');
+                try {
+                    const response = await fetch('http://localhost:10000/products');
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const products = await response.json();
+                    console.log('Produtos recebidos:', products);
+                    
+                    productsGrid.innerHTML = ''; // Limpa a mensagem "Carregando..."
+
+                    if (products.length === 0) {
+                        productsGrid.innerHTML = '<p>Nenhum produto disponível no momento. Volte mais tarde!</p>';
+                        return;
+                    }
+
+                    products.forEach(product => {
+                        // Só exibe produtos com status 'ativo' (status === true)
+                        if (product.status) {
+                            const productCard = `
+                                <div class="product-card">
+                                    <img src="${product.image_url || 'https://via.placeholder.com/300x200.png?text=Pamonha'}" alt="${product.name}" class="product-image">
+                                    <div class="product-info">
+                                        <h3>${product.name}</h3>
+                                        <p class="description">${product.description || ''}</p>
+                                        <div class="product-price">
+                                            R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                            productsGrid.innerHTML += productCard;
+                        }
+                    });
+
+                } catch (error) {
+                    console.error("Falha ao buscar produtos:", error);
+                    productsGrid.innerHTML = '<p>Não foi possível carregar o cardápio. Verifique se o servidor está rodando e tente novamente.</p>';
+                }
+            }
+
+            // Chama a função para carregar os produtos quando a página estiver pronta
+            fetchAndDisplayProducts();
+        });
+    </script>
+</body>
+</html>

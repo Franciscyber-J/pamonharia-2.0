@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Pamonharia 2.0</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #9f7aea;
+            --secondary-color: #4fd1c5;
+            --dark-bg: #1a202c;
+            --card-bg: #2d3748;
+            --text-color: #e2e8f0;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--dark-bg);
+            color: var(--text-color);
+        }
+        .main-container {
+            display: flex;
+            min-height: 100vh;
+        }
+        .sidebar {
+            width: 250px;
+            background-color: var(--card-bg);
+            padding: 20px;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .sidebar h2 {
+            text-align: center;
+            margin-bottom: 40px;
+            font-weight: 600;
+            background: -webkit-linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .sidebar nav ul {
+            list-style: none;
+        }
+        .sidebar nav ul li a {
+            display: block;
+            color: var(--text-color);
+            text-decoration: none;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            transition: background-color 0.3s;
+        }
+        .sidebar nav ul li a:hover, .sidebar nav ul li a.active {
+            background-color: rgba(159, 122, 234, 0.2);
+        }
+        .content {
+            flex-grow: 1;
+            padding: 40px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+        }
+        .header h1 {
+            font-size: 2rem;
+        }
+        #logout-button {
+            padding: 10px 20px;
+            border: 1px solid var(--primary-color);
+            background-color: transparent;
+            color: var(--primary-color);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        #logout-button:hover {
+            background-color: var(--primary-color);
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            console.log('Nenhum token encontrado, redirecionando para o login...');
+            
+            // MUDANÇA AQUI: Redireciona para a rota raiz, que serve o login.
+            window.location.href = '/'; 
+        }
+    </script>
+
+    <div class="main-container">
+        <aside class="sidebar">
+            <h2>Pamonharia 2.0</h2>
+            <nav>
+                <ul>
+                    <li><a href="#" class="active">Pedidos</a></li>
+                    <li><a href="#">Produtos</a></li>
+                    <li><a href="#">Complementos</a></li>
+                    <li><a href="#">Combos</a></li>
+                    <li><a href="#">Configurações</a></li>
+                </ul>
+            </nav>
+        </aside>
+        <main class="content">
+            <header class="header">
+                <h1>Painel de Pedidos</h1>
+                <button id="logout-button">Sair</button>
+            </header>
+            <div class="dashboard-content">
+                <p>Bem-vindo ao seu painel de controlo. As funcionalidades serão adicionadas aqui.</p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Lógica da página
+        const logoutButton = document.getElementById('logout-button');
+
+        logoutButton.addEventListener('click', () => {
+            console.log('A fazer logout...');
+            localStorage.removeItem('authToken');
+            
+            // MUDANÇA AQUI: Redireciona para a rota raiz ao sair.
+            window.location.href = '/';
+        });
+    </script>
+</body>
+</html>
