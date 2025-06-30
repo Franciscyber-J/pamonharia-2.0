@@ -7,22 +7,22 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/dashboard/style.css">
+    <link rel="stylesheet" href="http://localhost:10000/dashboard/style.css">
 </head>
 <body>
     <div class="background-bubbles"></div>
     <script>
         const token = localStorage.getItem('authToken');
-        if (!token) { window.location.href = '/'; }
+        if (!token) { window.location.href = 'http://localhost:10000/login.html'; }
     </script>
     <div class="main-container">
         <aside class="sidebar">
             <h2>Pamonharia 2.0</h2>
             <nav>
                 <ul>
+                    <!-- HTML CORRIGIDO: Links de navegação restaurados -->
                     <li><a id="nav-pedidos" href="#">Pedidos</a></li>
-                    <li><a id="nav-produtos" href="#">Produtos</a></li>
-                    <li><a id="nav-complementos" href="#">Complementos</a></li>
+                    <li><a id="nav-produtos" href="#">Produtos e Estoque</a></li>
                     <li><a id="nav-combos" href="#">Combos</a></li>
                     <li><a id="nav-configuracoes" href="#">Configurações</a></li>
                 </ul>
@@ -31,282 +31,307 @@
         </aside>
         <main class="content">
             <header class="header">
-                <h1 id="page-title">Painel de Pedidos</h1>
+                <h1 id="page-title"></h1>
                 <button id="sound-status"></button>
             </header>
-            <div id="dashboard-content">
-                </div>
+            <div id="dashboard-content"></div>
         </main>
     </div>
 
+    <!-- Modal para Adicionar/Editar Produto -->
+    <div id="product-modal-overlay" class="modal-overlay">
+        <div class="modal-content">
+            <button id="modal-close-btn" class="modal-close-btn">&times;</button>
+            <h3 id="modal-title">Adicionar Novo Produto</h3>
+            <div class="modal-body">
+              <form id="product-form">
+                  <input type="hidden" id="product-id">
+                  <input type="hidden" id="product-image-url">
+
+                  <div id="product-form-grid">
+                      <div class="image-upload-container" onclick="document.getElementById('product-image-input').click()">
+                          <img id="product-image-preview" src="" alt="Pré-visualização">
+                          <div id="upload-prompt" class="upload-prompt"><span>Clique para<br>selecionar imagem</span></div>
+                          <input type="file" id="product-image-input" accept="image/*">
+                      </div>
+                      <div class="product-form-inputs">
+                          <div class="form-group"><label for="product-name">Nome do Produto</label><input type="text" id="product-name" class="input-field" required></div>
+                          <div class="form-group"><label for="product-description">Descrição</label><input type="text" id="product-description" class="input-field"></div>
+                          <div class="form-group"><label for="product-price">Preço (R$)</label><input type="number" id="product-price" class="input-field" step="0.01" required></div>
+                          <div class="form-group"><label for="product-status">Status</label><select id="product-status" class="input-field"><option value="true">Ativo</option><option value="false">Inativo</option></select></div>
+                      </div>
+                  </div>
+                  
+                  <div class="addons-section">
+                      <h4>Complementos</h4>
+                      <p style="opacity: 0.7; font-size: 0.9rem; margin-bottom: 15px;">Vincule outros produtos como complementos a este item. Eles aparecerão juntos no cardápio.</p>
+                      <div id="addons-list" class="addons-list"></div>
+                      <div class="addon-options">
+                        <div class="option-group">
+                          <label for="force-addons" class="toggle-switch"><input type="checkbox" id="force-addons"><span class="slider"></span></label>
+                          <span>Obrigar escolha de complemento</span>
+                        </div>
+                        <div class="option-group">
+                          <label for="stock-sync" class="toggle-switch"><input type="checkbox" id="stock-sync"><span class="slider"></span></label>
+                          <span>Sincronizar estoque com complementos</span>
+                        </div>
+                      </div>
+                  </div>
+              </form>
+            </div>
+            <div class="form-buttons">
+                <button type="button" id="cancel-button" class="btn btn-danger">Cancelar</button>
+                <button type="submit" id="save-product-button" class="btn btn-primary" form="product-form">Salvar Alterações</button>
+            </div>
+        </div>
+    </div>
+
+
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
-        // --- VARIÁVEIS GLOBAIS E SELETORES DO DOM ---
+        // --- VARIÁVEIS GLOBAIS E CONSTANTES ---
+        const API_BASE_URL = 'http://localhost:10000';
         const pageTitle = document.getElementById('page-title');
         const dashboardContent = document.getElementById('dashboard-content');
         const soundStatusBtn = document.getElementById('sound-status');
+        const PLACEHOLDER_IMG_60 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2260%22%20height%3D%2260%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%229%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESem%20Foto%3C%2Ftext%3E%3C%2Fsvg%3E';
+        const PLACEHOLDER_IMG_200 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22200%22%20height%3D%22200%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22200%22%20height%3D%22200%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%2214%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESelecionar%20Imagem%3C%2Ftext%3E%3C%2Fsvg%3E';
+
         let notificationAudio;
-        let isSoundEnabled = false; // O estado inicial será definido pelo localStorage
+        let isSoundEnabled = false;
+        let allProductsFlat = [];
 
         // --- LÓGICA DE ÁUDIO E SOCKET.IO ---
-        function setupAudioPlayer(soundUrl) {
-            if (soundUrl) {
-                console.log('Configurando player com o som:', soundUrl);
-                notificationAudio = new Audio(soundUrl);
-                notificationAudio.loop = true;
-            } else {
-                notificationAudio = null;
-                console.log('Nenhum som de notificação configurado.');
-            }
-        }
-        function playNotification() {
-            if (isSoundEnabled && notificationAudio) {
-                notificationAudio.play().catch(e => console.error("Erro ao tocar áudio:", e));
-            }
-        }
-        function stopNotification() {
-            if (notificationAudio) {
-                notificationAudio.pause();
-                notificationAudio.currentTime = 0;
-            }
-        }
-        
-        const socket = io('http://localhost:10000');
+        function setupAudioPlayer(soundUrl) { if (soundUrl) { console.log('Configurando player com o som:', soundUrl); notificationAudio = new Audio(soundUrl); notificationAudio.loop = true; } else { notificationAudio = null; console.log('Nenhum som de notificação configurado.'); } }
+        function playNotification() { if (isSoundEnabled && notificationAudio) { notificationAudio.play().catch(e => console.error("Erro ao tocar áudio:", e)); } }
+        function stopNotification() { if (notificationAudio) { notificationAudio.pause(); notificationAudio.currentTime = 0; } }
+        const socket = io(API_BASE_URL);
         socket.on('connect', () => console.log('Conectado ao servidor via Socket.IO com ID:', socket.id));
-        
-        socket.on('new_order', (order) => {
-            console.log('NOVO PEDIDO RECEBIDO!', order);
-            playNotification();
-            // Apenas adiciona o cartão se a página de pedidos estiver ativa
-            if (document.querySelector('.orders-panel')) {
-                addOrderCard(order);
-            }
-        });
-
-        socket.on('order_status_updated', ({ id, status }) => {
-            console.log(`Status do pedido ${id} atualizado para ${status}`);
-            moveOrderCard(id, status);
-        });
+        socket.on('new_order', (order) => { console.log('NOVO PEDIDO RECEBIDO!', order); playNotification(); if (document.querySelector('.orders-panel')) { addOrderCard(order); } });
+        socket.on('order_status_updated', ({ id, status }) => { console.log(`Status do pedido ${id} atualizado para ${status}`); moveOrderCard(id, status); });
 
         // --- LÓGICA DE RENDERIZAÇÃO DAS PÁGINAS ---
 
-        // LÓGICA COMPLETA PARA O PAINEL DE PEDIDOS
-        function renderPedidosPage() {
-            pageTitle.textContent = 'Painel de Pedidos';
+        // LÓGICA PARA O PAINEL DE PEDIDOS (RESTAURADA)
+        function renderPedidosPage() { pageTitle.textContent = 'Painel de Pedidos'; dashboardContent.innerHTML = `<div class="orders-panel"><div class="order-column"><h3>Novos</h3><div class="order-list" id="col-novo"></div></div><div class="order-column"><h3>Em Preparo</h3><div class="order-list" id="col-em-preparo"></div></div><div class="order-column"><h3>Pronto para Entrega</h3><div class="order-list" id="col-pronto"></div></div></div>`; fetchAndRenderOrders(); }
+        async function fetchAndRenderOrders() { try { const response = await fetch(`${API_BASE_URL}/orders`, { headers: { 'Authorization': 'Bearer ' + token } }); if (!response.ok) throw new Error('Falha ao buscar pedidos'); const orders = await response.json(); document.getElementById('col-novo').innerHTML = ''; document.getElementById('col-em-preparo').innerHTML = ''; document.getElementById('col-pronto').innerHTML = ''; orders.forEach(order => addOrderCard(order, false)); } catch (error) { console.error("Erro ao buscar pedidos:", error); dashboardContent.innerHTML = `<p>Não foi possível carregar os pedidos.</p>`; } }
+        function createOrderCard(order) { const card = document.createElement('div'); card.className = 'order-card'; card.id = `order-${order.id}`; let actionsHtml = ''; if (order.status === 'Novo') { actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar e Preparar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`; } else if (order.status === 'Em Preparo') { actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto para Entrega</button>`; } else if (order.status === 'Pronto para Entrega') { actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Marcar como Entregue</button>`; } card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Endereço:</strong> ${order.client_address}</p></div><div class="order-card-actions">${actionsHtml}</div>`; return card; }
+        function addOrderCard(order, prepend = true) { const statusToColumnId = { 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' }; const columnId = statusToColumnId[order.status]; const column = document.getElementById(columnId); if (column) { const card = createOrderCard(order); if (prepend) { column.prepend(card); } else { column.appendChild(card); } } }
+        function moveOrderCard(orderId, newStatus) { const card = document.getElementById(`order-${orderId}`); if (!card) return; stopNotification(); const statusToColumnId = { 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' }; const targetColumnId = statusToColumnId[newStatus]; if (targetColumnId) { document.getElementById(targetColumnId).prepend(card); const cardData = {id: orderId, total_price: card.querySelector('span:last-child').textContent.replace('R$ ','').replace(',','.'), client_name: card.querySelector('strong').nextSibling.textContent.trim(), client_address: card.querySelector('p:last-child').textContent.replace('Endereço: ','') }; const newCard = createOrderCard({ ...cardData, status: newStatus }); card.innerHTML = newCard.innerHTML; } else { card.remove(); } }
+        async function updateOrderStatus(orderId, newStatus) { try { await fetch(`${API_BASE_URL}/orders/${orderId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ status: newStatus }) }); } catch (error) { console.error(`Falha ao atualizar o status do pedido ${orderId}:`, error); alert('Não foi possível atualizar o pedido.'); } }
+
+        // LÓGICA PARA A PÁGINA DE PRODUTOS E ESTOQUE
+        function renderProdutosPage() {
+            pageTitle.textContent = 'Produtos e Estoque';
             dashboardContent.innerHTML = `
-                <div class="orders-panel">
-                    <div class="order-column">
-                        <h3>Novos</h3>
-                        <div class="order-list" id="col-novo"></div>
-                    </div>
-                    <div class="order-column">
-                        <h3>Em Preparo</h3>
-                        <div class="order-list" id="col-em-preparo"></div>
-                    </div>
-                    <div class="order-column">
-                        <h3>Pronto para Entrega</h3>
-                        <div class="order-list" id="col-pronto"></div>
-                    </div>
+                <div class="page-header">
+                    <h2>Todos os Produtos</h2>
+                    <button id="add-product-btn" class="btn btn-primary">Adicionar Produto</button>
                 </div>
+                <table class="product-table">
+                    <thead><tr><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead>
+                    <tbody id="products-tbody"></tbody>
+                </table>
             `;
-            fetchAndRenderOrders();
+            fetchAndRenderProducts();
+            document.getElementById('add-product-btn').addEventListener('click', () => openProductModal());
         }
-        
-        async function fetchAndRenderOrders() {
+
+        async function fetchAndRenderProducts() {
             try {
-                const response = await fetch('/orders', { headers: { 'Authorization': 'Bearer ' + token } });
-                if (!response.ok) throw new Error('Falha ao buscar pedidos');
-                const orders = await response.json();
-                document.getElementById('col-novo').innerHTML = '';
-                document.getElementById('col-em-preparo').innerHTML = '';
-                document.getElementById('col-pronto').innerHTML = '';
-                orders.forEach(order => addOrderCard(order, false));
-            } catch (error) {
-                console.error("Erro ao buscar pedidos:", error);
-                dashboardContent.innerHTML = `<p>Não foi possível carregar os pedidos.</p>`;
-            }
-        }
-
-        function createOrderCard(order) {
-            const card = document.createElement('div');
-            card.className = 'order-card';
-            card.id = `order-${order.id}`;
-            let actionsHtml = '';
-            if (order.status === 'Novo') { actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar e Preparar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`; }
-            else if (order.status === 'Em Preparo') { actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto para Entrega</button>`; }
-            else if (order.status === 'Pronto para Entrega') { actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Marcar como Entregue</button>`; }
-            card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Endereço:</strong> ${order.client_address}</p></div><div class="order-card-actions">${actionsHtml}</div>`;
-            return card;
-        }
-
-        function addOrderCard(order, prepend = true) {
-            const statusToColumnId = { 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' };
-            const columnId = statusToColumnId[order.status];
-            const column = document.getElementById(columnId);
-            if (column) { const card = createOrderCard(order); if (prepend) { column.prepend(card); } else { column.appendChild(card); } }
-        }
-
-        function moveOrderCard(orderId, newStatus) {
-            const card = document.getElementById(`order-${orderId}`);
-            if (!card) return;
-            stopNotification();
-            const statusToColumnId = { 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' };
-            const targetColumnId = statusToColumnId[newStatus];
-            if (targetColumnId) {
-                document.getElementById(targetColumnId).prepend(card);
-                const cardData = {id: orderId, total_price: card.querySelector('span:last-child').textContent.replace('R$ ','').replace(',','.'), client_name: card.querySelector('strong').nextSibling.textContent.trim(), client_address: card.querySelector('p:last-child').textContent.replace('Endereço: ','') };
-                const newCard = createOrderCard({ ...cardData, status: newStatus });
-                card.innerHTML = newCard.innerHTML;
-            } else { card.remove(); }
-        }
-
-        async function updateOrderStatus(orderId, newStatus) { try { await fetch(`/orders/${orderId}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ status: newStatus }) }); } catch (error) { console.error(`Falha ao atualizar o status do pedido ${orderId}:`, error); alert('Não foi possível atualizar o pedido.'); } }
-        
-        // PLACEHOLDERS PARA FUTURAS PÁGINAS
-        function renderProdutosPage() { pageTitle.textContent = 'Gestão de Produtos'; dashboardContent.innerHTML = `<p>A interface de CRUD de produtos aparecerá aqui.</p>`; }
-        function renderComplementosPage() { pageTitle.textContent = 'Gestão de Complementos'; dashboardContent.innerHTML = `<p>A interface de CRUD de complementos aparecerá aqui.</p>`; }
-        function renderCombosPage() { pageTitle.textContent = 'Gestão de Combos'; dashboardContent.innerHTML = `<p>A interface de CRUD de combos aparecerá aqui.</p>`; }
-        
-        // LÓGICA COMPLETA E RESTAURADA PARA A PÁGINA DE CONFIGURAÇÕES
-        function renderSettingsPage() {
-            pageTitle.textContent = 'Configurações da Loja';
-            dashboardContent.innerHTML = `
-                <form id="settings-form">
-                    <div class="settings-card">
-                        <div class="card-header"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 17.58A5 5 0 0 0 15 12.58A5 5 0 0 0 10 17.58a5 5 0 0 0 1.95 3.9A5 5 0 0 0 8.58 22a5 5 0 0 0 4.27-2.05A5 5 0 0 0 17.42 22a5 5 0 0 0 3.9-1.95A5 5 0 0 0 20 17.58Z"/><path d="M12 2.58A5 5 0 0 0 7 7.58A5 5 0 0 0 12 12.58a5 5 0 0 0 3.05-1.07A5 5 0 0 0 18.58 5a5 5 0 0 0-4.27-2.95A5 5 0 0 0 12 2.58Z"/></svg></span><h3>Status da Loja</h3></div>
-                        <div id="status-buttons" class="status-buttons"><button type="button" data-status="true">Forçar Aberta</button><button type="button" data-status="false">Forçar Fechada</button><button type="button" data-status="null">Seguir Horário</button></div>
-                    </div>
-                    <div class="settings-card">
-                         <div class="card-header"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 9v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9"/><path d="m20 9-8-5-8 5"/><path d="M9 22V12h6v10"/></svg></span><h3>Informações Gerais</h3></div>
-                         <div class="info-grid">
-                            <div class="grid-col-span-2"><label for="address">Endereço</label><input type="text" id="address" name="address"></div>
-                            <div><label for="store_name">Nome da Loja</label><input type="text" id="store_name" name="store_name"></div>
-                            <div><label for="location_link">Link do Google Maps</label><input type="text" id="location_link" name="location_link"></div>
-                        </div>
-                    </div>
-                    <div class="settings-card">
-                         <div class="card-header"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><h3>Financeiro</h3></div>
-                        <div><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" name="delivery_fee" step="0.50"></div>
-                    </div>
-                    <div class="settings-card">
-                        <div class="card-header"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span><h3>Horários de Funcionamento</h3></div>
-                        <div class="operating-hours-grid" id="hours-grid">
-                            <div class="grid-header">Dia</div><div class="grid-header">Abre às</div><div class="grid-header">Fecha às</div><div class="grid-header">Aberto?</div>
-                        </div>
-                    </div>
-                    <div class="settings-card">
-                        <div class="card-header"><span class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.58A5 5 0 0 0 7 7.58A5 5 0 0 0 12 12.58a5 5 0 0 0 3.05-1.07A5 5 0 0 0 18.58 5a5 5 0 0 0-4.27-2.95A5 5 0 0 0 12 2.58Z"/><path d="M20 17.58A5 5 0 0 0 15 12.58A5 5 0 0 0 10 17.58a5 5 0 0 0 1.95 3.9A5 5 0 0 0 8.58 22a5 5 0 0 0 4.27-2.05A5 5 0 0 0 17.42 22a5 5 0 0 0 3.9-1.95A5 5 0 0 0 20 17.58Z"/></svg></span><h3>Notificações</h3></div>
-                        <label for="notification_sound">Carregar Novo Som (MP3, WAV)</label>
-                        <input type="file" id="notification_sound" name="notification_sound" accept="audio/*">
-                        <div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;">
-                           <p id="sound-feedback" style="font-size: 0.9rem; opacity: 0.9;"></p>
-                           <button type="button" id="remove-sound-btn" style="display: none; background: #c53030; border: none; color: white; padding: 5px 10px; border-radius: 5px; cursor: pointer;">Remover</button>
-                        </div>
-                    </div>
-                    <div class="save-button-container"><span id="save-feedback"></span><button type="submit" class="save-button">Salvar Alterações</button></div>
-                </form>
-            `;
-            fetchAndPopulateSettings();
-        }
-        async function fetchAndPopulateSettings() {
-            try {
-                const response = await fetch('/settings', { headers: { 'Authorization': 'Bearer ' + token } });
-                const settings = await response.json();
-                document.getElementById('store_name').value = settings.store_name; document.getElementById('address').value = settings.address; document.getElementById('location_link').value = settings.location_link; document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2);
-                document.querySelectorAll('#status-buttons button').forEach(button => { button.classList.remove('selected'); if (String(button.dataset.status) === String(settings.is_open_manual_override)) button.classList.add('selected'); });
-                const soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
-                if (settings.notification_sound_filename) { soundFeedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`; removeSoundBtn.style.display = 'inline-block'; } else { soundFeedback.textContent = 'Nenhum som configurado.'; removeSoundBtn.style.display = 'none'; }
-                const hoursGrid = document.getElementById('hours-grid');
-                hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre às</div><div class="grid-header">Fecha às</div><div class="grid-header">Aberto?</div>`;
-                ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => {
-                    const daySettings = settings.operating_hours[day] || { open: '00:00', close: '00:00', enabled: false };
-                    hoursGrid.innerHTML += ` <div class="day">${day}</div> <input type="time" id="open-${day}" value="${daySettings.open}"> <input type="time" id="close-${day}" value="${daySettings.close}"> <label class="toggle-switch"> <input type="checkbox" id="enabled-${day}" ${daySettings.enabled ? "checked" : ""}> <span class="slider"></span> </label> `;
+                const response = await fetch(`${API_BASE_URL}/products`, { headers: { 'Authorization': 'Bearer ' + token }});
+                const products = await response.json();
+                allProductsFlat = flattenProducts(products);
+                const tbody = document.getElementById('products-tbody');
+                tbody.innerHTML = '';
+                products.forEach(product => {
+                    tbody.innerHTML += createProductRow(product);
+                    if (product.children && product.children.length > 0) {
+                        product.children.forEach(child => { tbody.innerHTML += createProductRow(child, true); });
+                    }
                 });
-                addSettingsListeners(settings);
-            } catch (error) { console.error("Falha ao buscar configurações:", error); }
+                addStockEventListeners();
+            } catch (error) { console.error("Erro ao buscar produtos:", error); }
         }
-        function addSettingsListeners(currentSettings) {
-            const settingsForm = document.getElementById('settings-form'); if (!settingsForm) return;
-            const soundInput = document.getElementById('notification_sound'), soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
-            removeSoundBtn.onclick = () => { currentSettings.notification_sound_url = null; currentSettings.notification_sound_filename = null; soundInput.value = ''; soundFeedback.textContent = 'O som será removido ao salvar.'; removeSoundBtn.style.display = 'none'; };
-            settingsForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const feedback = document.getElementById('save-feedback'); feedback.textContent = 'Salvando...';
-                let soundUrlToSave = currentSettings.notification_sound_url, soundFilenameToSave = currentSettings.notification_sound_filename;
-                if (soundInput.files.length > 0) {
-                    soundFeedback.textContent = 'A fazer upload do som...';
-                    try {
-                        const sigResponse = await fetch('/cloudinary-signature', { headers: { 'Authorization': 'Bearer ' + token } });
-                        const { timestamp, signature } = await sigResponse.json();
-                        const formData = new FormData(), soundFile = soundInput.files[0];
-                        formData.append('file', soundFile); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature);
-                        const cloudinaryResponse = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`, { method: 'POST', body: formData });
-                        const cloudinaryData = await cloudinaryResponse.json();
-                        if (cloudinaryData.secure_url) { soundUrlToSave = cloudinaryData.secure_url; soundFilenameToSave = soundFile.name; } else { throw new Error('Falha no upload para o Cloudinary'); }
-                    } catch (error) { feedback.textContent = 'Erro no upload do som.'; setTimeout(() => { feedback.textContent = ''; fetchAndPopulateSettings(); }, 3000); return; }
-                }
-                const operating_hours = {};
-                ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { operating_hours[day] = { open: document.getElementById(`open-${day}`).value, close: document.getElementById(`close-${day}`).value, enabled: document.getElementById(`enabled-${day}`).checked }; });
-                let overrideStatus = document.querySelector('#status-buttons button.selected')?.dataset.status;
-                if (overrideStatus === 'null') overrideStatus = null; else overrideStatus = overrideStatus === 'true';
-                const dataToSend = { store_name: document.getElementById('store_name').value, address: document.getElementById('address').value, location_link: document.getElementById('location_link').value, delivery_fee: document.getElementById('delivery_fee').value, is_open_manual_override: overrideStatus, operating_hours: operating_hours, notification_sound_url: soundUrlToSave, notification_sound_filename: soundFilenameToSave };
-                try {
-                    const response = await fetch('/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(dataToSend) });
-                    if (!response.ok) throw new Error('Falha ao salvar');
-                    feedback.textContent = 'Salvo com sucesso!';
-                    setupAudioPlayer(soundUrlToSave);
-                    setTimeout(() => { feedback.textContent = ''; fetchAndPopulateSettings(); }, 2000);
-                } catch (error) { feedback.textContent = 'Erro ao salvar.'; }
+
+        function createProductRow(product, isChild = false) {
+            const stock_quantity = product.stock_quantity ?? '--';
+            const stock_controls_disabled = !product.stock_enabled || (isChild && product.stock_sync_enabled) ? 'disabled' : '';
+            return `
+                <tr class="product-row ${isChild ? 'is-child' : ''}" data-product-id="${product.id}">
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            ${isChild ? '<span class="child-indicator">↳</span>' : ''}
+                            <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail">
+                            <span>${product.name}</span>
+                        </div>
+                    </td>
+                    <td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td>
+                    <td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>
+                    <td>
+                        <div class="stock-controls">
+                            <label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label>
+                            <button class="stock-btn stock-decrease" ${stock_controls_disabled}>-</button>
+                            <input type="number" class="input-field stock-input" value="${stock_quantity}" ${stock_controls_disabled}>
+                            <button class="stock-btn stock-increase" ${stock_controls_disabled}>+</button>
+                        </div>
+                    </td>
+                    <td class="action-buttons">
+                        <button onclick="openProductModal(${product.id})">Editar</button>
+                        <button onclick="deleteProduct(${product.id})">Apagar</button>
+                    </td>
+                </tr>
+            `;
+        }
+
+        function addStockEventListeners() {
+            document.querySelectorAll('.product-row').forEach(row => {
+                const productId = row.dataset.productId;
+                const decreaseBtn = row.querySelector('.stock-decrease');
+                const increaseBtn = row.querySelector('.stock-increase');
+                const quantityInput = row.querySelector('.stock-input');
+                const enabledToggle = row.querySelector('.stock-enabled-toggle');
+
+                enabledToggle.addEventListener('change', (e) => updateStock(productId, { stock_enabled: e.target.checked }));
+                decreaseBtn.addEventListener('click', () => { const currentValue = parseInt(quantityInput.value); if (!isNaN(currentValue)) updateStock(productId, { stock_quantity: currentValue - 1 }); });
+                increaseBtn.addEventListener('click', () => { const currentValue = parseInt(quantityInput.value); if (!isNaN(currentValue)) updateStock(productId, { stock_quantity: currentValue + 1 }); });
+                quantityInput.addEventListener('blur', (e) => { if(e.target.value) updateStock(productId, { stock_quantity: parseInt(e.target.value) })});
+                quantityInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
             });
         }
+        
+        async function updateStock(productId, { stock_quantity, stock_enabled }) {
+            try {
+                await fetch(`${API_BASE_URL}/products/${productId}/stock`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify({ stock_quantity, stock_enabled }) });
+                fetchAndRenderProducts();
+            } catch (error) { console.error('Erro ao atualizar estoque:', error); }
+        }
+        
+        // FUNÇÕES DO MODAL E AÇÕES (RESTAURADAS E COMPLETAS)
+        const modalOverlay = document.getElementById('product-modal-overlay');
+        async function openProductModal(id = null) {
+            const productForm = document.getElementById('product-form');
+            productForm.reset();
+            document.getElementById('product-image-input').value = null;
+            document.getElementById('product-id').value = '';
+            document.getElementById('product-image-url').value = '';
+            document.getElementById('product-image-preview').src = PLACEHOLDER_IMG_200;
+            document.getElementById('upload-prompt').style.display = 'block';
+
+            const addonsListDiv = document.getElementById('addons-list');
+            addonsListDiv.innerHTML = ''; // Limpa a lista de complementos
+
+            let currentProduct = null;
+
+            if (id) {
+                document.getElementById('modal-title').textContent = 'Editar Produto';
+                const response = await fetch(`${API_BASE_URL}/products/${id}`, { headers: { 'Authorization': 'Bearer ' + token } });
+                currentProduct = await response.json();
+                
+                document.getElementById('product-id').value = currentProduct.id;
+                document.getElementById('product-name').value = currentProduct.name;
+                document.getElementById('product-description').value = currentProduct.description;
+                document.getElementById('product-price').value = parseFloat(currentProduct.price).toFixed(2);
+                document.getElementById('product-status').value = currentProduct.status;
+                document.getElementById('force-addons').checked = currentProduct.force_addons;
+                document.getElementById('stock-sync').checked = currentProduct.stock_sync_enabled;
+
+                if (currentProduct.image_url) {
+                    document.getElementById('product-image-url').value = currentProduct.image_url;
+                    document.getElementById('product-image-preview').src = currentProduct.image_url;
+                    document.getElementById('upload-prompt').style.display = 'none';
+                }
+            } else {
+                document.getElementById('modal-title').textContent = 'Adicionar Novo Produto';
+            }
+
+            // Popula a lista de possíveis complementos
+            const linkedAddonIds = new Set(allProductsFlat.filter(p => p.parent_product_id === id).map(p => p.id));
+            allProductsFlat.forEach(p => {
+                if (p.id === id) return; // Não pode ser complemento de si mesmo
+                addonsListDiv.innerHTML += `
+                    <div class="addon-item">
+                        <label class="addon-item-name">
+                            <input type="checkbox" data-addon-id="${p.id}" ${linkedAddonIds.has(p.id) ? 'checked' : ''}>
+                            <span>${p.name}</span>
+                        </label>
+                    </div>`;
+            });
+
+            modalOverlay.style.display = 'flex';
+        }
+
+        function closeProductModal() { document.getElementById('product-modal-overlay').style.display = 'none'; }
+        
+        async function saveProduct(event) {
+            event.preventDefault();
+            const saveButton = document.getElementById('save-product-button');
+            saveButton.disabled = true; saveButton.textContent = 'Salvando...';
+            let imageUrl = document.getElementById('product-image-url').value;
+
+            const productImageInput = document.getElementById('product-image-input');
+            if (productImageInput.files[0]) {
+                try {
+                    const sigResponse = await fetch(`${API_BASE_URL}/cloudinary-signature`, { headers: { 'Authorization': 'Bearer ' + token } });
+                    const { timestamp, signature } = await sigResponse.json();
+                    const formData = new FormData();
+                    formData.append('file', productImageInput.files[0]); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature);
+                    const cloudinaryResponse = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/image/upload`, { method: 'POST', body: formData });
+                    const cloudinaryData = await cloudinaryResponse.json();
+                    if (cloudinaryData.secure_url) { imageUrl = cloudinaryData.secure_url; } 
+                    else { throw new Error('Falha no upload para o Cloudinary: ' + (cloudinaryData.error?.message || 'Erro desconhecido')); }
+                } catch (error) { console.error('Erro no upload da imagem:', error); alert('Não foi possível fazer o upload da imagem. O produto não foi salvo.'); saveButton.disabled = false; saveButton.textContent = 'Salvar'; return; }
+            }
+
+            const id = document.getElementById('product-id').value;
+            const children = Array.from(document.querySelectorAll('#addons-list input[type="checkbox"]:checked')).map(cb => ({ id: parseInt(cb.dataset.addonId) }));
+
+            const productData = {
+                name: document.getElementById('product-name').value,
+                description: document.getElementById('product-description').value,
+                price: parseFloat(document.getElementById('product-price').value),
+                status: document.getElementById('product-status').value === 'true',
+                image_url: imageUrl,
+                force_addons: document.getElementById('force-addons').checked,
+                stock_sync_enabled: document.getElementById('stock-sync').checked,
+                children: children
+            };
+
+            const url = id ? `${API_BASE_URL}/products/${id}` : `${API_BASE_URL}/products`;
+            const method = id ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, { method, headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(productData) });
+                if (!response.ok) { const err = await response.json(); throw new Error(err.error || 'Falha ao salvar o produto'); }
+                closeProductModal(); fetchAndRenderProducts();
+            } catch (error) { console.error('Erro ao salvar produto:', error); alert('Ocorreu um erro ao salvar o produto.'); } 
+            finally { saveButton.disabled = false; saveButton.textContent = 'Salvar Alterações'; }
+        }
+
+        async function deleteProduct(id) { if (confirm('Tem a certeza de que deseja apagar este produto? Esta ação não pode ser desfeita.')) { try { const response = await fetch(`${API_BASE_URL}/products/${id}`, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } }); if (!response.ok) throw new Error('Falha ao apagar produto'); fetchAndRenderProducts(); } catch (error) { console.error('Erro ao apagar produto:', error); alert('Não foi possível apagar o produto.'); } } }
+        
+        // --- LÓGICA DA PÁGINA DE CONFIGURAÇÕES (RESTAURADA) ---
+        function renderSettingsPage() { pageTitle.textContent = 'Configurações da Loja'; dashboardContent.innerHTML = `<form id="settings-form"><div class="settings-card"><div class="card-header"><h3>Status da Loja</h3></div><div id="status-buttons" class="status-buttons"><button type="button" data-status="true">Forçar Aberta</button><button type="button" data-status="false">Forçar Fechada</button><button type="button" data-status="null">Seguir Horário</button></div></div><div class="settings-card"><div class="card-header"><h3>Informações Gerais</h3></div><div class="info-grid"><div class="grid-col-span-2 form-group"><label for="address">Endereço</label><input type="text" id="address" name="address" class="input-field"></div><div class="form-group"><label for="store_name">Nome da Loja</label><input type="text" id="store_name" name="store_name" class="input-field"></div><div class="form-group"><label for="location_link">Link do Google Maps</label><input type="text" id="location_link" name="location_link" class="input-field"></div></div></div><div class="settings-card"><div class="card-header"><h3>Financeiro</h3></div><div class="form-group"><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" name="delivery_fee" step="0.50" class="input-field"></div></div><div class="settings-card"><div class="card-header"><h3>Horários de Funcionamento</h3></div><div class="operating-hours-grid" id="hours-grid"></div></div><div class="settings-card"><div class="card-header"><h3>Notificações</h3></div><div class="form-group"><label for="notification_sound">Carregar Novo Som (MP3, WAV)</label><input type="file" id="notification_sound" name="notification_sound" accept="audio/*"></div><div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;"><p id="sound-feedback" style="font-size: 0.9rem; opacity: 0.9;"></p><button type="button" id="remove-sound-btn" style="display: none;" class="btn btn-danger">Remover</button></div></div><div class="form-buttons"><span id="save-feedback"></span><button type="submit" class="btn btn-primary">Salvar Alterações</button></div></form>`; fetchAndPopulateSettings(); }
+        async function fetchAndPopulateSettings() { try { const response = await fetch(`${API_BASE_URL}/settings`, { headers: { 'Authorization': 'Bearer ' + token } }); const settings = await response.json(); document.getElementById('store_name').value = settings.store_name; document.getElementById('address').value = settings.address; document.getElementById('location_link').value = settings.location_link; document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2); document.querySelectorAll('#status-buttons button').forEach(button => { button.classList.remove('selected'); if (String(button.dataset.status) === String(settings.is_open_manual_override)) button.classList.add('selected'); }); document.querySelectorAll('#status-buttons button').forEach(b => b.addEventListener('click', () => { document.querySelector('#status-buttons button.selected')?.classList.remove('selected'); b.classList.add('selected'); })); const soundFeedback = document.getElementById('sound-feedback'); const removeSoundBtn = document.getElementById('remove-sound-btn'); if (settings.notification_sound_filename) { soundFeedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`; removeSoundBtn.style.display = 'inline-block'; } else { soundFeedback.textContent = 'Nenhum som configurado.'; removeSoundBtn.style.display = 'none'; } const hoursGrid = document.getElementById('hours-grid'); hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre às</div><div class="grid-header">Fecha às</div><div class="grid-header">Aberto?</div>`; ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { const daySettings = settings.operating_hours[day] || { open: '00:00', close: '00:00', enabled: false }; hoursGrid.innerHTML += ` <div class="day">${day.charAt(0).toUpperCase() + day.slice(1)}</div> <input type="time" id="open-${day}" value="${daySettings.open}" class="input-field"> <input type="time" id="close-${day}" value="${daySettings.close}" class="input-field"> <label class="toggle-switch"> <input type="checkbox" id="enabled-${day}" ${daySettings.enabled ? "checked" : ""}> <span class="slider"></span> </label> `; }); addSettingsListeners(settings); } catch (error) { console.error("Falha ao buscar configurações:", error); } }
+        function addSettingsListeners(currentSettings) { const settingsForm = document.getElementById('settings-form'); if (!settingsForm) return; const soundInput = document.getElementById('notification_sound'); const soundFeedback = document.getElementById('sound-feedback'); const removeSoundBtn = document.getElementById('remove-sound-btn'); removeSoundBtn.onclick = () => { currentSettings.notification_sound_url = null; currentSettings.notification_sound_filename = null; soundInput.value = ''; soundFeedback.textContent = 'O som será removido ao salvar.'; removeSoundBtn.style.display = 'none'; }; settingsForm.addEventListener('submit', async (e) => { e.preventDefault(); const saveButton = settingsForm.querySelector('.btn-primary'); saveButton.disabled = true; const feedback = document.getElementById('save-feedback'); feedback.textContent = 'Salvando...'; let soundUrlToSave = currentSettings.notification_sound_url; let soundFilenameToSave = currentSettings.notification_sound_filename; if (soundInput.files.length > 0) { soundFeedback.textContent = 'A fazer upload do som...'; try { const sigResponse = await fetch(`${API_BASE_URL}/cloudinary-signature`, { headers: { 'Authorization': 'Bearer ' + token } }); const { timestamp, signature } = await sigResponse.json(); const formData = new FormData(); const soundFile = soundInput.files[0]; formData.append('file', soundFile); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature); const cloudinaryResponse = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`, { method: 'POST', body: formData }); const cloudinaryData = await cloudinaryResponse.json(); if (cloudinaryData.secure_url) { soundUrlToSave = cloudinaryData.secure_url; soundFilenameToSave = soundFile.name; } else { throw new Error('Falha no upload para o Cloudinary'); } } catch (error) { feedback.textContent = 'Erro no upload do som.'; setTimeout(() => { feedback.textContent = ''; fetchAndPopulateSettings(); }, 3000); saveButton.disabled = false; return; } } const operating_hours = {}; ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { operating_hours[day] = { open: document.getElementById(`open-${day}`).value, close: document.getElementById(`close-${day}`).value, enabled: document.getElementById(`enabled-${day}`).checked }; }); let overrideStatus = document.querySelector('#status-buttons button.selected')?.dataset.status; if (overrideStatus === 'null') { overrideStatus = null; } else { overrideStatus = overrideStatus === 'true'; } const dataToSend = { store_name: document.getElementById('store_name').value, address: document.getElementById('address').value, location_link: document.getElementById('location_link').value, delivery_fee: document.getElementById('delivery_fee').value, is_open_manual_override: overrideStatus, operating_hours: operating_hours, notification_sound_url: soundUrlToSave, notification_sound_filename: soundFilenameToSave }; try { const response = await fetch(`${API_BASE_URL}/settings`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, body: JSON.stringify(dataToSend) }); if (!response.ok) throw new Error('Falha ao salvar'); feedback.textContent = 'Salvo com sucesso!'; setupAudioPlayer(soundUrlToSave); setTimeout(() => { feedback.textContent = ''; fetchAndPopulateSettings(); }, 2000); } catch (error) { feedback.textContent = 'Erro ao salvar.'; } finally { saveButton.disabled = false; } }); }
         
         // --- INICIALIZAÇÃO E NAVEGAÇÃO ---
         document.addEventListener('DOMContentLoaded', () => {
-            const navLinks = { pedidos: document.getElementById('nav-pedidos'), produtos: document.getElementById('nav-produtos'), complementos: document.getElementById('nav-complementos'), combos: document.getElementById('nav-combos'), configuracoes: document.getElementById('nav-configuracoes') };
-            
-            const savedSoundState = localStorage.getItem('soundEnabled');
-            isSoundEnabled = savedSoundState === 'false' ? false : true; 
-            
-            function updateSoundButton() {
-                if (isSoundEnabled) { soundStatusBtn.textContent = '🔊 Som Ativado'; soundStatusBtn.classList.add('active'); } 
-                else { soundStatusBtn.textContent = '🔇 Som Desativado'; soundStatusBtn.classList.remove('active'); }
-            }
-            updateSoundButton();
-
-            soundStatusBtn.addEventListener('click', () => {
-                if (!notificationAudio) { alert('Configure um som de notificação primeiro!'); return; }
-                isSoundEnabled = !isSoundEnabled;
-                localStorage.setItem('soundEnabled', isSoundEnabled);
-                updateSoundButton();
-                if (isSoundEnabled) { playNotification(); setTimeout(() => stopNotification(), 100); } 
-                else { stopNotification(); }
-            });
-
-            function handleNavigation(e) {
-                e.preventDefault();
-                Object.values(navLinks).forEach(link => link.classList.remove('active'));
-                const link = e.currentTarget; link.classList.add('active');
-                const page = link.id.split('-')[1];
-                if (page === 'pedidos') renderPedidosPage();
-                else if (page === 'produtos') renderProdutosPage();
-                else if (page === 'complementos') renderComplementosPage();
-                else if (page === 'combos') renderCombosPage();
-                else if (page === 'configuracoes') renderSettingsPage();
-            }
-            
+            const navLinks = { pedidos: document.getElementById('nav-pedidos'), produtos: document.getElementById('nav-produtos'), combos: document.getElementById('nav-combos'), configuracoes: document.getElementById('nav-configuracoes') };
+            function handleNavigation(e) { e.preventDefault(); const currentActive = document.querySelector('nav a.active'); if (currentActive) currentActive.classList.remove('active'); const link = e.currentTarget; link.classList.add('active'); const page = link.id.split('-')[1]; if (page === 'pedidos') renderPedidosPage(); else if (page === 'produtos') renderProdutosPage(); else if (page === 'combos') renderCombosPage(); else if (page === 'configuracoes') renderSettingsPage(); }
             Object.values(navLinks).forEach(link => link.addEventListener('click', handleNavigation));
             
-            fetch('/settings', { headers: { 'Authorization': 'Bearer ' + token }}).then(res => res.json()).then(settings => { if (!window.audioPlayerConfigured) { setupAudioPlayer(settings.notification_sound_url); window.audioPlayerConfigured = true; }});
-
-            renderPedidosPage();
-            navLinks.pedidos.classList.add('active');
+            renderProdutosPage();
+            navLinks.produtos.classList.add('active');
             
-            document.getElementById('logout-button').addEventListener('click', () => {
-                localStorage.removeItem('authToken');
-                localStorage.removeItem('soundEnabled'); // Limpa a preferência do som ao sair
-                window.location.href = '/';
-            });
+            document.getElementById('cancel-button').addEventListener('click', closeProductModal);
+            document.getElementById('modal-close-btn').addEventListener('click', closeProductModal);
+            modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeProductModal(); });
+            document.getElementById('product-form').addEventListener('submit', saveProduct);
+            document.getElementById('logout-button').addEventListener('click', () => { localStorage.removeItem('authToken'); window.location.href = 'http://localhost:10000/login.html'; });
         });
+
+        function flattenProducts(products) { let flatList = []; products.forEach(p => { flatList.push(p); if (p.children && p.children.length > 0) { flatList = flatList.concat(p.children); } }); return flatList; }
     </script>
 </body>
 </html>
