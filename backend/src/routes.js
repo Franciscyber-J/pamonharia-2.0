@@ -5,6 +5,7 @@ const SessionController = require('./controllers/SessionController');
 const ProductController = require('./controllers/ProductController');
 const SettingsController = require('./controllers/SettingsController');
 const OrderController = require('./controllers/OrderController');
+const ComboController = require('./controllers/ComboController'); // IMPORTAR
 
 const authMiddleware = require('./middlewares/auth');
 
@@ -17,19 +18,26 @@ routes.get('/dashboard', (req, res) => res.sendFile(path.resolve(__dirname, '..'
 routes.get('/cardapio', (req, res) => res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'cardapio', 'index.html')));
 
 // --- ROTAS DA API ---
+
+// Autenticação
 routes.post('/users', UserController.create);
 routes.post('/sessions', SessionController.create);
 
-// Rotas de Produtos
+// Rotas de Produtos e Estoque
 routes.get('/products', authMiddleware, ProductController.index);
 routes.get('/products/:id', authMiddleware, ProductController.show);
 routes.post('/products', authMiddleware, ProductController.create);
 routes.put('/products/:id', authMiddleware, ProductController.update);
 routes.delete('/products/:id', authMiddleware, ProductController.destroy);
-// NOVA ROTA DE ESTOQUE
-routes.patch('/products/:id/stock', authMiddleware, ProductController.updateStock); 
+routes.patch('/products/:id/stock', authMiddleware, ProductController.updateStock);
 
-// Rotas de Configurações e Pedidos (sem alterações)
+// ROTAS DE COMBOS (NOVAS)
+routes.get('/combos', authMiddleware, ComboController.index);
+routes.post('/combos', authMiddleware, ComboController.create);
+routes.put('/combos/:id', authMiddleware, ComboController.update);
+routes.delete('/combos/:id', authMiddleware, ComboController.destroy);
+
+// Rotas de Configurações e Pedidos
 routes.get('/settings', SettingsController.show);
 routes.put('/settings', authMiddleware, SettingsController.update);
 routes.get('/cloudinary-signature', authMiddleware, SettingsController.generateCloudinarySignature);
