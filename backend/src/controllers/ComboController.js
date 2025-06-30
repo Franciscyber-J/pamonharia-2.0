@@ -8,7 +8,7 @@ module.exports = {
     try {
       const combos = await connection('combos').select('*').orderBy('id', 'asc');
       
-      // Para cada combo, buscar os produtos associados
+      // Para cada combo, buscar os produtos associados na tabela de ligação
       for (const combo of combos) {
         const products = await connection('combo_products')
           .join('products', 'products.id', '=', 'combo_products.product_id')
@@ -27,17 +27,17 @@ module.exports = {
   // CRIAR um novo combo
   async create(request, response) {
     const { name, description, price, status, image_url, products } = request.body;
-    console.log('[ComboController] Recebida requisição para criar combo:', request.body);
+    console.log('[ComboController] Criando novo combo:', request.body);
 
     try {
       await connection.transaction(async trx => {
-        // 1. Insere o combo na tabela principal e obtém o ID
+        // 1. Insere o combo na tabela principal e obtém o ID de retorno
         const [combo_id_obj] = await trx('combos').insert({
           name, description, price, status, image_url
         }).returning('id');
         const combo_id = combo_id_obj.id;
 
-        // 2. Prepara e insere os produtos na tabela de ligação
+        // 2. Prepara e insere os produtos na tabela de ligação (combo_products)
         if (products && products.length > 0) {
           const comboProducts = products.map(product => ({
             combo_id: combo_id,
@@ -49,19 +49,19 @@ module.exports = {
       });
 
       console.log(`[ComboController] Combo criado com sucesso.`);
-      return response.status(201).send();
+      return response.status(201).json({ message: 'Combo criado com sucesso.' });
 
     } catch (error) {
       console.error('[ComboController] Erro ao criar combo:', error);
-      return response.status(500).json({ error: 'An error occurred while creating the combo.' });
+      return response.status(500).json({ error: 'Falha ao criar o combo.' });
     }
   },
 
-  // ATUALIZAR um combo
+  // ATUALIZAR um combo existente
   async update(request, response) {
     const { id } = request.params;
     const { name, description, price, status, image_url, products } = request.body;
-    console.log(`[ComboController] Atualizando combo ID ${id} com dados:`, request.body);
+    console.log(`[ComboController] Atualizando combo ID ${id}.`);
 
     try {
       await connection.transaction(async trx => {
@@ -70,10 +70,10 @@ module.exports = {
           name, description, price, status, image_url
         });
 
-        // 2. Apaga as ligações de produtos existentes para este combo
+        // 2. Apaga TODAS as ligações de produtos existentes para este combo, para então recriá-las
         await trx('combo_products').where('combo_id', id).delete();
 
-        // 3. Insere as novas ligações de produtos, se existirem
+        // 3. Insere as novas ligações de produtos, se houver
         if (products && products.length > 0) {
           const comboProducts = products.map(product => ({
             combo_id: id,
@@ -85,25 +85,25 @@ module.exports = {
       });
 
       console.log(`[ComboController] Combo ID ${id} atualizado com sucesso.`);
-      return response.json({ message: 'Combo updated successfully.' });
+      return response.json({ message: 'Combo atualizado com sucesso.' });
 
     } catch (error) {
       console.error(`[ComboController] Erro ao atualizar combo ID ${id}:`, error);
-      return response.status(500).json({ error: 'An error occurred while updating the combo.' });
+      return response.status(500).json({ error: 'Falha ao atualizar o combo.' });
     }
   },
 
   // APAGAR um combo
   async destroy(request, response) {
     const { id } = request.params;
-    console.log(`[ComboController] Recebida requisição para apagar combo ID: ${id}`);
+    console.log(`[ComboController] Apagando combo ID: ${id}`);
     
     // Graças ao 'ON DELETE CASCADE' na migration, apagar o combo
-    // irá apagar automaticamente as entradas em 'combo_products'.
+    // irá apagar automaticamente as entradas correspondentes em 'combo_products'.
     const deleted_rows = await connection('combos').where('id', id).delete();
 
     if (deleted_rows === 0) {
-      return response.status(404).json({ error: 'Combo not found.' });
+      return response.status(404).json({ error: 'Combo não encontrado.' });
     }
 
     console.log(`[ComboController] Combo ID ${id} apagado com sucesso.`);

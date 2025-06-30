@@ -1,37 +1,47 @@
-/**
- * @param { import("knex").Knex } knex
- * @returns { Promise<void> }
- */
-exports.up = function(knex) {
-  return knex.schema.table('products', (table) => {
-    // 1. Colunas para o controle de estoque do produto
-    table.boolean('stock_enabled').defaultTo(false).notNullable();
-    table.integer('stock_quantity').nullable();
+// backend/src/database/migrations/20250629210000_add_stock_and_complements_to_products.js
+exports.up = async function(knex) {
+  const columns = await knex('information_schema.columns')
+    .select('column_name')
+    .where('table_name', 'products');
 
-    // 2. Colunas para a relação Pai/Filho (Complementos)
-    // Esta coluna indica qual é o "produto pai" de um complemento.
-    // Se for nulo, o produto é um pai ou um item normal.
-    table.integer('parent_product_id').unsigned().references('id').inTable('products').onDelete('SET NULL').nullable();
-    
-    // 3. Colunas de controle para as regras de negócio dos complementos
-    // Define se o estoque do filho deve seguir o do pai.
-    table.boolean('stock_sync_enabled').defaultTo(false).notNullable();
-    // Define se o cliente será obrigado a escolher um complemento no cardápio.
-    table.boolean('force_addons').defaultTo(false).notNullable();
+  const has = (col) => columns.some(c => c.column_name === col);
+
+  await knex.schema.table('products', (table) => {
+    if (!has('stock_enabled')) {
+      console.log("Adicionando coluna 'stock_enabled'...");
+      table.boolean('stock_enabled').defaultTo(false).notNullable();
+    }
+    if (!has('stock_quantity')) {
+      console.log("Adicionando coluna 'stock_quantity'...");
+      table.integer('stock_quantity').nullable();
+    }
+    if (!has('parent_product_id')) {
+      console.log("Adicionando coluna 'parent_product_id'...");
+      table.integer('parent_product_id').unsigned().references('id').inTable('products').onDelete('SET NULL').nullable();
+    }
+    if (!has('stock_sync_enabled')) {
+      console.log("Adicionando coluna 'stock_sync_enabled'...");
+      table.boolean('stock_sync_enabled').defaultTo(false).notNullable();
+    }
+    if (!has('force_addons')) {
+      console.log("Adicionando coluna 'force_addons'...");
+      table.boolean('force_addons').defaultTo(false).notNullable();
+    }
   });
 };
 
-/**
- * @param { import("knex").Knex } knex
- * @returns { Promise<void> }
- */
-exports.down = function(knex) {
-  // O processo 'down' reverte as alterações na ordem inversa.
-  return knex.schema.table('products', (table) => {
-    table.dropColumn('stock_enabled');
-    table.dropColumn('stock_quantity');
-    table.dropColumn('parent_product_id');
-    table.dropColumn('stock_sync_enabled');
-    table.dropColumn('force_addons');
+exports.down = async function(knex) {
+  const columns = await knex('information_schema.columns')
+    .select('column_name')
+    .where('table_name', 'products');
+
+  const has = (col) => columns.some(c => c.column_name === col);
+
+  await knex.schema.table('products', (table) => {
+    if (has('force_addons')) table.dropColumn('force_addons');
+    if (has('stock_sync_enabled')) table.dropColumn('stock_sync_enabled');
+    if (has('parent_product_id')) table.dropColumn('parent_product_id');
+    if (has('stock_quantity')) table.dropColumn('stock_quantity');
+    if (has('stock_enabled')) table.dropColumn('stock_enabled');
   });
 };

@@ -1,142 +1,149 @@
 // backend/src/controllers/ProductController.js
 const connection = require('../database/connection');
 
+// Função auxiliar para buscar as colunas de uma tabela em tempo real
+async function getTableColumns(tableName) {
+  try {
+    const result = await connection.raw(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = '${tableName}'`
+    );
+    return result.rows.map(row => row.column_name);
+  } catch (error) {
+    console.error(`Erro ao buscar colunas para a tabela ${tableName}:`, error);
+    return []; // Retorna um array vazio em caso de erro para não quebrar a aplicação
+  }
+}
+
 module.exports = {
-  // LISTAR todos os produtos
+  // LISTAR todos os produtos, agrupando complementos sob seus pais
   async index(request, response) {
-    console.log('[ProductController] Recebida requisição para listar produtos.');
     const products = await connection('products').select('*').orderBy('id', 'asc');
-    
-    // Lógica para agrupar complementos sob seus pais
     const productMap = new Map();
     const parentProducts = [];
 
     products.forEach(product => {
-      product.children = []; // Adiciona uma propriedade para os filhos
+      product.children = [];
       productMap.set(product.id, product);
     });
 
     products.forEach(product => {
       if (product.parent_product_id) {
         const parent = productMap.get(product.parent_product_id);
-        if (parent) {
-          parent.children.push(product);
-        }
+        if (parent) parent.children.push(product);
       } else {
-        parentProducts.push(product); // É um produto pai ou autônomo
+        parentProducts.push(product);
       }
     });
-
-    console.log(`[ProductController] Encontrados ${parentProducts.length} produtos pai/autônomos.`);
     return response.json(parentProducts);
   },
 
-  // VER um único produto
-  async show(request, response) {
-    const { id } = request.params;
-    console.log(`[ProductController] Recebida requisição para ver produto com ID: ${id}`);
-    const product = await connection('products').where('id', id).first();
-    if (!product) {
-      return response.status(404).json({ error: 'Product not found.' });
-    }
-    console.log(`[ProductController] Produto encontrado:`, product);
-    return response.json(product);
-  },
-
-  // CRIAR um novo produto
+  // CRIAR um novo produto de forma resiliente
   async create(request, response) {
-    const { name, description, price, status, image_url, stock_enabled, stock_quantity, parent_product_id } = request.body;
-    console.log('[ProductController] Recebida requisição para criar produto:', request.body);
     try {
-      const [id] = await connection('products').insert({
-        name, description, price, status, image_url, stock_enabled, stock_quantity, parent_product_id
-      }).returning('id');
-      console.log(`[ProductController] Produto criado com sucesso com ID: ${id}.`);
-      return response.status(201).json({ id });
+      const productData = request.body;
+      const existingColumns = await getTableColumns('products');
+      const dataToInsert = {};
+      for (const key in productData) {
+        if (existingColumns.includes(key)) {
+          dataToInsert[key] = productData[key];
+        }
+      }
+      
+      console.log('[ProductController] Dados a serem inseridos (após filtro de colunas):', dataToInsert);
+      const [product] = await connection('products').insert(dataToInsert).returning('*');
+      return response.status(201).json(product);
     } catch (error) {
       console.error('[ProductController] Erro ao criar produto:', error);
-      return response.status(500).json({ error: 'An error occurred while creating the product.' });
+      return response.status(500).json({ error: 'Falha ao criar o produto.' });
     }
   },
 
-  // ATUALIZAR um produto
+  // ATUALIZAR um produto de forma resiliente
   async update(request, response) {
-    const { id } = request.params;
-    const { name, description, price, status, image_url, stock_enabled, stock_quantity, parent_product_id, stock_sync_enabled, force_addons, children } = request.body;
-    console.log(`[ProductController] Recebida requisição para atualizar produto ID ${id} com dados:`, request.body);
-
     try {
-      await connection.transaction(async trx => {
-        // 1. Atualiza o produto principal
-        await trx('products').where('id', id).update({
-          name, description, price, status, image_url, stock_enabled, stock_quantity, parent_product_id, stock_sync_enabled, force_addons
-        });
+      const { id } = request.params;
+      const productData = request.body;
+      const existingColumns = await getTableColumns('products');
+      const dataToUpdate = {};
+      for (const key in productData) {
+        if (existingColumns.includes(key) && key !== 'children') {
+          dataToUpdate[key] = productData[key];
+        }
+      }
+      
+      console.log(`[ProductController] Dados a serem atualizados para o ID ${id} (após filtro):`, dataToUpdate);
 
-        // 2. Lógica para atualizar os filhos (complementos) vinculados
-        if (children && Array.isArray(children)) {
-            const childrenIds = children.map(child => child.id);
-            // Vincula os filhos atuais
+      await connection.transaction(async trx => {
+        if (Object.keys(dataToUpdate).length > 0) {
+          await trx('products').where({ id }).update(dataToUpdate);
+        }
+
+        if (productData.children !== undefined) {
+          await trx('products').where('parent_product_id', id).update({ parent_product_id: null });
+          if (productData.children.length > 0) {
+            const childrenIds = productData.children.map(child => child.id);
             await trx('products').whereIn('id', childrenIds).update({ parent_product_id: id });
-            
-            // Desvincula filhos que foram removidos
-            await trx('products')
-              .where('parent_product_id', id)
-              .whereNotIn('id', childrenIds)
-              .update({ parent_product_id: null });
-        } else {
-           // Se a lista de filhos vier vazia, desvincula todos
-           await trx('products').where('parent_product_id', id).update({ parent_product_id: null });
+          }
         }
       });
-
-      console.log(`[ProductController] Produto ID ${id} e seus complementos foram atualizados com sucesso.`);
-      return response.json({ message: 'Product updated successfully.' });
-
-    } catch(error) {
-      console.error(`[ProductController] Erro ao atualizar produto ID ${id}:`, error);
-      return response.status(500).json({ error: 'An error occurred while updating the product.' });
+      
+      return response.json({ message: 'Produto atualizado com sucesso.' });
+    } catch (error) {
+      console.error(`[ProductController] Erro ao atualizar produto ID ${request.params.id}:`, error);
+      return response.status(500).json({ error: 'Falha ao atualizar o produto.' });
     }
   },
 
   // APAGAR um produto
   async destroy(request, response) {
     const { id } = request.params;
-    console.log(`[ProductController] Recebida requisição para apagar produto ID: ${id}`);
     const deleted_rows = await connection('products').where('id', id).delete();
-    if (deleted_rows === 0) {
-      return response.status(404).json({ error: 'Product not found.' });
-    }
-    console.log(`[ProductController] Produto ID ${id} apagado com sucesso.`);
+    if (deleted_rows === 0) return response.status(404).json({ error: 'Produto não encontrado.' });
     return response.status(204).send();
   },
 
-  // NOVO: ATUALIZAR O ESTOQUE
+  // ATUALIZAR O ESTOQUE de forma resiliente
   async updateStock(request, response) {
     const { id } = request.params;
-    const { stock_quantity, stock_enabled } = request.body;
+    try {
+        const productData = request.body;
 
-    console.log(`[ProductController] Atualizando estoque do produto ${id}:`, request.body);
+        // 1. Busca as colunas existentes
+        const existingColumns = await getTableColumns('products');
 
-    const updateData = {};
-    if (stock_quantity !== undefined) {
-      updateData.stock_quantity = stock_quantity;
+        // 2. Filtra os dados para garantir que apenas colunas existentes sejam atualizadas
+        const dataToUpdate = {};
+        if (productData.stock_quantity !== undefined && existingColumns.includes('stock_quantity')) {
+            dataToUpdate.stock_quantity = productData.stock_quantity;
+        }
+        if (productData.stock_enabled !== undefined && existingColumns.includes('stock_enabled')) {
+            dataToUpdate.stock_enabled = productData.stock_enabled;
+        }
+
+        // Se não houver dados válidos para atualizar, retorna sucesso.
+        if (Object.keys(dataToUpdate).length === 0) {
+            console.log(`[ProductController] Nenhuma coluna de estoque válida encontrada para o produto ${id}. Ação ignorada.`);
+            return response.status(200).json({ message: 'Nenhuma coluna de estoque válida para atualizar.' });
+        }
+
+        const product = await connection('products').where('id', id).first();
+        if (!product) {
+            return response.status(404).json({ error: 'Produto não encontrado.' });
+        }
+
+        await connection('products').where('id', id).update(dataToUpdate);
+
+        if (product.stock_sync_enabled && dataToUpdate.stock_quantity !== undefined) {
+            await connection('products')
+                .where('parent_product_id', id)
+                .update({ stock_quantity: dataToUpdate.stock_quantity });
+        }
+        
+        return response.status(200).json({ message: 'Estoque atualizado com sucesso.' });
+
+    } catch (error) {
+        console.error(`[ProductController] Erro ao atualizar estoque do produto ${id}:`, error);
+        return response.status(500).json({ error: 'Falha ao atualizar o estoque.' });
     }
-    if (stock_enabled !== undefined) {
-      updateData.stock_enabled = stock_enabled;
-    }
-
-    const product = await connection('products').where('id', id).first();
-    if(!product) {
-        return response.status(404).json({ error: 'Product not found.' });
-    }
-
-    await connection('products').where('id', id).update(updateData);
-    
-    // Se a sincronização de estoque estiver ativa, atualiza os filhos
-    if(product.stock_sync_enabled) {
-        await connection('products').where('parent_product_id', id).update(updateData);
-    }
-
-    return response.status(200).json({ message: 'Stock updated successfully.' });
   }
 };
