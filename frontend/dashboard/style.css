@@ -164,3 +164,31 @@ input:checked + .slider:before { transform: translateX(20px); }
 .combo-product-item { display: grid; grid-template-columns: 1fr 100px; align-items: center; padding: 8px; border-radius: 6px; }
 .combo-product-item:nth-child(odd) { background-color: rgba(0,0,0,0.2); }
 .combo-product-item .input-field { width: 80px; text-align: center; }
+
+.combo-product-item-header {
+    display: grid;
+    grid-template-columns: 1fr 120px 150px;
+    gap: 15px;
+    padding: 8px;
+    font-weight: 600;
+    opacity: 0.8;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 5px;
+}
+
+.combo-product-item {
+    display: grid;
+    grid-template-columns: 1fr 120px 150px; /* Alinhamento para os 3 campos */
+    align-items: center;
+    gap: 15px; /* Espaçamento entre os campos */
+    padding: 8px;
+    border-radius: 6px;
+}
+.combo-product-item:nth-child(odd) {
+    background-color: rgba(0,0,0,0.2);
+}
+.combo-product-name {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}

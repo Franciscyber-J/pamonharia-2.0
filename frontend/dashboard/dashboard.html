@@ -11,13 +11,32 @@
     <style>
         .parent-controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 0.9rem; padding: 5px; background-color: rgba(0,0,0,0.1); border-radius: 6px; }
         .parent-controls .toggle-switch { transform: scale(0.8); }
+
+        .combo-rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; padding-bottom: 25px; border-bottom: 1px solid var(--border-color); }
+
+        .combo-product-item-header { display: grid; grid-template-columns: 1fr 120px 150px; gap: 15px; padding: 8px; font-weight: 600; opacity: 0.8; border-bottom: 1px solid var(--border-color); margin-bottom: 5px; }
+        .combo-product-item { display: grid; grid-template-columns: 1fr 120px 150px; align-items: center; gap: 15px; padding: 8px; border-radius: 6px; }
+        .combo-product-item:nth-child(even) { background-color: rgba(0,0,0,0.2); }
+        .combo-product-name { display: flex; align-items: center; gap: 10px; }
+        
+        #combo-quantity-validator {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        #combo-quantity-validator.valid { color: var(--success-color); background-color: rgba(56, 161, 105, 0.1); }
+        #combo-quantity-validator.invalid { color: var(--danger-color); background-color: rgba(229, 62, 62, 0.1); }
     </style>
 </head>
 <body>
     <div class="background-bubbles"></div>
     <script>
         const token = localStorage.getItem('authToken');
-        if (!token) { window.location.href = 'http://localhost:10000/login.html'; }
+        if (!token) { window.location.href = 'login.html'; }
     </script>
 
     <div class="main-container">
@@ -114,14 +133,33 @@
                       <div class="product-form-inputs">
                           <div class="form-group"><label for="combo-name">Nome do Combo</label><input type="text" id="combo-name" class="input-field" required></div>
                           <div class="form-group"><label for="combo-description">Descrição</label><input type="text" id="combo-description" class="input-field"></div>
-                          <div class="form-group"><label for="combo-price">Preço (R$)</label><input type="number" id="combo-price" class="input-field" step="0.01" required></div>
+                          <div class="form-group"><label for="combo-price">Preço Base (R$)</label><input type="number" id="combo-price" class="input-field" step="0.01" required></div>
                           <div class="form-group"><label for="combo-status">Status</label><select id="combo-status" class="input-field"><option value="true">Ativo</option><option value="false">Inativo</option></select></div>
                       </div>
                   </div>
+                  
+                  <div class="combo-rules-grid">
+                      <div class="form-group">
+                          <label for="total-items-limit">Quantidade de Itens no Combo</label>
+                          <input type="number" id="total-items-limit" class="input-field" min="1" value="1" required>
+                      </div>
+                      <div class="form-group" style="display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 10px;">
+                          <label>Modo de Escolha do Cliente</label>
+                          <div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="allow-free-choice">
+                                <span class="slider"></span>
+                            </label>
+                            <span>Permitir Escolha Livre</span>
+                          </div>
+                      </div>
+                  </div>
+
                   <div class="combo-products-section">
-                      <h4>Produtos Incluídos no Combo</h4>
-                      <p style="opacity: 0.7; font-size: 0.9rem; margin-bottom: 15px;">Selecione os produtos e defina a quantidade de cada um para formar o combo.</p>
+                      <h4>Itens Disponíveis para o Combo</h4>
+                      <p style="opacity: 0.7; font-size: 0.9rem; margin-bottom: 15px;">Selecione os itens, defina a quantidade (se o modo for fixo) e ajuste o preço se necessário.</p>
                       <div id="combo-products-list" class="combo-products-list"></div>
+                      <div id="combo-quantity-validator" style="display: none;"></div>
                   </div>
               </form>
             </div>
@@ -150,6 +188,13 @@
         const apiFetch = async (endpoint, options = {}) => {
             options.headers = { ...options.headers, 'Authorization': `Bearer ${localStorage.getItem('authToken')}`, 'Content-Type': 'application/json' };
             const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+
+            if (response.status === 401) {
+                localStorage.removeItem('authToken');
+                window.location.href = 'login.html';
+                throw new Error('Token inválido ou expirado. Redirecionando para o login.');
+            }
+
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: 'Erro desconhecido' }));
                 throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
@@ -176,7 +221,7 @@
                 allProductsFlat = flattenProductsWithParentInfo(allProducts);
             } catch (error) {
                 console.error("Falha crítica ao buscar produtos:", error);
-                dashboardContent.innerHTML = `<p>Não foi possível carregar os dados. Verifique a conexão com o servidor.</p>`
+                dashboardContent.innerHTML = `<p>Não foi possível carregar os dados. Verifique a conexão com o servidor e a configuração de CORS no backend.</p>`
             }
         };
 
@@ -252,11 +297,11 @@
             } catch (error) { console.error(`Falha ao atualizar status:`, error); }
         };
 
-        // --- LÓGICA DE PRODUTOS E COMPLEMENTOS (Refatorada) ---
+        // --- LÓGICA DE PRODUTOS E COMPLEMENTOS ---
         const renderProdutosPage = () => {
             pageTitle.textContent = 'Produtos Principais';
             dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Esta página lista os produtos principais. Complementos vinculados são exibidos abaixo de cada produto "pai".</p><table class="data-table product-table"><thead><tr><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`;
-            document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true)); // true = isMainProduct
+            document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true));
             renderProdutosPageContent();
         };
         const renderProdutosPageContent = () => {
@@ -276,7 +321,7 @@
         const renderComplementosPage = () => {
             pageTitle.textContent = 'Itens de Complemento';
             dashboardContent.innerHTML = `<div class="page-header"><h2>Banco de Itens para Complemento</h2><button id="add-complemento-btn" class="btn btn-primary">Adicionar Novo Item</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Itens criados aqui não aparecem no cardápio principal. Eles devem ser vinculados a um Produto Principal para serem utilizados.</p><table class="data-table product-table"><thead><tr><th>Item</th><th>Preço</th><th>Status</th><th>Estoque</th><th>Ações</th></tr></thead><tbody id="complementos-tbody"></tbody></table>`;
-            document.getElementById('add-complemento-btn').addEventListener('click', () => openProductModal(null, false)); // false = !isMainProduct
+            document.getElementById('add-complemento-btn').addEventListener('click', () => openProductModal(null, false));
             renderComplementosPageContent();
         };
         const renderComplementosPageContent = () => {
@@ -291,7 +336,7 @@
         };
 
         const createProductRow = (product, isChild = false, isSynced = false) => {
-            const stock_quantity = product.stock_quantity ?? ''; // CORREÇÃO: Usar string vazia
+            const stock_quantity = product.stock_quantity ?? '';
             const stock_controls_disabled = !product.stock_enabled || (isChild && isSynced) ? 'disabled' : '';
             
             let parentControls = '';
@@ -398,6 +443,7 @@
 
                 if (currentProduct.image_url) {
                     document.getElementById('product-image-preview').src = currentProduct.image_url;
+                    document.getElementById('product-image-url').value = currentProduct.image_url;
                     document.getElementById('product-upload-prompt').style.display = 'none';
                 }
 
@@ -486,7 +532,7 @@
         // --- LÓGICA DE COMBOS ---
         const renderCombosPage = () => {
             pageTitle.textContent = 'Gestão de Combos';
-            dashboardContent.innerHTML = `<div class="page-header"><h2>Todos os Combos</h2><button id="add-combo-btn" class="btn btn-primary">Criar Combo</button></div><table class="data-table"><thead><tr><th>Combo</th><th>Preço</th><th>Produtos</th><th>Status</th><th>Ações</th></tr></thead><tbody id="combos-tbody"></tbody></table>`;
+            dashboardContent.innerHTML = `<div class="page-header"><h2>Todos os Combos</h2><button id="add-combo-btn" class="btn btn-primary">Criar Combo</button></div><table class="data-table"><thead><tr><th>Combo</th><th>Preço Base</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="combos-tbody"></tbody></table>`;
             document.getElementById('add-combo-btn').addEventListener('click', () => openComboModal());
             fetchAndRenderCombos();
         };
@@ -496,11 +542,15 @@
                 const tbody = document.getElementById('combos-tbody');
                 tbody.innerHTML = '';
                 combos.forEach(combo => {
-                    const productNames = combo.products.map(p => `${p.quantity_in_combo}x ${p.name}`).join(', ') || 'Nenhum';
-                    tbody.innerHTML += `<tr><td><div style="display: flex; align-items: center; gap: 15px;"><img src="${combo.image_url || PLACEHOLDER_IMG_60}" alt="${combo.name}" class="product-image-thumbnail"><span>${combo.name}</span></div></td><td>R$ ${parseFloat(combo.price).toFixed(2).replace('.', ',')}</td><td>${productNames}</td><td><span class="status-badge ${combo.status ? 'active' : 'inactive'}">${combo.status ? 'Ativo' : 'Inativo'}</span></td><td class="action-buttons"><button onclick="openComboModal(${combo.id})">Editar</button><button onclick="deleteCombo(${combo.id})">Apagar</button></td></tr>`;
+                    const productNames = combo.allow_free_choice
+                        ? combo.products.map(p => p.name).join(', ')
+                        : combo.products.map(p => `${p.quantity_in_combo}x ${p.name}`).join(', ');
+                    
+                    tbody.innerHTML += `<tr><td><div style="display: flex; align-items: center; gap: 15px;"><img src="${combo.image_url || PLACEHOLDER_IMG_60}" alt="${combo.name}" class="product-image-thumbnail"><span>${combo.name}</span></div></td><td>R$ ${parseFloat(combo.price).toFixed(2).replace('.', ',')}</td><td>${productNames || 'Nenhum'}</td><td><span class="status-badge ${combo.status ? 'active' : 'inactive'}">${combo.status ? 'Ativo' : 'Inativo'}</span></td><td class="action-buttons"><button onclick="openComboModal(${combo.id})">Editar</button><button onclick="deleteCombo(${combo.id})">Apagar</button></td></tr>`;
                 });
             } catch (error) { console.error("Erro ao buscar combos:", error); }
         };
+
         const openComboModal = async (id = null) => {
             const modal = document.getElementById('combo-modal-overlay');
             const form = document.getElementById('combo-form');
@@ -511,8 +561,10 @@
             document.getElementById('combo-upload-prompt').style.display = 'block';
             const productsListDiv = document.getElementById('combo-products-list');
             productsListDiv.innerHTML = 'Carregando...';
+            
             if (allProductsFlat.length === 0) await fetchAllProducts();
-            let comboData = { products: [] };
+            
+            let comboData = { products: [], total_items_limit: 1, allow_free_choice: true };
             if (id) {
                 document.getElementById('combo-modal-title').textContent = 'Editar Combo';
                 const allCombos = await apiFetch('/combos');
@@ -522,22 +574,114 @@
                 document.getElementById('combo-description').value = comboData.description;
                 document.getElementById('combo-price').value = parseFloat(comboData.price).toFixed(2);
                 document.getElementById('combo-status').value = String(comboData.status);
-                if (comboData.image_url) { document.getElementById('combo-image-url').value = comboData.image_url; document.getElementById('combo-image-preview').src = comboData.image_url; document.getElementById('combo-upload-prompt').style.display = 'none';}
+                if (comboData.image_url) { 
+                    document.getElementById('combo-image-url').value = comboData.image_url; 
+                    document.getElementById('combo-image-preview').src = comboData.image_url; 
+                    document.getElementById('combo-upload-prompt').style.display = 'none';
+                }
             } else {
                 document.getElementById('combo-modal-title').textContent = 'Adicionar Novo Combo';
             }
-            const productsInComboMap = new Map(comboData.products.map(p => [p.product_id, p.quantity_in_combo]));
-            productsListDiv.innerHTML = '';
-            // Apenas produtos principais podem ser adicionados a combos
-            const mainProductsForCombo = allProductsFlat.filter(p => p.is_main_product);
-            mainProductsForCombo.forEach(product => {
-                const quantity = productsInComboMap.get(product.id) || 0;
-                productsListDiv.innerHTML += `<div class="combo-product-item"><label><input type="checkbox" data-product-id="${product.id}" ${quantity > 0 ? 'checked' : ''}> ${product.name}</label><input type="number" class="input-field" min="1" value="${quantity || 1}" ${!quantity ? 'disabled' : ''}></div>`;
+
+            document.getElementById('total-items-limit').value = comboData.total_items_limit;
+            const freeChoiceToggle = document.getElementById('allow-free-choice');
+            freeChoiceToggle.checked = comboData.allow_free_choice;
+            
+            const productsInComboMap = new Map(comboData.products.map(p => [p.product_id, { 
+                quantity: p.quantity_in_combo,
+                modifier: p.price_modifier || '0.00'
+            }]));
+
+            productsListDiv.innerHTML = `<div class="combo-product-item-header"><span>Produto</span><span class="quantity-header">Qtd. no Combo</span><span>Ajuste de Preço (R$)</span></div>`;
+            
+            allProductsFlat.forEach(product => {
+                const comboInfo = productsInComboMap.get(product.id);
+                const isChecked = !!comboInfo;
+                const quantity = comboInfo ? comboInfo.quantity : 1;
+                const priceModifier = comboInfo ? parseFloat(comboInfo.modifier).toFixed(2) : '0.00';
+
+                productsListDiv.innerHTML += `
+                    <div class="combo-product-item">
+                        <label class="combo-product-name">
+                            <input type="checkbox" data-product-id="${product.id}" ${isChecked ? 'checked' : ''}> 
+                            ${product.name}
+                        </label>
+                        <input type="number" class="input-field quantity-in-combo" min="1" value="${quantity}" ${!isChecked ? 'disabled' : ''}>
+                        <input type="number" step="0.01" class="input-field price-modifier" value="${priceModifier}" ${!isChecked ? 'disabled' : ''}>
+                    </div>
+                `;
             });
-            productsListDiv.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.addEventListener('change', (e) => { e.target.closest('.combo-product-item').querySelector('input[type="number"]').disabled = !e.target.checked; }); });
+
+            const validatorDiv = document.getElementById('combo-quantity-validator');
+            const saveButton = document.getElementById('save-combo-button');
+
+            const validateQuantities = () => {
+                if (freeChoiceToggle.checked) {
+                    validatorDiv.style.display = 'none';
+                    saveButton.disabled = false;
+                    return;
+                }
+
+                validatorDiv.style.display = 'block';
+                const totalLimit = parseInt(document.getElementById('total-items-limit').value) || 0;
+                let currentTotal = 0;
+                productsListDiv.querySelectorAll('.combo-product-item').forEach(itemRow => {
+                    const checkbox = itemRow.querySelector('input[type="checkbox"]');
+                    if (checkbox.checked) {
+                        const quantityInput = itemRow.querySelector('.quantity-in-combo');
+                        currentTotal += parseInt(quantityInput.value) || 0;
+                    }
+                });
+
+                validatorDiv.textContent = `Total de itens selecionados: ${currentTotal} / ${totalLimit}`;
+                if (currentTotal === totalLimit) {
+                    validatorDiv.className = 'valid';
+                    saveButton.disabled = false;
+                } else {
+                    validatorDiv.className = 'invalid';
+                    saveButton.disabled = true;
+                }
+            };
+
+            const toggleItemInputs = () => {
+                const isFreeChoice = freeChoiceToggle.checked;
+                productsListDiv.querySelector('.quantity-header').style.display = isFreeChoice ? 'none' : 'block';
+                
+                productsListDiv.querySelectorAll('.combo-product-item').forEach(itemRow => {
+                    const checkbox = itemRow.querySelector('input[type="checkbox"]');
+                    const quantityInput = itemRow.querySelector('.quantity-in-combo');
+                    quantityInput.style.display = isFreeChoice ? 'none' : 'block';
+                    if (checkbox.checked) {
+                        quantityInput.disabled = isFreeChoice;
+                    }
+                });
+
+                const gridStyle = isFreeChoice ? '1fr 150px' : '1fr 120px 150px';
+                productsListDiv.querySelector('.combo-product-item-header').style.gridTemplateColumns = gridStyle;
+                productsListDiv.querySelectorAll('.combo-product-item').forEach(item => item.style.gridTemplateColumns = gridStyle);
+
+                validateQuantities();
+            };
+
+            freeChoiceToggle.addEventListener('change', toggleItemInputs);
+            document.getElementById('total-items-limit').addEventListener('input', validateQuantities);
+            
+            productsListDiv.querySelectorAll('input[type="checkbox"], .quantity-in-combo').forEach(el => {
+                el.addEventListener('input', () => {
+                    const itemRow = el.closest('.combo-product-item');
+                    const isChecked = itemRow.querySelector('input[type="checkbox"]').checked;
+                    itemRow.querySelector('.price-modifier').disabled = !isChecked;
+                    itemRow.querySelector('.quantity-in-combo').disabled = !isChecked || freeChoiceToggle.checked;
+                    validateQuantities();
+                });
+            });
+
+            toggleItemInputs(); 
             modal.style.display = 'flex';
         };
+
         const closeComboModal = () => document.getElementById('combo-modal-overlay').style.display = 'none';
+        
         const saveCombo = async (event) => {
             event.preventDefault();
             const saveButton = document.getElementById('save-combo-button');
@@ -556,8 +700,28 @@
                 } catch (error) { console.error('Erro no upload:', error); saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; return; }
             }
             const id = document.getElementById('combo-id').value;
-            const selectedProducts = Array.from(document.querySelectorAll('#combo-products-list input:checked')).map(cb => ({ id: parseInt(cb.dataset.productId), quantity_in_combo: parseInt(cb.closest('.combo-product-item').querySelector('input[type="number"]').value) }));
-            const comboData = { name: document.getElementById('combo-name').value, description: document.getElementById('combo-description').value, price: parseFloat(document.getElementById('combo-price').value), status: document.getElementById('combo-status').value === 'true', image_url: imageUrl, products: selectedProducts };
+            
+            const selectedProducts = Array.from(document.querySelectorAll('#combo-products-list input:checked')).map(cb => {
+                const itemRow = cb.closest('.combo-product-item');
+                const quantity = document.getElementById('allow-free-choice').checked ? 1 : (parseInt(itemRow.querySelector('.quantity-in-combo').value) || 1);
+                return { 
+                    id: parseInt(cb.dataset.productId), 
+                    quantity_in_combo: quantity,
+                    price_modifier: parseFloat(itemRow.querySelector('.price-modifier').value)
+                };
+            });
+            
+            const comboData = { 
+                name: document.getElementById('combo-name').value,
+                description: document.getElementById('combo-description').value,
+                price: parseFloat(document.getElementById('combo-price').value),
+                status: document.getElementById('combo-status').value === 'true',
+                image_url: imageUrl,
+                products: selectedProducts,
+                total_items_limit: parseInt(document.getElementById('total-items-limit').value),
+                allow_free_choice: document.getElementById('allow-free-choice').checked
+            };
+            
             try {
                 await apiFetch(id ? `/combos/${id}` : '/combos', { method: id ? 'PUT' : 'POST', body: JSON.stringify(comboData) });
                 closeComboModal();
@@ -565,9 +729,9 @@
             } catch (error) { console.error('Erro ao salvar combo:', error); }
             finally { saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; }
         };
-        const deleteCombo = async (id) => { if (confirm('Tem a certeza?')) try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); fetchAndRenderCombos(); } catch (error) { console.error('Erro ao apagar combo:', error); } };
 
-        // --- LÓGICA DE CONFIGURAÇÕES ---
+        const deleteCombo = async (id) => { if (confirm('Tem a certeza?')) try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); fetchAndRenderCombos(); } catch (error) { console.error('Erro ao apagar combo:', error); } };
+        
         const renderSettingsPage = () => {
             pageTitle.textContent = 'Configurações da Loja';
             dashboardContent.innerHTML = `<form id="settings-form" class="settings-form"><div class="settings-card"><div class="card-header"><h3>Status da Loja</h3></div><div id="status-buttons" class="status-buttons"><button type="button" data-status="true">Forçar Aberta</button><button type="button" data-status="false">Forçar Fechada</button><button type="button" data-status="null">Seguir Horário</button></div></div><div class="settings-card"><div class="card-header"><h3>Informações Gerais</h3></div><div class="info-grid"><div class="grid-col-span-2 form-group"><label for="address">Endereço</label><input type="text" id="address" class="input-field"></div><div class="form-group"><label for="store_name">Nome da Loja</label><input type="text" id="store_name" class="input-field"></div><div class="form-group"><label for="location_link">Link Google Maps</label><input type="text" id="location_link" class="input-field"></div></div></div><div class="settings-card"><div class="card-header"><h3>Financeiro</h3></div><div class="form-group"><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" step="0.50" class="input-field"></div></div><div class="settings-card"><div class="card-header"><h3>Horários</h3></div><div class="operating-hours-grid" id="hours-grid"></div></div><div class="settings-card"><div class="card-header"><h3>Notificações</h3></div><div class="form-group"><label for="notification_sound">Carregar Som (MP3, WAV)</label><input type="file" id="notification_sound" accept="audio/*"></div><div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;"><p id="sound-feedback"></p><button type="button" id="remove-sound-btn" style="display: none;" class="btn btn-danger">Remover</button></div></div><div class="form-buttons"><span id="save-feedback"></span><button type="submit" class="btn btn-primary">Salvar Alterações</button></div></form>`;
@@ -694,11 +858,11 @@
 
             document.getElementById('logout-button').addEventListener('click', () => {
                 localStorage.removeItem('authToken');
-                window.location.href = 'http://localhost:10000/login.html';
+                window.location.href = 'login.html';
             });
 
             await fetchAllProducts();
-            navLinks.produtos.click();
+            navLinks.pedidos.click();
         });
     </script>
 </body>

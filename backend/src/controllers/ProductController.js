@@ -10,7 +10,7 @@ async function getTableColumns(tableName) {
     return result.rows.map(row => row.column_name);
   } catch (error) {
     console.error(`Erro ao buscar colunas para a tabela ${tableName}:`, error);
-    return []; // Retorna um array vazio em caso de erro para não quebrar a aplicação
+    return [];
   }
 }
 
@@ -37,7 +37,7 @@ module.exports = {
     return response.json(parentProducts);
   },
 
-  // CRIAR um novo produto de forma resiliente
+  // CRIAR um novo produto
   async create(request, response) {
     try {
       const productData = request.body;
@@ -49,7 +49,6 @@ module.exports = {
         }
       }
       
-      console.log('[ProductController] Dados a serem inseridos (após filtro de colunas):', dataToInsert);
       const [product] = await connection('products').insert(dataToInsert).returning('*');
       return response.status(201).json(product);
     } catch (error) {
@@ -58,12 +57,13 @@ module.exports = {
     }
   },
 
-  // ATUALIZAR um produto de forma resiliente
+  // ATUALIZAR um produto
   async update(request, response) {
     try {
       const { id } = request.params;
       const productData = request.body;
       const existingColumns = await getTableColumns('products');
+      
       const dataToUpdate = {};
       for (const key in productData) {
         if (existingColumns.includes(key) && key !== 'children') {
@@ -74,15 +74,28 @@ module.exports = {
       console.log(`[ProductController] Dados a serem atualizados para o ID ${id} (após filtro):`, dataToUpdate);
 
       await connection.transaction(async trx => {
+        // 1. Atualiza os dados principais do produto pai
         if (Object.keys(dataToUpdate).length > 0) {
           await trx('products').where({ id }).update(dataToUpdate);
         }
 
+        // 2. Atualiza os complementos (filhos)
         if (productData.children !== undefined) {
           await trx('products').where('parent_product_id', id).update({ parent_product_id: null });
           if (productData.children.length > 0) {
             const childrenIds = productData.children.map(child => child.id);
             await trx('products').whereIn('id', childrenIds).update({ parent_product_id: id });
+          }
+        }
+
+        // 3. LÓGICA DE SINCRONIZAÇÃO IMEDIATA
+        if (dataToUpdate.stock_sync_enabled === true) {
+          console.log(`[ProductController] Sincronização de estoque ativada para o produto ${id}. Atualizando filhos...`);
+          const parentProduct = await trx('products').where({ id }).first();
+          if (parentProduct && parentProduct.stock_quantity !== null) {
+            await trx('products')
+              .where('parent_product_id', id)
+              .update({ stock_quantity: parentProduct.stock_quantity });
           }
         }
       });
@@ -102,28 +115,17 @@ module.exports = {
     return response.status(204).send();
   },
 
-  // ATUALIZAR O ESTOQUE de forma resiliente
+  // ATUALIZAR O ESTOQUE
   async updateStock(request, response) {
     const { id } = request.params;
     try {
         const productData = request.body;
-
-        // 1. Busca as colunas existentes
-        const existingColumns = await getTableColumns('products');
-
-        // 2. Filtra os dados para garantir que apenas colunas existentes sejam atualizadas
         const dataToUpdate = {};
-        if (productData.stock_quantity !== undefined && existingColumns.includes('stock_quantity')) {
-            dataToUpdate.stock_quantity = productData.stock_quantity;
-        }
-        if (productData.stock_enabled !== undefined && existingColumns.includes('stock_enabled')) {
-            dataToUpdate.stock_enabled = productData.stock_enabled;
-        }
+        if (productData.stock_quantity !== undefined) dataToUpdate.stock_quantity = productData.stock_quantity;
+        if (productData.stock_enabled !== undefined) dataToUpdate.stock_enabled = productData.stock_enabled;
 
-        // Se não houver dados válidos para atualizar, retorna sucesso.
         if (Object.keys(dataToUpdate).length === 0) {
-            console.log(`[ProductController] Nenhuma coluna de estoque válida encontrada para o produto ${id}. Ação ignorada.`);
-            return response.status(200).json({ message: 'Nenhuma coluna de estoque válida para atualizar.' });
+            return response.status(200).json({ message: 'Nenhuma informação de estoque para atualizar.' });
         }
 
         const product = await connection('products').where('id', id).first();

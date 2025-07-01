@@ -1,5 +1,5 @@
 // backend/test-db-connection.js
-require('dotenv').config();
+require('dotenv').config({ path: require('path').resolve(__dirname, './.env') });
 const knex = require('knex');
 const configuration = require('./knexfile');
 
@@ -7,7 +7,7 @@ const configuration = require('./knexfile');
 const db = knex(configuration.development);
 
 async function testConnection() {
-  console.log('--- INICIANDO TESTE DE CONEXÃO E SCHEMA ---');
+  console.log('--- INICIANDO TESTE DE CONEXão E SCHEMA ---');
   const testTableName = 'connection_test';
   try {
     console.log(`[1/4] Apagando a tabela de teste antiga ('${testTableName}')...`);

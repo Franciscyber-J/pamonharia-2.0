@@ -1,6 +1,6 @@
 // Ficheiro: backend/updatePassword.js
 // OBJETIVO: SCRIPT DE USO ÚNICO PARA ATUALIZAR A SENHA DO ADMIN
-
+require('dotenv').config({ path: require('path').resolve(__dirname, './.env') });
 const bcrypt = require('bcryptjs');
 const connection = require('./src/database/connection');
 
