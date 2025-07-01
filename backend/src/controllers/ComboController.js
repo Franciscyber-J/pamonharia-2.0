@@ -2,18 +2,17 @@
 const connection = require('../database/connection');
 
 module.exports = {
-  // LISTAR todos os combos e os seus produtos
+  // Rota para o Dashboard (ordenada)
   async index(request, response) {
-    console.log('[ComboController] Listando todos os combos.');
+    console.log('[ComboController] Listando todos os combos para o dashboard.');
     try {
-      const combos = await connection('combos').select('*').orderBy('id', 'asc');
+      const combos = await connection('combos').select('*').orderBy('display_order', 'asc');
       
       for (const combo of combos) {
-        const products = await connection('combo_products')
+        combo.products = await connection('combo_products')
           .join('products', 'products.id', '=', 'combo_products.product_id')
           .where('combo_products.combo_id', combo.id)
           .select('products.*', 'combo_products.quantity_in_combo', 'combo_products.price_modifier');
-        combo.products = products;
       }
       
       return response.json(combos);
@@ -23,12 +22,36 @@ module.exports = {
     }
   },
 
-  // CRIAR um novo combo
-  async create(request, response) {
-    // Adiciona os novos campos
-    const { name, description, price, status, image_url, products, total_items_limit, allow_free_choice } = request.body;
-    console.log('[ComboController] Criando novo combo:', request.body);
+  // Rota para o Cardápio Público (ordenada)
+  async indexPublic(request, response) {
+    console.log('[ComboController] Listando combos para o cardápio público.');
+    try {
+      const combos = await connection('combos')
+        .where('status', true)
+        .orderBy('display_order', 'asc');
 
+      for (const combo of combos) {
+        combo.products = await connection('combo_products')
+          .join('products', 'products.id', '=', 'combo_products.product_id')
+          .where('combo_products.combo_id', combo.id)
+          .andWhere('products.status', true)
+          .select(
+            'products.id',
+            'products.name',
+            'combo_products.quantity_in_combo',
+            'combo_products.price_modifier'
+          );
+      }
+      
+      return response.json(combos);
+    } catch (error) {
+      console.error('[ComboController] Erro ao listar combos públicos:', error);
+      return response.status(500).json({ error: 'Falha ao buscar os combos.' });
+    }
+  },
+
+  async create(request, response) {
+    const { name, description, price, status, image_url, products, total_items_limit, allow_free_choice } = request.body;
     try {
       await connection.transaction(async trx => {
         const [combo_id_obj] = await trx('combos').insert({
@@ -46,7 +69,6 @@ module.exports = {
           await trx('combo_products').insert(comboProducts);
         }
       });
-
       return response.status(201).json({ message: 'Combo criado com sucesso.' });
     } catch (error) {
       console.error('[ComboController] Erro ao criar combo:', error);
@@ -54,13 +76,9 @@ module.exports = {
     }
   },
 
-  // ATUALIZAR um combo existente
   async update(request, response) {
     const { id } = request.params;
-    // Adiciona os novos campos
     const { name, description, price, status, image_url, products, total_items_limit, allow_free_choice } = request.body;
-    console.log(`[ComboController] Atualizando combo ID ${id}.`);
-
     try {
       await connection.transaction(async trx => {
         await trx('combos').where('id', id).update({
@@ -79,7 +97,6 @@ module.exports = {
           await trx('combo_products').insert(comboProducts);
         }
       });
-
       return response.json({ message: 'Combo atualizado com sucesso.' });
     } catch (error) {
       console.error(`[ComboController] Erro ao atualizar combo ID ${id}:`, error);
@@ -87,7 +104,6 @@ module.exports = {
     }
   },
 
-  // APAGAR um combo
   async destroy(request, response) {
     const { id } = request.params;
     const deleted_rows = await connection('combos').where('id', id).delete();
@@ -95,5 +111,21 @@ module.exports = {
       return response.status(404).json({ error: 'Combo não encontrado.' });
     }
     return response.status(204).send();
+  },
+
+  // NOVA FUNÇÃO PARA REORDENAR
+  async reorder(request, response) {
+    const { orderedIds } = request.body;
+    try {
+      await connection.transaction(async trx => {
+        for (let i = 0; i < orderedIds.length; i++) {
+          await trx('combos').where('id', orderedIds[i]).update({ display_order: i });
+        }
+      });
+      return response.status(200).json({ message: 'Combos reordenados com sucesso.' });
+    } catch (error) {
+      console.error('[ComboController] Erro ao reordenar combos:', error);
+      return response.status(500).json({ error: 'Falha ao reordenar os combos.' });
+    }
   }
 };

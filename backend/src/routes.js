@@ -2,51 +2,52 @@
 const express = require('express');
 const path = require('path');
 
-// Controllers
 const UserController = require('./controllers/UserController');
 const SessionController = require('./controllers/SessionController');
 const ProductController = require('./controllers/ProductController');
 const SettingsController = require('./controllers/SettingsController');
 const OrderController = require('./controllers/OrderController');
-const ComboController = require('./controllers/ComboController'); // Importado
-
-// Middlewares
+const ComboController = require('./controllers/ComboController');
 const authMiddleware = require('./middlewares/auth');
 
 const routes = express.Router();
 
-// --- ROTAS DO FRONTEND (para servir as páginas HTML) ---
+// --- ROTAS DO FRONTEND ---
 routes.get('/', (req, res) => res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'dashboard', 'login.html')));
 routes.get('/dashboard', (req, res) => res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'dashboard', 'dashboard.html')));
 routes.get('/cardapio', (req, res) => res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'cardapio', 'index.html')));
 
-// --- ROTAS DA API ---
+// --- ROTAS PÚBLICAS DA API ---
+routes.get('/api/public/products', ProductController.indexPublic);
+routes.get('/api/public/combos', ComboController.indexPublic);
+routes.get('/api/public/settings', SettingsController.show);
+routes.post('/api/public/orders', OrderController.create);
 
-// Autenticação
-routes.post('/users', UserController.create);
-routes.post('/sessions', SessionController.create);
+// --- ROTAS PRIVADAS DA API ---
+routes.post('/api/sessions', SessionController.create);
 
-// Rotas de Produtos e Estoque (protegidas por autenticação)
-routes.get('/products', authMiddleware, ProductController.index);
-routes.post('/products', authMiddleware, ProductController.create);
-routes.put('/products/:id', authMiddleware, ProductController.update);
-routes.delete('/products/:id', authMiddleware, ProductController.destroy);
-routes.patch('/products/:id/stock', authMiddleware, ProductController.updateStock);
+// Produtos e Estoque
+routes.get('/api/products', authMiddleware, ProductController.index);
+routes.post('/api/products', authMiddleware, ProductController.create);
+routes.put('/api/products/:id', authMiddleware, ProductController.update);
+routes.delete('/api/products/:id', authMiddleware, ProductController.destroy);
+routes.patch('/api/products/:id/stock', authMiddleware, ProductController.updateStock);
+routes.post('/api/products/reorder', authMiddleware, ProductController.reorder); // NOVA ROTA
 
-// Rotas de Combos (NOVAS e protegidas por autenticação)
-routes.get('/combos', authMiddleware, ComboController.index);
-routes.post('/combos', authMiddleware, ComboController.create);
-routes.put('/combos/:id', authMiddleware, ComboController.update);
-routes.delete('/combos/:id', authMiddleware, ComboController.destroy);
+// Combos
+routes.get('/api/combos', authMiddleware, ComboController.index);
+routes.post('/api/combos', authMiddleware, ComboController.create);
+routes.put('/api/combos/:id', authMiddleware, ComboController.update);
+routes.delete('/api/combos/:id', authMiddleware, ComboController.destroy);
+routes.post('/api/combos/reorder', authMiddleware, ComboController.reorder); // NOVA ROTA
 
-// Rotas de Configurações
-routes.get('/settings', SettingsController.show); // Pública para o cardápio
-routes.put('/settings', authMiddleware, SettingsController.update);
-routes.get('/cloudinary-signature', authMiddleware, SettingsController.generateCloudinarySignature);
+// Configurações
+routes.get('/api/settings', authMiddleware, SettingsController.show);
+routes.put('/api/settings', authMiddleware, SettingsController.update);
+routes.get('/api/cloudinary-signature', authMiddleware, SettingsController.generateCloudinarySignature);
 
-// Rotas de Pedidos
-routes.get('/orders', authMiddleware, OrderController.index);
-routes.patch('/orders/:id/status', authMiddleware, OrderController.updateStatus);
-routes.post('/orders', OrderController.create); // Pública para o cardápio
+// Pedidos
+routes.get('/api/orders', authMiddleware, OrderController.index);
+routes.patch('/api/orders/:id/status', authMiddleware, OrderController.updateStatus);
 
 module.exports = routes;

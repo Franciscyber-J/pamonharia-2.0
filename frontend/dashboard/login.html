@@ -87,15 +87,34 @@
         </form>
     </div>
     <script>
-        const loginForm = document.getElementById('login-form'), emailInput = document.getElementById('email'), passwordInput = document.getElementById('password'), rememberMeCheckbox = document.getElementById('remember-me'), togglePassword = document.getElementById('toggle-password'), errorMessage = document.getElementById('error-message');
-        togglePassword.addEventListener('click', ()=>{ const e="password"===passwordInput.getAttribute("type")?"text":"password"; passwordInput.setAttribute("type",e),togglePassword.textContent="password"===e?"👁️":"🙈"});
-        document.addEventListener('DOMContentLoaded',()=>{"true"===localStorage.getItem("rememberMe")?(emailInput.value=localStorage.getItem("savedEmail")||"",passwordInput.value=localStorage.getItem("savedPassword")||"",rememberMeCheckbox.checked=!0):(emailInput.value="admin@pamonharia.com",passwordInput.value="admin123")});
+        const loginForm = document.getElementById('login-form');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const rememberMeCheckbox = document.getElementById('remember-me');
+        const togglePassword = document.getElementById('toggle-password');
+        const errorMessage = document.getElementById('error-message');
+
+        togglePassword.addEventListener('click', () => {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            togglePassword.textContent = type === 'password' ? '👁️' : '🙈';
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            if (localStorage.getItem('rememberMe') === 'true') {
+                emailInput.value = localStorage.getItem('savedEmail') || '';
+                passwordInput.value = localStorage.getItem('savedPassword') || '';
+                rememberMeCheckbox.checked = true;
+            } else {
+                emailInput.value = 'admin@pamonharia.com';
+                passwordInput.value = 'admin123';
+            }
+        });
         
-        loginForm.addEventListener('submit', async e => {
+        loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             errorMessage.textContent = "";
 
-            // --- CÓDIGO ADICIONADO PARA DESBLOQUEAR O ÁUDIO ---
             try {
                 const audioUnlock = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
                 await audioUnlock.play();
@@ -103,17 +122,40 @@
             } catch (err) {
                 console.warn('Não foi possível pré-ativar o áudio de forma invisível.');
             }
-            // --- FIM DO CÓDIGO ADICIONADO ---
             
-            const t = emailInput.value, o = passwordInput.value; 
-            rememberMeCheckbox.checked ? (localStorage.setItem("rememberMe", "true"), localStorage.setItem("savedEmail", t), localStorage.setItem("savedPassword", o)) : (localStorage.setItem("rememberMe", "false"), localStorage.removeItem("savedEmail"), localStorage.removeItem("savedPassword")); 
-            try { 
-                const e = await fetch("http://localhost:10000/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: t, password: o }) }), n = await e.json(); 
-                if (!e.ok) throw new Error(n.error || "Falha no login"); 
-                localStorage.setItem("authToken", n.token), window.location.href = "/dashboard" 
-            } catch (e) { 
-                errorMessage.textContent = "Email ou senha inválidos.", console.error("Catch no login:", e) 
-            } 
+            const email = emailInput.value;
+            const password = passwordInput.value;
+
+            if (rememberMeCheckbox.checked) {
+                localStorage.setItem('rememberMe', 'true');
+                localStorage.setItem('savedEmail', email);
+                localStorage.setItem('savedPassword', password);
+            } else {
+                localStorage.setItem('rememberMe', 'false');
+                localStorage.removeItem('savedEmail');
+                localStorage.removeItem('savedPassword');
+            }
+
+            try {
+                // CORREÇÃO: A rota agora é /api/sessions
+                const response = await fetch("http://localhost:10000/api/sessions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email: email, password: password })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Falha no login' }));
+                    throw new Error(errorData.error);
+                }
+                
+                const data = await response.json();
+                localStorage.setItem("authToken", data.token);
+                window.location.href = 'dashboard.html';
+            } catch (error) {
+                errorMessage.textContent = "Email ou senha inválidos.";
+                console.error("Catch no login:", error);
+            }
         });
     </script>
 </body>

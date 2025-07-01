@@ -1,12 +1,9 @@
 // backend/src/controllers/ProductController.js
 const connection = require('../database/connection');
 
-// Função auxiliar para buscar as colunas de uma tabela em tempo real
 async function getTableColumns(tableName) {
   try {
-    const result = await connection.raw(
-      `SELECT column_name FROM information_schema.columns WHERE table_name = '${tableName}'`
-    );
+    const result = await connection.raw(`SELECT column_name FROM information_schema.columns WHERE table_name = '${tableName}'`);
     return result.rows.map(row => row.column_name);
   } catch (error) {
     console.error(`Erro ao buscar colunas para a tabela ${tableName}:`, error);
@@ -15,9 +12,9 @@ async function getTableColumns(tableName) {
 }
 
 module.exports = {
-  // LISTAR todos os produtos, agrupando complementos sob seus pais
+  // Rota para o Dashboard (protegida e ordenada)
   async index(request, response) {
-    const products = await connection('products').select('*').orderBy('id', 'asc');
+    const products = await connection('products').select('*').orderBy('display_order', 'asc');
     const productMap = new Map();
     const parentProducts = [];
 
@@ -37,7 +34,20 @@ module.exports = {
     return response.json(parentProducts);
   },
 
-  // CRIAR um novo produto
+  // Rota para o Cardápio Público (ordenada)
+  async indexPublic(request, response) {
+    const parentProducts = await connection('products')
+      .where({ status: true, is_main_product: true })
+      .orderBy('display_order', 'asc');
+
+    for (const product of parentProducts) {
+      product.children = await connection('products')
+        .where({ parent_product_id: product.id, status: true })
+        .orderBy('display_order', 'asc');
+    }
+    return response.json(parentProducts);
+  },
+
   async create(request, response) {
     try {
       const productData = request.body;
@@ -48,7 +58,6 @@ module.exports = {
           dataToInsert[key] = productData[key];
         }
       }
-      
       const [product] = await connection('products').insert(dataToInsert).returning('*');
       return response.status(201).json(product);
     } catch (error) {
@@ -57,13 +66,11 @@ module.exports = {
     }
   },
 
-  // ATUALIZAR um produto
   async update(request, response) {
     try {
       const { id } = request.params;
       const productData = request.body;
       const existingColumns = await getTableColumns('products');
-      
       const dataToUpdate = {};
       for (const key in productData) {
         if (existingColumns.includes(key) && key !== 'children') {
@@ -71,15 +78,10 @@ module.exports = {
         }
       }
       
-      console.log(`[ProductController] Dados a serem atualizados para o ID ${id} (após filtro):`, dataToUpdate);
-
       await connection.transaction(async trx => {
-        // 1. Atualiza os dados principais do produto pai
         if (Object.keys(dataToUpdate).length > 0) {
           await trx('products').where({ id }).update(dataToUpdate);
         }
-
-        // 2. Atualiza os complementos (filhos)
         if (productData.children !== undefined) {
           await trx('products').where('parent_product_id', id).update({ parent_product_id: null });
           if (productData.children.length > 0) {
@@ -87,10 +89,7 @@ module.exports = {
             await trx('products').whereIn('id', childrenIds).update({ parent_product_id: id });
           }
         }
-
-        // 3. LÓGICA DE SINCRONIZAÇÃO IMEDIATA
         if (dataToUpdate.stock_sync_enabled === true) {
-          console.log(`[ProductController] Sincronização de estoque ativada para o produto ${id}. Atualizando filhos...`);
           const parentProduct = await trx('products').where({ id }).first();
           if (parentProduct && parentProduct.stock_quantity !== null) {
             await trx('products')
@@ -107,7 +106,6 @@ module.exports = {
     }
   },
 
-  // APAGAR um produto
   async destroy(request, response) {
     const { id } = request.params;
     const deleted_rows = await connection('products').where('id', id).delete();
@@ -115,7 +113,6 @@ module.exports = {
     return response.status(204).send();
   },
 
-  // ATUALIZAR O ESTOQUE
   async updateStock(request, response) {
     const { id } = request.params;
     try {
@@ -135,17 +132,53 @@ module.exports = {
 
         await connection('products').where('id', id).update(dataToUpdate);
 
+        const updatedProduct = await connection('products').where('id', id).first();
+        
+        // Emite o evento de atualização de estoque para todos os clientes
+        request.io.emit('stock_updated', {
+            productId: updatedProduct.id,
+            stock_quantity: updatedProduct.stock_quantity,
+            stock_enabled: updatedProduct.stock_enabled,
+        });
+
         if (product.stock_sync_enabled && dataToUpdate.stock_quantity !== undefined) {
+            const childrenToUpdate = await connection('products').where('parent_product_id', id).select('id');
             await connection('products')
                 .where('parent_product_id', id)
                 .update({ stock_quantity: dataToUpdate.stock_quantity });
+            
+            // Emite evento para cada filho atualizado
+            childrenToUpdate.forEach(child => {
+                request.io.emit('stock_updated', {
+                    productId: child.id,
+                    stock_quantity: dataToUpdate.stock_quantity,
+                    stock_enabled: true // Assumindo que o filho também deve estar habilitado
+                });
+            });
         }
         
         return response.status(200).json({ message: 'Estoque atualizado com sucesso.' });
-
     } catch (error) {
         console.error(`[ProductController] Erro ao atualizar estoque do produto ${id}:`, error);
         return response.status(500).json({ error: 'Falha ao atualizar o estoque.' });
+    }
+  },
+
+  // NOVA FUNÇÃO PARA REORDENAR
+  async reorder(request, response) {
+    const { orderedIds } = request.body; // Array de IDs na nova ordem
+    try {
+      await connection.transaction(async trx => {
+        for (let i = 0; i < orderedIds.length; i++) {
+          const id = orderedIds[i];
+          const display_order = i;
+          await trx('products').where('id', id).update({ display_order });
+        }
+      });
+      return response.status(200).json({ message: 'Produtos reordenados com sucesso.' });
+    } catch (error) {
+      console.error('[ProductController] Erro ao reordenar produtos:', error);
+      return response.status(500).json({ error: 'Falha ao reordenar os produtos.' });
     }
   }
 };

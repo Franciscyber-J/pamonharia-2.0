@@ -8,28 +8,27 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/dashboard/style.css">
+    <!-- NOVA BIBLIOTECA PARA ARRASTAR E SOLTAR -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <style>
         .parent-controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 0.9rem; padding: 5px; background-color: rgba(0,0,0,0.1); border-radius: 6px; }
         .parent-controls .toggle-switch { transform: scale(0.8); }
-
         .combo-rules-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 25px; padding-bottom: 25px; border-bottom: 1px solid var(--border-color); }
-
         .combo-product-item-header { display: grid; grid-template-columns: 1fr 120px 150px; gap: 15px; padding: 8px; font-weight: 600; opacity: 0.8; border-bottom: 1px solid var(--border-color); margin-bottom: 5px; }
         .combo-product-item { display: grid; grid-template-columns: 1fr 120px 150px; align-items: center; gap: 15px; padding: 8px; border-radius: 6px; }
         .combo-product-item:nth-child(even) { background-color: rgba(0,0,0,0.2); }
         .combo-product-name { display: flex; align-items: center; gap: 10px; }
-        
-        #combo-quantity-validator {
-            font-size: 0.9rem;
-            font-weight: 600;
-            margin-top: 15px;
-            padding: 10px;
-            border-radius: 6px;
-            text-align: center;
-            transition: all 0.3s ease;
-        }
+        #combo-quantity-validator { font-size: 0.9rem; font-weight: 600; margin-top: 15px; padding: 10px; border-radius: 6px; text-align: center; transition: all 0.3s ease; }
         #combo-quantity-validator.valid { color: var(--success-color); background-color: rgba(56, 161, 105, 0.1); }
         #combo-quantity-validator.invalid { color: var(--danger-color); background-color: rgba(229, 62, 62, 0.1); }
+        
+        /* NOVOS ESTILOS PARA REORDENAÇÃO E ITENS RETRÁTEIS */
+        .drag-handle { cursor: grab; width: 20px; text-align: center; color: var(--text-secondary); }
+        .product-name-cell { display: flex; align-items: center; gap: 10px; }
+        .toggle-children-btn { cursor: pointer; transition: transform 0.2s ease; user-select: none; width: 14px; display: inline-block; text-align: center; }
+        .toggle-children-btn.expanded { transform: rotate(90deg); }
+        .product-row.is-child { display: none; } /* Começam escondidos */
+        .product-row.is-child.visible { display: table-row; }
     </style>
 </head>
 <body>
@@ -172,31 +171,27 @@
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
-        // --- VARIÁVEIS GLOBAIS E CONSTANTES ---
         const API_BASE_URL = 'http://localhost:10000';
         const dashboardContent = document.getElementById('dashboard-content');
         const pageTitle = document.getElementById('page-title');
         const PLACEHOLDER_IMG_60 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2260%22%20height%3D%2260%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%229%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESem%20Foto%3C%2Ftext%3E%3C%2Fsvg%3E';
         const PLACEHOLDER_IMG_200 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22200%22%20height%3D%22200%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22200%22%20height%3D%22200%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%2214%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESelecionar%20Imagem%3C%2Ftext%3E%3C%2Fsvg%3E';
-
+        
         let allProducts = [];
         let allProductsFlat = [];
         let notificationAudio;
         let isSoundEnabled = false;
 
-        // --- FUNÇÕES DE UTILIDADE E API ---
         const apiFetch = async (endpoint, options = {}) => {
             options.headers = { ...options.headers, 'Authorization': `Bearer ${localStorage.getItem('authToken')}`, 'Content-Type': 'application/json' };
-            const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-
+            const response = await fetch(`${API_BASE_URL}/api${endpoint}`, options);
             if (response.status === 401) {
                 localStorage.removeItem('authToken');
                 window.location.href = 'login.html';
-                throw new Error('Token inválido ou expirado. Redirecionando para o login.');
+                throw new Error('Token inválido ou expirado.');
             }
-
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ error: 'Erro desconhecido' }));
+                const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
             }
             return response.status === 204 ? null : response.json();
@@ -230,9 +225,9 @@
             const activeNav = document.querySelector('nav a.active')?.id;
             if (activeNav === 'nav-produtos') renderProdutosPageContent();
             else if (activeNav === 'nav-complementos') renderComplementosPageContent();
+            else if (activeNav === 'nav-combos') fetchAndRenderCombos();
         };
         
-        // --- LÓGICA DE ÁUDIO E SOCKET.IO ---
         const socket = io(API_BASE_URL);
         const setupAudioPlayer = (soundUrl) => { if (soundUrl) { notificationAudio = new Audio(soundUrl); notificationAudio.loop = true; } else { notificationAudio = null; } }
         const playNotification = () => { if (isSoundEnabled && notificationAudio) notificationAudio.play().catch(console.error); }
@@ -241,14 +236,9 @@
         socket.on('new_order', (order) => { playNotification(); if (document.querySelector('.orders-panel')) addOrderCard(order); });
         socket.on('order_status_updated', ({ id, status }) => moveOrderCard(id, status));
 
-        // --- LÓGICA DO PAINEL DE PEDIDOS ---
         const renderPedidosPage = () => {
             pageTitle.textContent = 'Painel de Pedidos';
-            dashboardContent.innerHTML = `<div class="orders-panel">
-                <div class="order-column"><h3>Novos</h3><div class="order-list" id="col-novo"></div></div>
-                <div class="order-column"><h3>Em Preparo</h3><div class="order-list" id="col-em-preparo"></div></div>
-                <div class="order-column"><h3>Pronto para Entrega</h3><div class="order-list" id="col-pronto"></div></div>
-            </div>`;
+            dashboardContent.innerHTML = `<div class="orders-panel"><div class="order-column"><h3>Novos</h3><div class="order-list" id="col-novo"></div></div><div class="order-column"><h3>Em Preparo</h3><div class="order-list" id="col-em-preparo"></div></div><div class="order-column"><h3>Pronto para Entrega</h3><div class="order-list" id="col-pronto"></div></div></div>`;
             fetchAndRenderOrders();
         };
         const fetchAndRenderOrders = async () => {
@@ -288,19 +278,16 @@
                 const orderData = { id: orderId, status: newStatus, total_price: card.querySelector('span:last-child').textContent.replace('R$ ','').replace(',','.'), client_name: card.querySelector('p:nth-child(2) > strong').nextSibling.textContent.trim(), client_address: card.querySelector('p:nth-child(3) > strong').nextSibling.textContent.trim() };
                 card.remove();
                 addOrderCard(orderData);
-            } else {
-                card.remove();
-            }
+            } else { card.remove(); }
         };
         const updateOrderStatus = async (orderId, newStatus) => {
             try { await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
             } catch (error) { console.error(`Falha ao atualizar status:`, error); }
         };
 
-        // --- LÓGICA DE PRODUTOS E COMPLEMENTOS ---
         const renderProdutosPage = () => {
             pageTitle.textContent = 'Produtos Principais';
-            dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Esta página lista os produtos principais. Complementos vinculados são exibidos abaixo de cada produto "pai".</p><table class="data-table product-table"><thead><tr><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`;
+            dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`;
             document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true));
             renderProdutosPageContent();
         };
@@ -311,16 +298,19 @@
             const mainProducts = allProducts.filter(p => p.is_main_product);
             mainProducts.forEach(product => {
                 tbody.innerHTML += createProductRow(product);
-                product.children.forEach(child => {
-                    tbody.innerHTML += createProductRow(child, true, product.stock_sync_enabled);
-                });
+                if (product.children && product.children.length > 0) {
+                    product.children.forEach(child => {
+                        tbody.innerHTML += createProductRow(child, true, product.stock_sync_enabled);
+                    });
+                }
             });
             addStockEventListeners();
+            initSortable('products-tbody', '/products/reorder');
         };
 
         const renderComplementosPage = () => {
             pageTitle.textContent = 'Itens de Complemento';
-            dashboardContent.innerHTML = `<div class="page-header"><h2>Banco de Itens para Complemento</h2><button id="add-complemento-btn" class="btn btn-primary">Adicionar Novo Item</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Itens criados aqui não aparecem no cardápio principal. Eles devem ser vinculados a um Produto Principal para serem utilizados.</p><table class="data-table product-table"><thead><tr><th>Item</th><th>Preço</th><th>Status</th><th>Estoque</th><th>Ações</th></tr></thead><tbody id="complementos-tbody"></tbody></table>`;
+            dashboardContent.innerHTML = `<div class="page-header"><h2>Banco de Itens para Complemento</h2><button id="add-complemento-btn" class="btn btn-primary">Adicionar Novo Item</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Itens criados aqui não aparecem no cardápio principal. Eles devem ser vinculados a um Produto Principal para serem utilizados.</p><table class="data-table product-table"><thead><tr><th></th><th>Item</th><th>Preço</th><th>Status</th><th>Estoque</th><th>Ações</th></tr></thead><tbody id="complementos-tbody"></tbody></table>`;
             document.getElementById('add-complemento-btn').addEventListener('click', () => openProductModal(null, false));
             renderComplementosPageContent();
         };
@@ -328,31 +318,30 @@
             const tbody = document.getElementById('complementos-tbody');
             if (!tbody) return;
             tbody.innerHTML = '';
-            const complementItems = allProductsFlat.filter(p => !p.is_main_product);
+            const complementItems = allProductsFlat.filter(p => !p.is_main_product && !p.parent_product_id);
             complementItems.forEach(item => {
-                tbody.innerHTML += createProductRow(item, !!item.parent_product_id, item.parent_stock_sync_enabled);
+                tbody.innerHTML += createProductRow(item, false);
             });
             addStockEventListeners();
+            initSortable('complementos-tbody', '/products/reorder');
         };
 
         const createProductRow = (product, isChild = false, isSynced = false) => {
             const stock_quantity = product.stock_quantity ?? '';
             const stock_controls_disabled = !product.stock_enabled || (isChild && isSynced) ? 'disabled' : '';
-            
             let parentControls = '';
             if (!isChild && product.is_main_product) {
-                 parentControls = `<div class="parent-controls">
-                    <label class="toggle-switch">
-                        <input type="checkbox" onchange="updateProductSync(${product.id}, this.checked)" ${product.stock_sync_enabled ? 'checked' : ''}>
-                        <span class="slider"></span>
-                    </label>
-                    <span>Sincronizar estoque com complementos</span>
-                </div>`;
+                 parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="updateProductSync(${product.id}, this.checked)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
             }
+            const hasChildren = !isChild && product.children && product.children.length > 0;
+            const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px;"></span>';
+            const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
 
-            return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-product-id="${product.id}">
+            return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">
+                        ${dragHandle}
                         <td>
-                            <div style="display: flex; align-items: center; gap: 15px;">
+                            <div class="product-name-cell">
+                                ${toggleButton}
                                 ${isChild ? '<span class="child-indicator">↳</span>' : ''}
                                 <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail">
                                 <span>${product.name}</span>
@@ -366,12 +355,15 @@
                     </tr>`;
         };
         
+        window.toggleChildren = (btn, parentId) => {
+            btn.classList.toggle('expanded');
+            const childrenRows = document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`);
+            childrenRows.forEach(row => row.classList.toggle('visible'));
+        };
+
         const updateProductSync = async (productId, isChecked) => {
             try {
-                await apiFetch(`/products/${productId}`, {
-                    method: 'PUT',
-                    body: JSON.stringify({ stock_sync_enabled: isChecked })
-                });
+                await apiFetch(`/products/${productId}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: isChecked }) });
                 await fetchAndRefreshAllViews();
             } catch (error) {
                 console.error("Falha ao atualizar a sincronização de estoque:", error);
@@ -381,8 +373,9 @@
 
         const addStockEventListeners = () => {
             document.querySelectorAll('.product-row').forEach(row => {
-                const productId = row.dataset.productId;
+                const productId = row.dataset.id;
                 const stockControls = row.querySelector('.stock-controls');
+                if (!stockControls) return;
                 const stockInput = stockControls.querySelector('.stock-input');
                 stockControls.querySelector('.stock-enabled-toggle').addEventListener('change', e => updateStock(productId, { stock_enabled: e.target.checked }));
                 stockControls.querySelector('.stock-decrease').addEventListener('click', () => { if (stockInput.value !== '') stockInput.value--; });
@@ -394,7 +387,7 @@
         };
 
         const updateStock = async (productId, dataToUpdate) => {
-            document.querySelectorAll(`tr[data-product-id='${productId}'] .stock-feedback`).forEach(span => {
+            document.querySelectorAll(`tr[data-id='${productId}'] .stock-feedback`).forEach(span => {
                 span.textContent = 'Salvando...';
                 span.className = 'stock-feedback show';
             });
@@ -403,7 +396,7 @@
                 await fetchAndRefreshAllViews();
             } catch (error) {
                 console.error("Erro ao atualizar estoque:", error);
-                document.querySelectorAll(`tr[data-product-id='${productId}'] .stock-feedback`).forEach(span => {
+                document.querySelectorAll(`tr[data-id='${productId}'] .stock-feedback`).forEach(span => {
                     span.textContent = 'Falhou!';
                     span.className = 'stock-feedback error show';
                     setTimeout(() => span.className = 'stock-feedback', 3000);
@@ -529,10 +522,9 @@
             }
         };
         
-        // --- LÓGICA DE COMBOS ---
         const renderCombosPage = () => {
             pageTitle.textContent = 'Gestão de Combos';
-            dashboardContent.innerHTML = `<div class="page-header"><h2>Todos os Combos</h2><button id="add-combo-btn" class="btn btn-primary">Criar Combo</button></div><table class="data-table"><thead><tr><th>Combo</th><th>Preço Base</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="combos-tbody"></tbody></table>`;
+            dashboardContent.innerHTML = `<div class="page-header"><h2>Todos os Combos</h2><button id="add-combo-btn" class="btn btn-primary">Criar Combo</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table"><thead><tr><th></th><th>Combo</th><th>Preço Base</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="combos-tbody"></tbody></table>`;
             document.getElementById('add-combo-btn').addEventListener('click', () => openComboModal());
             fetchAndRenderCombos();
         };
@@ -546,8 +538,9 @@
                         ? combo.products.map(p => p.name).join(', ')
                         : combo.products.map(p => `${p.quantity_in_combo}x ${p.name}`).join(', ');
                     
-                    tbody.innerHTML += `<tr><td><div style="display: flex; align-items: center; gap: 15px;"><img src="${combo.image_url || PLACEHOLDER_IMG_60}" alt="${combo.name}" class="product-image-thumbnail"><span>${combo.name}</span></div></td><td>R$ ${parseFloat(combo.price).toFixed(2).replace('.', ',')}</td><td>${productNames || 'Nenhum'}</td><td><span class="status-badge ${combo.status ? 'active' : 'inactive'}">${combo.status ? 'Ativo' : 'Inativo'}</span></td><td class="action-buttons"><button onclick="openComboModal(${combo.id})">Editar</button><button onclick="deleteCombo(${combo.id})">Apagar</button></td></tr>`;
+                    tbody.innerHTML += `<tr data-id="${combo.id}"><td><span class="drag-handle">⠿</span></td><td><div style="display: flex; align-items: center; gap: 15px;"><img src="${combo.image_url || PLACEHOLDER_IMG_60}" alt="${combo.name}" class="product-image-thumbnail"><span>${combo.name}</span></div></td><td>R$ ${parseFloat(combo.price).toFixed(2).replace('.', ',')}</td><td>${productNames || 'Nenhum'}</td><td><span class="status-badge ${combo.status ? 'active' : 'inactive'}">${combo.status ? 'Ativo' : 'Inativo'}</span></td><td class="action-buttons"><button onclick="openComboModal(${combo.id})">Editar</button><button onclick="deleteCombo(${combo.id})">Apagar</button></td></tr>`;
                 });
+                initSortable('combos-tbody', '/combos/reorder');
             } catch (error) { console.error("Erro ao buscar combos:", error); }
         };
 
@@ -786,7 +779,27 @@
             });
         };
 
-        // --- INICIALIZAÇÃO E NAVEGAÇÃO ---
+        const initSortable = (tbodyId, reorderEndpoint) => {
+            const tbody = document.getElementById(tbodyId);
+            if (!tbody) return;
+            new Sortable(tbody, {
+                handle: '.drag-handle',
+                animation: 150,
+                onEnd: async (evt) => {
+                    const orderedIds = Array.from(tbody.children).map(row => row.dataset.id);
+                    try {
+                        await apiFetch(reorderEndpoint, {
+                            method: 'POST',
+                            body: JSON.stringify({ orderedIds })
+                        });
+                    } catch (error) {
+                        console.error('Falha ao reordenar:', error);
+                        alert('Não foi possível salvar a nova ordem.');
+                    }
+                }
+            });
+        };
+        
         document.addEventListener('DOMContentLoaded', async () => {
             const navLinks = {
                 pedidos: document.getElementById('nav-pedidos'),
