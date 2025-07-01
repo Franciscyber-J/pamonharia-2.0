@@ -12,6 +12,12 @@ async function getTableColumns(tableName) {
   }
 }
 
+// NOVA FUNÇÃO AUXILIAR PARA EMITIR ATUALIZAÇÕES
+const emitDataUpdated = (request) => {
+  console.log('[Socket.IO] Emitindo evento "data_updated" para todos os clientes do cardápio.');
+  request.io.emit('data_updated');
+};
+
 module.exports = {
   // Rota para o Dashboard (protegida e ordenada pela nova coluna 'display_order')
   async index(request, response) {
@@ -79,6 +85,9 @@ module.exports = {
         }
       }
       const [product] = await connection('products').insert(dataToInsert).returning('*');
+      
+      emitDataUpdated(request); // EMITE O EVENTO
+      
       return response.status(201).json(product);
     } catch (error) {
       console.error('[ProductController] Erro ao criar produto:', error);
@@ -125,6 +134,8 @@ module.exports = {
         }
       });
       
+      emitDataUpdated(request); // EMITE O EVENTO
+      
       return response.json({ message: 'Produto atualizado com sucesso.' });
     } catch (error) {
       console.error(`[ProductController] Erro ao atualizar produto ID ${request.params.id}:`, error);
@@ -136,6 +147,9 @@ module.exports = {
     const { id } = request.params;
     const deleted_rows = await connection('products').where('id', id).delete();
     if (deleted_rows === 0) return response.status(404).json({ error: 'Produto não encontrado.' });
+    
+    emitDataUpdated(request); // EMITE O EVENTO
+    
     return response.status(204).send();
   },
 
@@ -158,30 +172,13 @@ module.exports = {
 
         await connection('products').where('id', id).update(dataToUpdate);
 
-        const updatedProduct = await connection('products').where('id', id).first();
-        
-        console.log(`[Socket.IO] Emitindo 'stock_updated' para o produto ID: ${updatedProduct.id}`);
-        request.io.emit('stock_updated', {
-            productId: updatedProduct.id,
-            stock_quantity: updatedProduct.stock_quantity,
-            stock_enabled: updatedProduct.stock_enabled,
-        });
-
         if (product.stock_sync_enabled && dataToUpdate.stock_quantity !== undefined) {
-            const childrenToUpdate = await connection('products').where('parent_product_id', id).select('id');
             await connection('products')
                 .where('parent_product_id', id)
                 .update({ stock_quantity: dataToUpdate.stock_quantity });
-            
-            childrenToUpdate.forEach(child => {
-                console.log(`[Socket.IO] Emitindo 'stock_updated' para o complemento (filho) ID: ${child.id}`);
-                request.io.emit('stock_updated', {
-                    productId: child.id,
-                    stock_quantity: dataToUpdate.stock_quantity,
-                    stock_enabled: true 
-                });
-            });
         }
+        
+        emitDataUpdated(request); // EMITE O EVENTO
         
         return response.status(200).json({ message: 'Estoque atualizado com sucesso.' });
     } catch (error) {
@@ -203,6 +200,9 @@ module.exports = {
         await Promise.all(updatePromises);
       });
       console.log('[ProductController] Produtos reordenados com sucesso.');
+      
+      emitDataUpdated(request); // EMITE O EVENTO
+      
       return response.status(200).json({ message: 'Produtos reordenados com sucesso.' });
     } catch (error) {
       console.error('[ProductController] Erro ao reordenar produtos:', error);

@@ -90,7 +90,6 @@
         </div>
     </div>
 
-    <!-- Modal Genérico para Seleção de Itens -->
     <div id="selection-modal" class="modal-overlay">
         <div class="modal-content">
             <button class="modal-close-btn">&times;</button>
@@ -103,7 +102,6 @@
         </div>
     </div>
 
-    <!-- Modal de Confirmação para Limpar Carrinho -->
     <div id="confirm-modal" class="modal-overlay">
         <div class="modal-content" style="max-width: 400px;">
             <h3 id="confirm-modal-title">Confirmar Ação</h3>
@@ -149,7 +147,7 @@
             let cart = [];
             let allItems = [];
             let storeSettings = {};
-
+            
             const applyTheme = (theme) => {
                 document.body.setAttribute('data-theme', theme);
                 localStorage.setItem('pamonharia-theme', theme);
@@ -162,18 +160,32 @@
             const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
             applyTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
 
-            const renderItems = (items) => {
+            // ✅ --- NOVA FUNÇÃO PARA VERIFICAR SE UM ITEM ESTÁ ESGOTADO ---
+            const isItemEffectivelyOutOfStock = (item) => {
+                if (!item.stock_enabled) return false; // Se o controle de estoque não está ativo, nunca está esgotado.
+                
+                // Se o item é um container de complementos e não é vendido por si só
+                if (item.children && item.children.length > 0 && !item.sell_parent_product) {
+                    // Está esgotado apenas se TODOS os seus filhos estiverem esgotados.
+                    return item.children.every(child => isItemEffectivelyOutOfStock(child));
+                }
+
+                // Para produtos simples, combos, ou produtos-pai que também são vendidos
+                return item.stock_quantity !== null && item.stock_quantity <= 0;
+            };
+
+            const renderItems = () => {
                 dom.productsGrid.innerHTML = '';
                 dom.combosGrid.innerHTML = '';
                 
-                const activeProducts = items.filter(item => !item.is_combo && item.is_main_product);
-                const activeCombos = items.filter(item => item.is_combo);
+                const activeProducts = allItems.filter(item => !item.is_combo && item.is_main_product);
+                const activeCombos = allItems.filter(item => item.is_combo);
 
                 document.getElementById('products-section').style.display = activeProducts.length > 0 ? 'block' : 'none';
                 document.getElementById('combos-section').style.display = activeCombos.length > 0 ? 'block' : 'none';
                 document.getElementById('section-divider').style.display = activeProducts.length > 0 && activeCombos.length > 0 ? 'block' : 'none';
 
-                items.forEach(item => {
+                allItems.forEach(item => {
                     if (!item.status) return;
 
                     const grid = item.is_combo ? dom.combosGrid : dom.productsGrid;
@@ -183,8 +195,13 @@
                     if (item.is_combo) {
                         priceText = `A partir de R$ ${parseFloat(item.price).toFixed(2).replace('.',',')}`;
                     } else if (item.children && item.children.length > 0 && !item.sell_parent_product) {
-                        const minPrice = Math.min(...item.children.map(c => c.price));
-                        priceText = `A partir de R$ ${parseFloat(minPrice).toFixed(2).replace('.',',')}`;
+                        const availableChildren = item.children.filter(c => !isItemEffectivelyOutOfStock(c));
+                        if (availableChildren.length > 0) {
+                            const minPrice = Math.min(...availableChildren.map(c => c.price));
+                            priceText = `A partir de R$ ${parseFloat(minPrice).toFixed(2).replace('.',',')}`;
+                        } else {
+                            priceText = 'Opções esgotadas';
+                        }
                     } else {
                         priceText = `R$ ${parseFloat(item.price).toFixed(2).replace('.',',')}`;
                     }
@@ -192,16 +209,17 @@
                     const hasOptions = item.children && item.children.length > 0;
                     const buttonText = item.is_combo ? 'Montar' : 'Adicionar';
                     
-                    const isOutOfStock = item.stock_enabled && (item.stock_quantity !== null && item.stock_quantity <= 0);
+                    // ✅ LÓGICA DE ESGOTADO CORRIGIDA
+                    const isOutOfStock = isItemEffectivelyOutOfStock(item);
                     
                     const onClickAction = item.is_combo 
                         ? `openComboModal(${item.id})` 
                         : (hasOptions
                             ? `openProductWithOptionsModal(${item.id})` 
-                            : `addToCart({ id: ${item.id}, name: '${item.name}', price: ${item.price}, image_url: '${item.image_url || ''}' })`);
+                            : `addToCart({ id: ${item.id}, name: '${item.name.replace(/'/g, "\\'")}', price: ${item.price}, image_url: '${item.image_url || ''}' })`);
 
                     grid.innerHTML += `
-                        <div class="item-card ${isOutOfStock ? 'out-of-stock' : ''}">
+                        <div class="item-card ${isOutOfStock ? 'out-of-stock' : ''}" data-id="${item.id}">
                             <div class="stock-overlay">${isOutOfStock ? 'Esgotado' : ''}</div>
                             <img src="${item.image_url || 'https://placehold.co/400x250/f59e0b/FFF?text=Pamonha'}" alt="${item.name}" class="item-image">
                             <div class="item-info">
@@ -245,7 +263,7 @@
                 }
                 calculateTotals();
             };
-
+            
             const calculateTotals = () => {
                 const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
                 const isDelivery = document.querySelector('input[name="delivery-type"]:checked').value === 'delivery';
@@ -258,18 +276,17 @@
                 dom.deliveryFeeEl.textContent = `R$ ${deliveryFee.toFixed(2).replace('.',',')}`;
                 dom.grandTotalEl.textContent = `R$ ${grandTotal.toFixed(2).replace('.',',')}`;
             };
-
-            const updateStoreStatus = (settings) => {
-                storeSettings = settings;
+            
+            const updateStoreStatus = () => {
                 const now = new Date();
                 const dayOfWeek = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'][now.getDay()];
                 const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
                 
                 let isOpen = false;
-                if (settings.is_open_manual_override !== null) {
-                    isOpen = settings.is_open_manual_override;
+                if (storeSettings.is_open_manual_override !== null) {
+                    isOpen = storeSettings.is_open_manual_override;
                 } else {
-                    const schedule = settings.operating_hours?.[dayOfWeek];
+                    const schedule = storeSettings.operating_hours?.[dayOfWeek];
                     if (schedule && schedule.enabled) {
                         isOpen = currentTime >= schedule.open && currentTime <= schedule.close;
                     }
@@ -285,24 +302,57 @@
                     dom.storeStatusBanner.className = 'closed';
                 }
                 
-                if(settings.store_name) dom.storeNameHeader.textContent = settings.store_name;
-                renderItems(allItems);
-                renderCart();
+                if(storeSettings.store_name) dom.storeNameHeader.textContent = storeSettings.store_name;
             };
 
+            // ✅ --- addToCart E updateQuantity ROBUSTECIDOS ---
             window.addToCart = (item) => {
-                const existingItem = cart.find(cartItem => cartItem.id === item.id && !item.is_combo && !item.has_addons);
-                if (existingItem) {
-                    existingItem.quantity++;
+                if (item.has_addons || item.is_combo) {
+                    const original_id = parseInt(String(item.id).split('_')[1]);
+                    cart.push({ ...item, original_id: original_id });
+                    renderCart();
+                    return;
+                }
+
+                const productDetails = allItems.find(p => p.id === item.id);
+                if (!productDetails) return;
+
+                const existingItemInCart = cart.find(cartItem => cartItem.original_id === item.id);
+                const currentQuantityInCart = existingItemInCart ? existingItemInCart.quantity : 0;
+
+                if (productDetails.stock_enabled && productDetails.stock_quantity !== null) {
+                    if (currentQuantityInCart >= productDetails.stock_quantity) {
+                        alert(`Desculpe, o estoque para ${productDetails.name} é de ${productDetails.stock_quantity} unidade(s) e você já atingiu o limite no carrinho.`);
+                        return;
+                    }
+                }
+
+                if (existingItemInCart) {
+                    existingItemInCart.quantity++;
                 } else {
-                    cart.push({ ...item, quantity: 1 });
+                    cart.push({ ...item, original_id: parseInt(item.id), quantity: 1 });
                 }
                 renderCart();
             };
-            
+
             window.updateQuantity = (index, amount) => {
-                cart[index].quantity += amount;
-                if (cart[index].quantity <= 0) cart.splice(index, 1);
+                const item = cart[index];
+                if (!item) return;
+
+                if (amount > 0) {
+                    const productDetails = allItems.find(p => p.id === item.original_id);
+                    if (productDetails && productDetails.stock_enabled && productDetails.stock_quantity !== null) {
+                         if (item.quantity >= productDetails.stock_quantity) {
+                            alert(`Desculpe, o estoque máximo para ${productDetails.name} é ${productDetails.stock_quantity}.`);
+                            return;
+                         }
+                    }
+                }
+                
+                item.quantity += amount;
+                if (item.quantity <= 0) {
+                    cart.splice(index, 1);
+                }
                 renderCart();
             };
 
@@ -316,24 +366,29 @@
                 dom.modal.style.display = 'flex';
                 if(config.onOpen) config.onOpen();
             };
-
+            
             const handleQuantityChange = (target, state, validator, itemStockData) => {
                 const itemId = parseInt(target.dataset.itemId);
                 const isIncrement = target.textContent === '+';
-                
+            
+                const currentQtyInModal = state[itemId] || 0;
+                const stockInfo = itemStockData.find(i => i.id === itemId);
+            
                 if (isIncrement) {
-                    const currentQty = state[itemId] || 0;
-                    const stockInfo = itemStockData.find(i => i.id === itemId);
-                    if (stockInfo && stockInfo.stock_enabled && stockInfo.stock_quantity !== null && currentQty >= stockInfo.stock_quantity) {
-                        dom.modalFeedback.textContent = `Apenas ${stockInfo.stock_quantity} unidades de "${stockInfo.name}" em estoque.`;
-                        setTimeout(() => dom.modalFeedback.textContent = '', 2500);
-                        return;
+                    if (stockInfo && stockInfo.stock_enabled && stockInfo.stock_quantity !== null) {
+                        const stockLimit = stockInfo.stock_quantity;
+            
+                        if (currentQtyInModal >= stockLimit) {
+                            dom.modalFeedback.textContent = `Limite de estoque para "${stockInfo.name}": ${stockLimit} unidade(s).`;
+                            setTimeout(() => dom.modalFeedback.textContent = '', 3000);
+                            return;
+                        }
                     }
-                    state[itemId] = currentQty + 1;
+                    state[itemId] = currentQtyInModal + 1;
                 } else {
-                    state[itemId] = Math.max(0, (state[itemId] || 0) - 1);
+                    state[itemId] = Math.max(0, currentQtyInModal - 1);
                 }
-                
+            
                 document.getElementById(`quantity-${itemId}`).textContent = state[itemId];
                 if (validator) validator();
             };
@@ -363,14 +418,14 @@
                 }
 
                 product.children.forEach(option => {
-                    const isOptionOutOfStock = option.stock_enabled && (option.stock_quantity !== null && option.stock_quantity <= 0);
+                    const isOptionOutOfStock = isItemEffectivelyOutOfStock(option);
                     bodyHtml += `
                         <div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}">
                             <label>${option.name} (R$ ${parseFloat(option.price).toFixed(2).replace('.',',')})</label>
                             <div class="quantity-control">
-                                <button data-item-id="${option.id}">-</button>
+                                <button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>-</button>
                                 <span id="quantity-${option.id}">0</span>
-                                <button data-item-id="${option.id}">+</button>
+                                <button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>+</button>
                             </div>
                         </div>
                     `;
@@ -380,7 +435,7 @@
                     const totalSelected = Object.values(selectedComplements).reduce((sum, qty) => sum + qty, 0);
                     if (product.force_one_to_one_complement) {
                         dom.addToCartBtn.disabled = totalSelected !== parentQuantity;
-                        dom.modalFeedback.textContent = (totalSelected < parentQuantity) ? `Selecione mais ${parentQuantity - totalSelected} complemento(s).` : '';
+                        dom.modalFeedback.textContent = (totalSelected < parentQuantity) ? `Selecione mais ${parentQuantity - totalSelected} complemento(s).` : (totalSelected > parentQuantity ? `Selecione apenas ${parentQuantity} complemento(s)` : '');
                     } else {
                         dom.addToCartBtn.disabled = totalSelected === 0;
                     }
@@ -388,7 +443,7 @@
                 
                 setupModal({
                     title: `Adicionar ${product.name}`,
-                    description: product.force_one_to_one_complement ? 'Escolha 1 complemento para cada item.' : 'Selecione os complementos.',
+                    description: product.force_one_to_one_complement ? `Escolha ${product.sell_parent_product ? '1 complemento para cada item' : 'os complementos'}.` : 'Selecione os complementos.',
                     body: bodyHtml,
                     onOpen: validator,
                     onSave: () => {
@@ -426,6 +481,11 @@
                 
                 if (product.force_one_to_one_complement) {
                     document.getElementById('parent-increase').addEventListener('click', () => {
+                        if (isItemEffectivelyOutOfStock(product)) {
+                            dom.modalFeedback.textContent = `Desculpe, ${product.name} está esgotado.`;
+                            setTimeout(() => dom.modalFeedback.textContent = '', 3000);
+                            return;
+                        }
                         if (product.stock_enabled && product.stock_quantity !== null && parentQuantity >= product.stock_quantity) {
                             dom.modalFeedback.textContent = `Apenas ${product.stock_quantity} unidades de "${product.name}" em estoque.`;
                             setTimeout(() => dom.modalFeedback.textContent = '', 2500);
@@ -472,16 +532,16 @@
 
                 let comboBodyHtml = '';
                 combo.products.forEach(option => {
-                    const isOptionOutOfStock = option.stock_enabled && (option.stock_quantity !== null && option.stock_quantity <= 0);
+                    const isOptionOutOfStock = isItemEffectivelyOutOfStock(option);
                     const priceModifierText = option.price_modifier > 0 ? `+ R$ ${parseFloat(option.price_modifier).toFixed(2).replace('.',',')}` : '';
                     comboBodyHtml += `
                         <div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}">
                             <label>${option.name} ${isOptionOutOfStock ? '<small>(Esgotado)</small>' : ''}</label>
                             <span class="price-modifier">${priceModifierText}</span>
                             <div class="quantity-control">
-                                <button data-item-id="${option.id}">-</button>
+                                <button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>-</button>
                                 <span id="quantity-${option.id}">0</span>
-                                <button data-item-id="${option.id}">+</button>
+                                <button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>+</button>
                             </div>
                         </div>
                     `;
@@ -528,23 +588,30 @@
                     });
                 });
             };
-
-            const fetchInitialData = async () => {
+            
+            const fetchAndRenderAll = async () => {
+                console.log('Buscando todos os dados do servidor...');
                 try {
-                    const [productsResponse, combos, settings] = await Promise.all([
+                    const [productsResponse, combosResponse, settingsResponse] = await Promise.all([
                         fetch(`${API_BASE_URL}/api/public/products`).then(res => res.json()),
                         fetch(`${API_BASE_URL}/api/public/combos`).then(res => res.json()),
                         fetch(`${API_BASE_URL}/api/public/settings`).then(res => res.json())
                     ]);
                     
-                    const activeCombos = combos.map(c => ({...c, is_combo: true}));
+                    storeSettings = settingsResponse;
+                    const activeCombos = combosResponse.map(c => ({...c, is_combo: true}));
                     allItems = [...activeCombos, ...productsResponse];
-                    updateStoreStatus(settings);
+
+                    updateStoreStatus();
+                    renderItems();
+                    renderCart();
+                    
+                    console.log('Interface atualizada com sucesso.');
 
                 } catch (error) {
-                    console.error("Falha ao buscar dados iniciais:", error);
+                    console.error("Falha ao buscar e renderizar dados:", error);
                     dom.storeStatusBanner.style.display = 'block';
-                    dom.storeStatusBanner.textContent = 'Não foi possível carregar o cardápio. Tente novamente mais tarde.';
+                    dom.storeStatusBanner.textContent = 'Erro de conexão. Tentando novamente...';
                 }
             };
 
@@ -556,11 +623,16 @@
                 const deliveryType = document.querySelector('input[name="delivery-type"]:checked').value;
                 const address = deliveryType === 'delivery' ? dom.clientAddressInput.value : 'Retirada no local';
                 
+                const itemsForBackend = cart.map(item => ({
+                    ...item,
+                    id: item.original_id
+                }));
+
                 const orderData = {
                     client_name: document.getElementById('client-name').value,
                     client_phone: document.getElementById('client-phone').value,
                     client_address: address,
-                    items: cart,
+                    items: itemsForBackend,
                     total_price: parseFloat(dom.grandTotalEl.textContent.replace('R$ ', '').replace(',', '.'))
                 };
                 
@@ -597,7 +669,6 @@
                     calculateTotals();
                 });
             });
-
             dom.clearCartBtn.addEventListener('click', () => {
                 const confirmModal = document.getElementById('confirm-modal');
                 confirmModal.style.display = 'flex';
@@ -613,29 +684,16 @@
 
             const socket = io(API_BASE_URL);
 
-            socket.on('settings_updated', (newSettings) => {
-                console.log('Configurações da loja atualizadas recebidas via Socket.IO!');
-                updateStoreStatus(newSettings);
+            socket.on('connect', () => {
+                console.log('Socket.IO conectado com o servidor.');
             });
 
-            socket.on('stock_updated', ({ productId, stock_quantity, stock_enabled }) => {
-                console.log(`Estoque atualizado para o produto ${productId} recebido via Socket.IO!`);
-                
-                const updateItemStock = (item) => {
-                    if (item.id === productId) {
-                        item.stock_quantity = stock_quantity;
-                        item.stock_enabled = stock_enabled;
-                    }
-                    if (item.children && item.children.length > 0) {
-                        item.children.forEach(updateItemStock);
-                    }
-                };
-
-                allItems.forEach(updateItemStock);
-                renderItems(allItems);
+            socket.on('data_updated', () => {
+                console.log('Recebido evento "data_updated". Atualizando a interface...');
+                fetchAndRenderAll();
             });
-
-            fetchInitialData();
+            
+            fetchAndRenderAll();
         });
     </script>
 </body>

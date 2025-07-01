@@ -60,7 +60,6 @@
         </main>
     </div>
 
-    <!-- Modal de Produtos -->
     <div id="product-modal-overlay" class="modal-overlay">
         <div class="modal-content">
             <button id="product-modal-close-btn" class="modal-close-btn">&times;</button>
@@ -117,7 +116,6 @@
         </div>
     </div>
 
-    <!-- Modal de Combos (sem alterações) -->
     <div id="combo-modal-overlay" class="modal-overlay">
         <div class="modal-content">
             <button id="combo-modal-close-btn" class="modal-close-btn">&times;</button>
@@ -233,9 +231,24 @@
         const setupAudioPlayer = (soundUrl) => { if (soundUrl) { notificationAudio = new Audio(soundUrl); notificationAudio.loop = true; } else { notificationAudio = null; } }
         const playNotification = () => { if (isSoundEnabled && notificationAudio) notificationAudio.play().catch(console.error); }
         const stopNotification = () => { if (notificationAudio) { notificationAudio.pause(); notificationAudio.currentTime = 0; } }
+        
         socket.on('connect', () => console.log('Socket.IO conectado.'));
-        socket.on('new_order', (order) => { playNotification(); if (document.querySelector('.orders-panel')) addOrderCard(order); });
+        socket.on('new_order', (order) => { 
+            playNotification(); 
+            if (document.querySelector('.orders-panel')) {
+                addOrderCard(order); 
+            }
+            // ✅ CORREÇÃO: Atualiza a visualização de produtos após um novo pedido para refletir o estoque.
+            fetchAndRefreshAllViews(); 
+        });
         socket.on('order_status_updated', ({ id, status }) => moveOrderCard(id, status));
+
+        // ✅ CORREÇÃO: O Dashboard agora ouve o evento 'data_updated' para se manter sincronizado.
+        socket.on('data_updated', () => {
+            console.log('Dashboard recebeu evento "data_updated". Atualizando visualizações...');
+            fetchAndRefreshAllViews();
+        });
+
 
         const renderPedidosPage = () => {
             pageTitle.textContent = 'Painel de Pedidos';

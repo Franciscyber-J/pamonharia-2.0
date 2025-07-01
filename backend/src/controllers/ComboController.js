@@ -1,6 +1,12 @@
 // backend/src/controllers/ComboController.js
 const connection = require('../database/connection');
 
+// NOVA FUNÇÃO AUXILIAR PARA EMITIR ATUALIZAÇÕES
+const emitDataUpdated = (request) => {
+  console.log('[Socket.IO] Emitindo evento "data_updated" para todos os clientes do cardápio.');
+  request.io.emit('data_updated');
+};
+
 module.exports = {
   // Rota para o Dashboard (ordenada)
   async index(request, response) {
@@ -31,14 +37,12 @@ module.exports = {
         .orderBy('display_order', 'asc');
 
       for (const combo of combos) {
-        // CORREÇÃO: Alterado para selecionar TODAS as colunas de 'products' ('products.*'),
-        // o que inclui as informações de estoque (stock_enabled, stock_quantity).
         combo.products = await connection('combo_products')
           .join('products', 'products.id', '=', 'combo_products.product_id')
           .where('combo_products.combo_id', combo.id)
           .andWhere('products.status', true)
           .select(
-            'products.*', // <-- MUDANÇA PRINCIPAL AQUI
+            'products.*',
             'combo_products.quantity_in_combo',
             'combo_products.price_modifier'
           );
@@ -70,6 +74,9 @@ module.exports = {
           await trx('combo_products').insert(comboProducts);
         }
       });
+      
+      emitDataUpdated(request); // EMITE O EVENTO
+      
       return response.status(201).json({ message: 'Combo criado com sucesso.' });
     } catch (error) {
       console.error('[ComboController] Erro ao criar combo:', error);
@@ -91,13 +98,16 @@ module.exports = {
         if (products && products.length > 0) {
           const comboProducts = products.map(product => ({
             combo_id: id,
-            product_id: product.id, // O ID do produto
+            product_id: product.id,
             quantity_in_combo: product.quantity_in_combo || 1,
             price_modifier: product.price_modifier || 0.00
           }));
           await trx('combo_products').insert(comboProducts);
         }
       });
+      
+      emitDataUpdated(request); // EMITE O EVENTO
+      
       return response.json({ message: 'Combo atualizado com sucesso.' });
     } catch (error) {
       console.error(`[ComboController] Erro ao atualizar combo ID ${id}:`, error);
@@ -111,12 +121,14 @@ module.exports = {
     if (deleted_rows === 0) {
       return response.status(404).json({ error: 'Combo não encontrado.' });
     }
+    
+    emitDataUpdated(request); // EMITE O EVENTO
+    
     return response.status(204).send();
   },
 
-  // NOVO: Função para reordenar combos
   async reorder(request, response) {
-    const { orderedIds } = request.body; // Espera um array de IDs na nova ordem
+    const { orderedIds } = request.body;
     if (!Array.isArray(orderedIds)) {
       return response.status(400).json({ error: 'O corpo da requisição deve conter um array "orderedIds".' });
     }
@@ -128,6 +140,9 @@ module.exports = {
         await Promise.all(updatePromises);
       });
       console.log('[ComboController] Combos reordenados com sucesso.');
+      
+      emitDataUpdated(request); // EMITE O EVENTO
+      
       return response.status(200).json({ message: 'Combos reordenados com sucesso.' });
     } catch (error) {
       console.error('[ComboController] Erro ao reordenar combos:', error);

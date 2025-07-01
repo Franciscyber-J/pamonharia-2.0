@@ -2,7 +2,6 @@
 const connection = require('../database/connection');
 const cloudinary = require('cloudinary').v2;
 
-// Configuração do Cloudinary com as nossas variáveis de ambiente
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -10,8 +9,13 @@ cloudinary.config({
   secure: true,
 });
 
+// NOVA FUNÇÃO AUXILIAR PARA EMITIR ATUALIZAÇÕES
+const emitDataUpdated = (request) => {
+  console.log('[Socket.IO] Emitindo evento "data_updated" para todos os clientes do cardápio.');
+  request.io.emit('data_updated');
+};
+
 module.exports = {
-  // Função para LER as configurações
   async show(request, response) {
     console.log('[SettingsController] Buscando configurações...');
     const settings = await connection('store_settings').where('id', 1).first();
@@ -24,7 +28,6 @@ module.exports = {
     return response.json(settings);
   },
 
-  // Função para ATUALIZAR as configurações
   async update(request, response) {
     console.log('[SettingsController] Recebida requisição para atualizar configurações.');
     const settingsData = request.body;
@@ -37,18 +40,12 @@ module.exports = {
     
     console.log('[SettingsController] Configurações atualizadas no banco de dados.');
 
-    const newSettings = await connection('store_settings').where('id', 1).first();
-    if (newSettings.operating_hours && typeof newSettings.operating_hours === 'string') {
-        newSettings.operating_hours = JSON.parse(newSettings.operating_hours);
-    }
+    emitDataUpdated(request); // EMITE O EVENTO
     
-    request.io.emit('settings_updated', newSettings);
-    console.log('[Socket.IO] Evento "settings_updated" emitido para todos os clientes.');
-    
+    // A resposta agora é mais simples, não precisa reenviar os dados.
     return response.status(200).json({ message: 'Settings updated successfully.' });
   },
 
-  // Função para gerar a assinatura segura para o upload
   generateCloudinarySignature(request, response) {
     console.log('[SettingsController] Gerando assinatura para upload no Cloudinary.');
     const timestamp = Math.round((new Date()).getTime() / 1000);
