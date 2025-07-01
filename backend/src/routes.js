@@ -13,12 +13,11 @@ const authMiddleware = require('./middlewares/auth');
 const routes = express.Router();
 
 // --- ROTAS DO FRONTEND ---
-// Servir os ficheiros estáticos principais
 routes.get('/', (req, res) => res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'dashboard', 'login.html')));
 routes.get('/dashboard', (req, res) => res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'dashboard', 'dashboard.html')));
 routes.get('/cardapio', (req, res) => res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'cardapio', 'index.html')));
 
-// --- ROTAS PÚBLICAS DA API (Acessíveis pelo cliente no cardápio) ---
+// --- ROTAS PÚBLICAS DA API ---
 routes.get('/api/public/products', ProductController.indexPublic);
 routes.get('/api/public/combos', ComboController.indexPublic);
 routes.get('/api/public/settings', SettingsController.show);
@@ -26,12 +25,8 @@ routes.post('/api/public/orders', OrderController.create);
 
 // --- ROTAS DE AUTENTICAÇÃO ---
 routes.post('/api/sessions', SessionController.create);
-// Opcional: Rota para criar um utilizador inicial (pode ser protegida ou removida em produção)
-// routes.post('/api/users', UserController.create);
 
 // --- ROTAS PRIVADAS DA API (Protegidas por autenticação - Dashboard) ---
-
-// Middleware de autenticação será aplicado a todas as rotas abaixo
 routes.use(authMiddleware);
 
 // Produtos e Estoque
@@ -40,14 +35,14 @@ routes.post('/api/products', ProductController.create);
 routes.put('/api/products/:id', ProductController.update);
 routes.delete('/api/products/:id', ProductController.destroy);
 routes.patch('/api/products/:id/stock', ProductController.updateStock);
-routes.post('/api/products/reorder', ProductController.reorder); // ROTA ATUALIZADA
+routes.post('/api/products/reorder', ProductController.reorder);
 
 // Combos
 routes.get('/api/combos', ComboController.index);
 routes.post('/api/combos', ComboController.create);
 routes.put('/api/combos/:id', ComboController.update);
 routes.delete('/api/combos/:id', ComboController.destroy);
-routes.post('/api/combos/reorder', ComboController.reorder); // ROTA ATUALIZADA
+routes.post('/api/combos/reorder', ComboController.reorder);
 
 // Configurações
 routes.get('/api/settings', SettingsController.show);
