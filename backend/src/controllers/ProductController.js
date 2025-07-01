@@ -1,6 +1,7 @@
 // backend/src/controllers/ProductController.js
 const connection = require('../database/connection');
 
+// Função auxiliar para obter as colunas de uma tabela e evitar erros de "coluna não existe"
 async function getTableColumns(tableName) {
   try {
     const result = await connection.raw(`SELECT column_name FROM information_schema.columns WHERE table_name = '${tableName}'`);
@@ -12,21 +13,25 @@ async function getTableColumns(tableName) {
 }
 
 module.exports = {
-  // Rota para o Dashboard (protegida e ordenada)
+  // Rota para o Dashboard (protegida e ordenada pela nova coluna 'display_order')
   async index(request, response) {
     const products = await connection('products').select('*').orderBy('display_order', 'asc');
     const productMap = new Map();
     const parentProducts = [];
 
+    // Mapeia todos os produtos por ID e inicializa a propriedade 'children'
     products.forEach(product => {
       product.children = [];
       productMap.set(product.id, product);
     });
 
+    // Associa os filhos aos pais
     products.forEach(product => {
       if (product.parent_product_id) {
         const parent = productMap.get(product.parent_product_id);
-        if (parent) parent.children.push(product);
+        if (parent) {
+          parent.children.push(product);
+        }
       } else {
         parentProducts.push(product);
       }
@@ -34,18 +39,32 @@ module.exports = {
     return response.json(parentProducts);
   },
 
-  // Rota para o Cardápio Público (ordenada)
+  // Rota para o Cardápio Público (apenas itens ativos e ordenados)
   async indexPublic(request, response) {
-    const parentProducts = await connection('products')
-      .where({ status: true, is_main_product: true })
+    const allActiveProducts = await connection('products')
+      .where({ status: true })
       .orderBy('display_order', 'asc');
+      
+    const productMap = new Map();
+    const finalProductsList = [];
 
-    for (const product of parentProducts) {
-      product.children = await connection('products')
-        .where({ parent_product_id: product.id, status: true })
-        .orderBy('display_order', 'asc');
-    }
-    return response.json(parentProducts);
+    allActiveProducts.forEach(product => {
+        product.children = [];
+        productMap.set(product.id, product);
+    });
+
+    allActiveProducts.forEach(product => {
+        if (product.parent_product_id) {
+            const parent = productMap.get(product.parent_product_id);
+            if (parent) {
+                parent.children.push(product);
+            }
+        } else if (product.is_main_product) {
+            finalProductsList.push(product);
+        }
+    });
+
+    return response.json(finalProductsList);
   },
 
   async create(request, response) {
@@ -53,8 +72,9 @@ module.exports = {
       const productData = request.body;
       const existingColumns = await getTableColumns('products');
       const dataToInsert = {};
+      // Filtra apenas os campos que existem na tabela para evitar erros
       for (const key in productData) {
-        if (existingColumns.includes(key)) {
+        if (existingColumns.includes(key) && key !== 'children') {
           dataToInsert[key] = productData[key];
         }
       }
@@ -72,6 +92,7 @@ module.exports = {
       const productData = request.body;
       const existingColumns = await getTableColumns('products');
       const dataToUpdate = {};
+      // Filtra os dados para atualização, incluindo os novos campos
       for (const key in productData) {
         if (existingColumns.includes(key) && key !== 'children') {
           dataToUpdate[key] = productData[key];
@@ -79,16 +100,21 @@ module.exports = {
       }
       
       await connection.transaction(async trx => {
+        // Atualiza os dados do produto principal
         if (Object.keys(dataToUpdate).length > 0) {
           await trx('products').where({ id }).update(dataToUpdate);
         }
+        // Gerencia os complementos (filhos)
         if (productData.children !== undefined) {
+          // Primeiro, desvincula todos os filhos atuais
           await trx('products').where('parent_product_id', id).update({ parent_product_id: null });
+          // Depois, vincula os novos filhos selecionados
           if (productData.children.length > 0) {
             const childrenIds = productData.children.map(child => child.id);
             await trx('products').whereIn('id', childrenIds).update({ parent_product_id: id });
           }
         }
+        // Sincroniza o estoque se a opção estiver habilitada
         if (dataToUpdate.stock_sync_enabled === true) {
           const parentProduct = await trx('products').where({ id }).first();
           if (parentProduct && parentProduct.stock_quantity !== null) {
@@ -134,7 +160,7 @@ module.exports = {
 
         const updatedProduct = await connection('products').where('id', id).first();
         
-        // Emite o evento de atualização de estoque para todos os clientes
+        console.log(`[Socket.IO] Emitindo 'stock_updated' para o produto ID: ${updatedProduct.id}`);
         request.io.emit('stock_updated', {
             productId: updatedProduct.id,
             stock_quantity: updatedProduct.stock_quantity,
@@ -147,12 +173,12 @@ module.exports = {
                 .where('parent_product_id', id)
                 .update({ stock_quantity: dataToUpdate.stock_quantity });
             
-            // Emite evento para cada filho atualizado
             childrenToUpdate.forEach(child => {
+                console.log(`[Socket.IO] Emitindo 'stock_updated' para o complemento (filho) ID: ${child.id}`);
                 request.io.emit('stock_updated', {
                     productId: child.id,
                     stock_quantity: dataToUpdate.stock_quantity,
-                    stock_enabled: true // Assumindo que o filho também deve estar habilitado
+                    stock_enabled: true 
                 });
             });
         }
@@ -164,17 +190,19 @@ module.exports = {
     }
   },
 
-  // NOVA FUNÇÃO PARA REORDENAR
   async reorder(request, response) {
-    const { orderedIds } = request.body; // Array de IDs na nova ordem
+    const { orderedIds } = request.body;
+    if (!Array.isArray(orderedIds)) {
+      return response.status(400).json({ error: 'O corpo da requisição deve conter um array "orderedIds".' });
+    }
     try {
       await connection.transaction(async trx => {
-        for (let i = 0; i < orderedIds.length; i++) {
-          const id = orderedIds[i];
-          const display_order = i;
-          await trx('products').where('id', id).update({ display_order });
-        }
+        const updatePromises = orderedIds.map((id, index) => {
+          return trx('products').where('id', id).update({ display_order: index });
+        });
+        await Promise.all(updatePromises);
       });
+      console.log('[ProductController] Produtos reordenados com sucesso.');
       return response.status(200).json({ message: 'Produtos reordenados com sucesso.' });
     } catch (error) {
       console.error('[ProductController] Erro ao reordenar produtos:', error);

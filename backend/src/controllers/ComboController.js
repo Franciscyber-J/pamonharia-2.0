@@ -12,7 +12,7 @@ module.exports = {
         combo.products = await connection('combo_products')
           .join('products', 'products.id', '=', 'combo_products.product_id')
           .where('combo_products.combo_id', combo.id)
-          .select('products.*', 'combo_products.quantity_in_combo', 'combo_products.price_modifier');
+          .select('products.*', 'combo_products.quantity_in_combo', 'combo_products.price_modifier', 'combo_products.product_id as product_id'); // Garante que o product_id seja selecionado
       }
       
       return response.json(combos);
@@ -31,13 +31,14 @@ module.exports = {
         .orderBy('display_order', 'asc');
 
       for (const combo of combos) {
+        // CORREÇÃO: Alterado para selecionar TODAS as colunas de 'products' ('products.*'),
+        // o que inclui as informações de estoque (stock_enabled, stock_quantity).
         combo.products = await connection('combo_products')
           .join('products', 'products.id', '=', 'combo_products.product_id')
           .where('combo_products.combo_id', combo.id)
           .andWhere('products.status', true)
           .select(
-            'products.id',
-            'products.name',
+            'products.*', // <-- MUDANÇA PRINCIPAL AQUI
             'combo_products.quantity_in_combo',
             'combo_products.price_modifier'
           );
@@ -90,7 +91,7 @@ module.exports = {
         if (products && products.length > 0) {
           const comboProducts = products.map(product => ({
             combo_id: id,
-            product_id: product.id,
+            product_id: product.id, // O ID do produto
             quantity_in_combo: product.quantity_in_combo || 1,
             price_modifier: product.price_modifier || 0.00
           }));
@@ -113,15 +114,20 @@ module.exports = {
     return response.status(204).send();
   },
 
-  // NOVA FUNÇÃO PARA REORDENAR
+  // NOVO: Função para reordenar combos
   async reorder(request, response) {
-    const { orderedIds } = request.body;
+    const { orderedIds } = request.body; // Espera um array de IDs na nova ordem
+    if (!Array.isArray(orderedIds)) {
+      return response.status(400).json({ error: 'O corpo da requisição deve conter um array "orderedIds".' });
+    }
     try {
       await connection.transaction(async trx => {
-        for (let i = 0; i < orderedIds.length; i++) {
-          await trx('combos').where('id', orderedIds[i]).update({ display_order: i });
-        }
+        const updatePromises = orderedIds.map((id, index) => {
+          return trx('combos').where('id', id).update({ display_order: index });
+        });
+        await Promise.all(updatePromises);
       });
+      console.log('[ComboController] Combos reordenados com sucesso.');
       return response.status(200).json({ message: 'Combos reordenados com sucesso.' });
     } catch (error) {
       console.error('[ComboController] Erro ao reordenar combos:', error);

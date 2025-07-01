@@ -38,24 +38,46 @@
             </main>
             <aside>
                 <div id="cart-wrapper" class="cart-container">
-                    <h2>Meu Carrinho</h2>
+                    <div class="cart-header">
+                        <h2>Meu Carrinho</h2>
+                        <button id="clear-cart-btn" style="display: none;">Limpar</button>
+                    </div>
                     <div id="cart-items">
                         <p id="empty-cart-msg">Seu carrinho está vazio.</p>
                     </div>
                     <div class="cart-totals">
                         <div class="total-row"><span>Subtotal</span><span id="subtotal">R$ 0,00</span></div>
-                        <div class="total-row"><span>Taxa de Entrega</span><span id="delivery-fee">R$ 0,00</span></div>
+                        <div class="total-row" id="delivery-fee-row"><span>Taxa de Entrega</span><span id="delivery-fee">R$ 0,00</span></div>
                         <div class="total-row grand-total"><span>Total</span><span id="grand-total">R$ 0,00</span></div>
                     </div>
                     <div class="checkout-form">
                         <h3>Finalizar Pedido</h3>
                         <form id="order-form">
-                            <label for="client-name">Nome</label>
-                            <input type="text" id="client-name" required>
-                            <label for="client-phone">Contacto (WhatsApp)</label>
-                            <input type="tel" id="client-phone" required>
-                            <label for="client-address">Endereço de Entrega</label>
-                            <input type="text" id="client-address" required>
+                            <div class="form-group">
+                                <label for="client-name">Nome</label>
+                                <input type="text" id="client-name" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="client-phone">Contacto (WhatsApp)</label>
+                                <input type="tel" id="client-phone" required>
+                            </div>
+                            
+                            <div class="delivery-options">
+                                <label><input type="radio" name="delivery-type" value="delivery" checked> Entrega</label>
+                                <label><input type="radio" name="delivery-type" value="pickup"> Retirada</label>
+                            </div>
+
+                            <div class="form-group" id="address-group">
+                                <label for="client-address">Endereço de Entrega</label>
+                                <input type="text" id="client-address" required>
+                            </div>
+
+                            <div class="payment-options">
+                                <p>Forma de Pagamento:</p>
+                                <label><input type="radio" name="payment-method" value="on_delivery" checked> Pagar na Entrega/Retirada</label>
+                                <label><input type="radio" name="payment-method" value="online" disabled> Pagar Online (Em breve)</label>
+                            </div>
+
                             <button type="submit" class="action-button" id="submit-order" disabled>Finalizar Pedido</button>
                         </form>
                     </div>
@@ -74,11 +96,25 @@
             <button class="modal-close-btn">&times;</button>
             <div id="modal-header" class="modal-header"></div>
             <div id="modal-body" class="modal-body"></div>
-            <div id="modal-footer" class="modal-footer">
+            <div class="modal-footer">
+                <div id="modal-feedback" class="modal-feedback"></div>
                 <button id="add-to-cart-btn" class="action-button">Adicionar ao Carrinho</button>
             </div>
         </div>
     </div>
+
+    <!-- Modal de Confirmação para Limpar Carrinho -->
+    <div id="confirm-modal" class="modal-overlay">
+        <div class="modal-content" style="max-width: 400px;">
+            <h3 id="confirm-modal-title">Confirmar Ação</h3>
+            <p id="confirm-modal-text">Tem certeza de que deseja esvaziar seu carrinho?</p>
+            <div class="modal-footer" style="justify-content: space-between;">
+                <button id="confirm-modal-no" class="action-button secondary">Não</button>
+                <button id="confirm-modal-yes" class="action-button danger">Sim, limpar</button>
+            </div>
+        </div>
+    </div>
+
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
@@ -91,6 +127,7 @@
                 cartItemsContainer: document.getElementById('cart-items'),
                 subtotalEl: document.getElementById('subtotal'),
                 deliveryFeeEl: document.getElementById('delivery-fee'),
+                deliveryFeeRow: document.getElementById('delivery-fee-row'),
                 grandTotalEl: document.getElementById('grand-total'),
                 orderForm: document.getElementById('order-form'),
                 submitOrderBtn: document.getElementById('submit-order'),
@@ -101,13 +138,17 @@
                 modal: document.getElementById('selection-modal'),
                 modalHeader: document.getElementById('modal-header'),
                 modalBody: document.getElementById('modal-body'),
+                modalFeedback: document.getElementById('modal-feedback'),
                 addToCartBtn: document.getElementById('add-to-cart-btn'),
-                themeSwitcher: document.getElementById('theme-switcher')
+                themeSwitcher: document.getElementById('theme-switcher'),
+                clearCartBtn: document.getElementById('clear-cart-btn'),
+                addressGroup: document.getElementById('address-group'),
+                clientAddressInput: document.getElementById('client-address')
             };
 
             let cart = [];
-            let storeSettings = {};
             let allItems = [];
+            let storeSettings = {};
 
             const applyTheme = (theme) => {
                 document.body.setAttribute('data-theme', theme);
@@ -125,7 +166,7 @@
                 dom.productsGrid.innerHTML = '';
                 dom.combosGrid.innerHTML = '';
                 
-                const activeProducts = items.filter(item => !item.is_combo);
+                const activeProducts = items.filter(item => !item.is_combo && item.is_main_product);
                 const activeCombos = items.filter(item => item.is_combo);
 
                 document.getElementById('products-section').style.display = activeProducts.length > 0 ? 'block' : 'none';
@@ -133,19 +174,41 @@
                 document.getElementById('section-divider').style.display = activeProducts.length > 0 && activeCombos.length > 0 ? 'block' : 'none';
 
                 items.forEach(item => {
+                    if (!item.status) return;
+
                     const grid = item.is_combo ? dom.combosGrid : dom.productsGrid;
-                    const priceText = item.is_combo ? `A partir de R$ ${parseFloat(item.price).toFixed(2).replace('.',',')}` : `R$ ${parseFloat(item.price).toFixed(2).replace('.',',')}`;
-                    const buttonText = (item.is_combo || (item.children && item.children.length > 0)) ? 'Montar' : 'Adicionar';
-                    const onClickAction = item.is_combo ? `openComboModal(${item.id})` : (item.children && item.children.length > 0 ? `openProductWithOptionsModal(${item.id})` : `addToCart({ id: ${item.id}, name: '${item.name}', price: ${item.price} })`);
+                    if (!grid || !item.is_main_product && !item.is_combo) return;
+
+                    let priceText;
+                    if (item.is_combo) {
+                        priceText = `A partir de R$ ${parseFloat(item.price).toFixed(2).replace('.',',')}`;
+                    } else if (item.children && item.children.length > 0 && !item.sell_parent_product) {
+                        const minPrice = Math.min(...item.children.map(c => c.price));
+                        priceText = `A partir de R$ ${parseFloat(minPrice).toFixed(2).replace('.',',')}`;
+                    } else {
+                        priceText = `R$ ${parseFloat(item.price).toFixed(2).replace('.',',')}`;
+                    }
+
+                    const hasOptions = item.children && item.children.length > 0;
+                    const buttonText = item.is_combo ? 'Montar' : 'Adicionar';
+                    
+                    const isOutOfStock = item.stock_enabled && (item.stock_quantity !== null && item.stock_quantity <= 0);
+                    
+                    const onClickAction = item.is_combo 
+                        ? `openComboModal(${item.id})` 
+                        : (hasOptions
+                            ? `openProductWithOptionsModal(${item.id})` 
+                            : `addToCart({ id: ${item.id}, name: '${item.name}', price: ${item.price}, image_url: '${item.image_url || ''}' })`);
 
                     grid.innerHTML += `
-                        <div class="item-card">
+                        <div class="item-card ${isOutOfStock ? 'out-of-stock' : ''}">
+                            <div class="stock-overlay">${isOutOfStock ? 'Esgotado' : ''}</div>
                             <img src="${item.image_url || 'https://placehold.co/400x250/f59e0b/FFF?text=Pamonha'}" alt="${item.name}" class="item-image">
                             <div class="item-info">
                                 <h3>${item.name}</h3>
                                 <p class="description">${item.description || ''}</p>
                                 <div class="item-price">${priceText}</div>
-                                <button class="action-button" onclick="${onClickAction}" ${!storeSettings.is_open ? 'disabled' : ''}>${buttonText}</button>
+                                <button class="action-button" onclick="${onClickAction}" ${!storeSettings.is_open || isOutOfStock ? 'disabled' : ''}>${buttonText}</button>
                             </div>
                         </div>
                     `;
@@ -153,6 +216,7 @@
             };
 
             const renderCart = () => {
+                dom.clearCartBtn.style.display = cart.length > 0 ? 'inline-block' : 'none';
                 if (cart.length === 0) {
                     dom.cartItemsContainer.innerHTML = '<p id="empty-cart-msg">Seu carrinho está vazio.</p>';
                     dom.submitOrderBtn.disabled = true;
@@ -165,6 +229,7 @@
                         }
                         dom.cartItemsContainer.innerHTML += `
                             <div class="cart-item">
+                                <img src="${item.image_url || 'https://placehold.co/60x60/f59e0b/FFF?text=Item'}" alt="${item.name}" class="cart-item-image">
                                 <div class="cart-item-info">
                                     <strong>${item.quantity}x ${item.name}</strong>
                                     ${itemDetails}
@@ -183,7 +248,11 @@
 
             const calculateTotals = () => {
                 const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-                const deliveryFee = parseFloat(storeSettings.delivery_fee || 0);
+                const isDelivery = document.querySelector('input[name="delivery-type"]:checked').value === 'delivery';
+                const deliveryFee = isDelivery ? parseFloat(storeSettings.delivery_fee || 0) : 0;
+                
+                dom.deliveryFeeRow.style.display = isDelivery ? 'flex' : 'none';
+
                 const grandTotal = subtotal + deliveryFee;
                 dom.subtotalEl.textContent = `R$ ${subtotal.toFixed(2).replace('.',',')}`;
                 dom.deliveryFeeEl.textContent = `R$ ${deliveryFee.toFixed(2).replace('.',',')}`;
@@ -239,63 +308,101 @@
 
             const setupModal = (config) => {
                 dom.modalHeader.innerHTML = `<h3>${config.title}</h3><p>${config.description}</p>`;
-                dom.modalBody.innerHTML = '';
-                config.options.forEach(option => {
-                    const priceModifierText = option.price_modifier > 0 ? `+ R$ ${parseFloat(option.price_modifier).toFixed(2).replace('.',',')}` : '';
-                    dom.modalBody.innerHTML += `
-                        <div class="modal-item-option">
-                            <label>${option.name}</label>
-                            <span class="price-modifier">${priceModifierText}</span>
-                            <div class="quantity-control">
-                                <button data-item-id="${option.id}" data-price-modifier="${option.price_modifier}" data-name="${option.name}">-</button>
-                                <span id="quantity-${option.id}">0</span>
-                                <button data-item-id="${option.id}" data-price-modifier="${option.price_modifier}" data-name="${option.name}">+</button>
-                            </div>
-                        </div>
-                    `;
-                });
-
+                dom.modalBody.innerHTML = config.body || '';
+                dom.modalFeedback.textContent = '';
+                
                 dom.addToCartBtn.onclick = config.onSave;
                 dom.modal.querySelector('.modal-close-btn').onclick = () => dom.modal.style.display = 'none';
                 dom.modal.style.display = 'flex';
-                config.onOpen();
+                if(config.onOpen) config.onOpen();
             };
 
-            const handleQuantityChange = (target, state, validator) => {
+            const handleQuantityChange = (target, state, validator, itemStockData) => {
                 const itemId = parseInt(target.dataset.itemId);
                 const isIncrement = target.textContent === '+';
                 
                 if (isIncrement) {
-                    state[itemId] = (state[itemId] || 0) + 1;
+                    const currentQty = state[itemId] || 0;
+                    const stockInfo = itemStockData.find(i => i.id === itemId);
+                    if (stockInfo && stockInfo.stock_enabled && stockInfo.stock_quantity !== null && currentQty >= stockInfo.stock_quantity) {
+                        dom.modalFeedback.textContent = `Apenas ${stockInfo.stock_quantity} unidades de "${stockInfo.name}" em estoque.`;
+                        setTimeout(() => dom.modalFeedback.textContent = '', 2500);
+                        return;
+                    }
+                    state[itemId] = currentQty + 1;
                 } else {
                     state[itemId] = Math.max(0, (state[itemId] || 0) - 1);
                 }
                 
                 document.getElementById(`quantity-${itemId}`).textContent = state[itemId];
-                validator();
+                if (validator) validator();
             };
 
             window.openProductWithOptionsModal = (productId) => {
                 const product = allItems.find(item => item.id === productId);
                 if (!product || !product.children) return;
 
+                let parentQuantity = 1;
                 let selectedComplements = {};
 
+                let bodyHtml = '';
+                if (product.force_one_to_one_complement) {
+                    bodyHtml += `
+                        <div class="modal-parent-item">
+                            <span>Quantidade de ${product.name}</span>
+                            <div class="quantity-control">
+                                <button id="parent-decrease">-</button>
+                                <span id="parent-quantity">${parentQuantity}</span>
+                                <button id="parent-increase">+</button>
+                            </div>
+                        </div>
+                        <h4>Escolha os complementos:</h4>
+                    `;
+                } else {
+                     bodyHtml += `<h4>Escolha os sabores e quantidades:</h4>`;
+                }
+
+                product.children.forEach(option => {
+                    const isOptionOutOfStock = option.stock_enabled && (option.stock_quantity !== null && option.stock_quantity <= 0);
+                    bodyHtml += `
+                        <div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}">
+                            <label>${option.name} (R$ ${parseFloat(option.price).toFixed(2).replace('.',',')})</label>
+                            <div class="quantity-control">
+                                <button data-item-id="${option.id}">-</button>
+                                <span id="quantity-${option.id}">0</span>
+                                <button data-item-id="${option.id}">+</button>
+                            </div>
+                        </div>
+                    `;
+                });
+
                 const validator = () => {
-                    if(product.force_addons) {
-                        const totalSelected = Object.values(selectedComplements).reduce((sum, qty) => sum + qty, 0);
+                    const totalSelected = Object.values(selectedComplements).reduce((sum, qty) => sum + qty, 0);
+                    if (product.force_one_to_one_complement) {
+                        dom.addToCartBtn.disabled = totalSelected !== parentQuantity;
+                        dom.modalFeedback.textContent = (totalSelected < parentQuantity) ? `Selecione mais ${parentQuantity - totalSelected} complemento(s).` : '';
+                    } else {
                         dom.addToCartBtn.disabled = totalSelected === 0;
                     }
                 };
                 
                 setupModal({
                     title: `Adicionar ${product.name}`,
-                    description: 'Selecione os complementos que desejar.',
-                    options: product.children,
+                    description: product.force_one_to_one_complement ? 'Escolha 1 complemento para cada item.' : 'Selecione os complementos.',
+                    body: bodyHtml,
                     onOpen: validator,
                     onSave: () => {
-                        let finalPrice = parseFloat(product.price);
+                        let finalPrice = 0;
+                        let finalQuantity = 0;
                         let selected_items = [];
+
+                        if (product.force_one_to_one_complement) {
+                            finalQuantity = parentQuantity;
+                            finalPrice = product.sell_parent_product ? parseFloat(product.price) * parentQuantity : 0;
+                        } else {
+                            finalQuantity = 1; 
+                        }
+
                         for (const [id, quantity] of Object.entries(selectedComplements)) {
                             if (quantity > 0) {
                                 const complement = product.children.find(c => c.id == id);
@@ -303,19 +410,50 @@
                                 selected_items.push({ id: complement.id, name: `${quantity}x ${complement.name}` });
                             }
                         }
+
                         addToCart({
                             id: `prod_${product.id}_${Date.now()}`,
                             name: product.name,
-                            price: finalPrice,
+                            price: finalQuantity > 0 ? finalPrice / finalQuantity : 0,
+                            quantity: finalQuantity,
                             has_addons: true,
-                            selected_items: selected_items
+                            selected_items: selected_items,
+                            image_url: product.image_url
                         });
                         dom.modal.style.display = 'none';
                     }
                 });
+                
+                if (product.force_one_to_one_complement) {
+                    document.getElementById('parent-increase').addEventListener('click', () => {
+                        if (product.stock_enabled && product.stock_quantity !== null && parentQuantity >= product.stock_quantity) {
+                            dom.modalFeedback.textContent = `Apenas ${product.stock_quantity} unidades de "${product.name}" em estoque.`;
+                            setTimeout(() => dom.modalFeedback.textContent = '', 2500);
+                            return;
+                        }
+                        parentQuantity++;
+                        document.getElementById('parent-quantity').textContent = parentQuantity;
+                        validator();
+                    });
+                    document.getElementById('parent-decrease').addEventListener('click', () => {
+                        parentQuantity = Math.max(1, parentQuantity - 1);
+                        document.getElementById('parent-quantity').textContent = parentQuantity;
+                        validator();
+                    });
+                }
 
-                dom.modalBody.querySelectorAll('.quantity-control button').forEach(button => {
-                    button.addEventListener('click', (e) => handleQuantityChange(e.target, selectedComplements, validator));
+                dom.modalBody.querySelectorAll('.quantity-control button[data-item-id]').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        if (product.force_one_to_one_complement) {
+                            const totalSelected = Object.values(selectedComplements).reduce((s, q) => s + q, 0);
+                            if (e.target.textContent === '+' && totalSelected >= parentQuantity) {
+                                dom.modalFeedback.textContent = `Você já selecionou ${parentQuantity} complemento(s).`;
+                                setTimeout(() => dom.modalFeedback.textContent = '', 2500);
+                                return;
+                            }
+                        }
+                        handleQuantityChange(e.target, selectedComplements, validator, product.children);
+                    });
                 });
             };
 
@@ -327,14 +465,32 @@
                 
                 const validator = () => {
                     const totalSelected = Object.values(selectedQuantities).reduce((sum, qty) => sum + qty, 0);
-                    dom.addToCartBtn.disabled = totalSelected !== combo.total_items_limit;
-                    dom.addToCartBtn.textContent = `Adicionar (${totalSelected}/${combo.total_items_limit}) ao Carrinho`;
+                    const totalLimit = combo.total_items_limit;
+                    dom.addToCartBtn.disabled = totalSelected !== totalLimit;
+                    dom.addToCartBtn.textContent = `Adicionar (${totalSelected}/${totalLimit}) ao Carrinho`;
                 };
+
+                let comboBodyHtml = '';
+                combo.products.forEach(option => {
+                    const isOptionOutOfStock = option.stock_enabled && (option.stock_quantity !== null && option.stock_quantity <= 0);
+                    const priceModifierText = option.price_modifier > 0 ? `+ R$ ${parseFloat(option.price_modifier).toFixed(2).replace('.',',')}` : '';
+                    comboBodyHtml += `
+                        <div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}">
+                            <label>${option.name} ${isOptionOutOfStock ? '<small>(Esgotado)</small>' : ''}</label>
+                            <span class="price-modifier">${priceModifierText}</span>
+                            <div class="quantity-control">
+                                <button data-item-id="${option.id}">-</button>
+                                <span id="quantity-${option.id}">0</span>
+                                <button data-item-id="${option.id}">+</button>
+                            </div>
+                        </div>
+                    `;
+                });
 
                 setupModal({
                     title: `Montar ${combo.name}`,
                     description: `Selecione exatamente ${combo.total_items_limit} itens.`,
-                    options: combo.products,
+                    body: comboBodyHtml,
                     onOpen: validator,
                     onSave: () => {
                         let finalPrice = parseFloat(combo.price);
@@ -351,7 +507,9 @@
                             name: combo.name,
                             price: finalPrice,
                             is_combo: true,
-                            selected_items: selected_items
+                            quantity: 1,
+                            selected_items: selected_items,
+                            image_url: combo.image_url
                         });
                         dom.modal.style.display = 'none';
                     }
@@ -359,25 +517,28 @@
 
                 dom.modalBody.querySelectorAll('.quantity-control button').forEach(button => {
                     button.addEventListener('click', (e) => {
+                        const totalLimit = combo.total_items_limit;
                         const currentTotal = Object.values(selectedQuantities).reduce((s, q) => s + q, 0);
-                        if (e.target.textContent === '+' && currentTotal >= combo.total_items_limit) return;
-                        handleQuantityChange(e.target, selectedQuantities, validator);
+                        if (e.target.textContent === '+' && currentTotal >= totalLimit) {
+                             dom.modalFeedback.textContent = `Você já selecionou o limite de ${totalLimit} itens.`;
+                             setTimeout(() => dom.modalFeedback.textContent = '', 2500);
+                             return;
+                        }
+                        handleQuantityChange(e.target, selectedQuantities, validator, combo.products);
                     });
                 });
             };
 
             const fetchInitialData = async () => {
                 try {
-                    const [products, combos, settings] = await Promise.all([
+                    const [productsResponse, combos, settings] = await Promise.all([
                         fetch(`${API_BASE_URL}/api/public/products`).then(res => res.json()),
                         fetch(`${API_BASE_URL}/api/public/combos`).then(res => res.json()),
                         fetch(`${API_BASE_URL}/api/public/settings`).then(res => res.json())
                     ]);
                     
-                    const mainProducts = products.filter(p => p.status);
-                    const activeCombos = combos.filter(c => c.status).map(c => ({...c, is_combo: true}));
-                    
-                    allItems = [...activeCombos, ...mainProducts];
+                    const activeCombos = combos.map(c => ({...c, is_combo: true}));
+                    allItems = [...activeCombos, ...productsResponse];
                     updateStoreStatus(settings);
 
                 } catch (error) {
@@ -392,12 +553,15 @@
                 dom.submitOrderBtn.disabled = true;
                 dom.submitOrderBtn.textContent = 'A enviar...';
 
+                const deliveryType = document.querySelector('input[name="delivery-type"]:checked').value;
+                const address = deliveryType === 'delivery' ? dom.clientAddressInput.value : 'Retirada no local';
+                
                 const orderData = {
                     client_name: document.getElementById('client-name').value,
                     client_phone: document.getElementById('client-phone').value,
-                    client_address: document.getElementById('client-address').value,
+                    client_address: address,
                     items: cart,
-                    total_price: cart.reduce((acc, item) => acc + (item.price * item.quantity), 0) + (parseFloat(storeSettings.delivery_fee) || 0)
+                    total_price: parseFloat(dom.grandTotalEl.textContent.replace('R$ ', '').replace(',', '.'))
                 };
                 
                 try {
@@ -425,10 +589,50 @@
                 }
             });
 
+            document.querySelectorAll('input[name="delivery-type"]').forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    const isDelivery = e.target.value === 'delivery';
+                    dom.addressGroup.style.display = isDelivery ? 'block' : 'none';
+                    dom.clientAddressInput.required = isDelivery;
+                    calculateTotals();
+                });
+            });
+
+            dom.clearCartBtn.addEventListener('click', () => {
+                const confirmModal = document.getElementById('confirm-modal');
+                confirmModal.style.display = 'flex';
+                document.getElementById('confirm-modal-yes').onclick = () => {
+                    cart = [];
+                    renderCart();
+                    confirmModal.style.display = 'none';
+                };
+                document.getElementById('confirm-modal-no').onclick = () => {
+                    confirmModal.style.display = 'none';
+                };
+            });
+
             const socket = io(API_BASE_URL);
+
             socket.on('settings_updated', (newSettings) => {
-                console.log('Configurações atualizadas recebidas via Socket.IO!');
+                console.log('Configurações da loja atualizadas recebidas via Socket.IO!');
                 updateStoreStatus(newSettings);
+            });
+
+            socket.on('stock_updated', ({ productId, stock_quantity, stock_enabled }) => {
+                console.log(`Estoque atualizado para o produto ${productId} recebido via Socket.IO!`);
+                
+                const updateItemStock = (item) => {
+                    if (item.id === productId) {
+                        item.stock_quantity = stock_quantity;
+                        item.stock_enabled = stock_enabled;
+                    }
+                    if (item.children && item.children.length > 0) {
+                        item.children.forEach(updateItemStock);
+                    }
+                };
+
+                allItems.forEach(updateItemStock);
+                renderItems(allItems);
             });
 
             fetchInitialData();

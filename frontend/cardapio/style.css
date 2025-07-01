@@ -59,22 +59,31 @@ aside { flex: 1; position: sticky; top: 20px; }
 /* --- SEÇÕES E CARDS DE ITENS --- */
 .section-title { font-family: var(--font-display); font-size: 1.8rem; margin-bottom: 20px; color: var(--text-primary); }
 .items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 25px; }
-.item-card { background-color: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-color); overflow: hidden; box-shadow: 0 4px 12px var(--shadow-color); display: flex; flex-direction: column; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.item-card { position: relative; background-color: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-color); overflow: hidden; box-shadow: 0 4px 12px var(--shadow-color); display: flex; flex-direction: column; transition: transform 0.2s ease, box-shadow 0.2s ease; }
 .item-card:hover { transform: translateY(-5px); box-shadow: 0 8px 20px var(--shadow-color); }
+.item-card.out-of-stock { opacity: 0.6; }
+.stock-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); color: white; display: flex; justify-content: center; align-items: center; font-size: 1.5rem; font-weight: bold; z-index: 2; pointer-events: none; opacity: 0; transition: opacity 0.3s; }
+.item-card.out-of-stock .stock-overlay { opacity: 1; }
 .item-image { width: 100%; height: 180px; object-fit: cover; background-color: #eee; }
 .item-info { padding: 20px; flex-grow: 1; display: flex; flex-direction: column; }
-.item-info h3 { font-family: var(--font-display); font-size: 1.25rem; font-weight: 500; margin-bottom: 8px; }
-.item-info .description { font-size: 0.9rem; color: var(--text-secondary); min-height: 40px; margin-bottom: 15px; flex-grow: 1; }
-.item-price { font-size: 1.5rem; font-weight: 700; color: var(--primary-color); }
+/* CORREÇÃO ESTÉTICA: Centralização do Título e Preço */
+.item-info h3 { font-family: var(--font-display); font-size: 1.25rem; font-weight: 500; margin-bottom: 8px; text-align: center; }
+.item-info .description { font-size: 0.9rem; color: var(--text-secondary); min-height: 40px; margin-bottom: 15px; flex-grow: 1; text-align: left; }
+.item-price { font-size: 1.5rem; font-weight: 700; color: var(--primary-color); text-align: center; }
 .action-button { background-color: var(--primary-color); color: white; border: none; padding: 12px; width: 100%; font-weight: 500; cursor: pointer; transition: background-color 0.2s; margin-top: 15px; border-radius: 8px; font-size: 1rem; }
-.action-button:hover { background-color: var(--primary-color-dark); }
+.action-button:hover:not(:disabled) { background-color: var(--primary-color-dark); }
 .action-button:disabled { background-color: #9ca3af; cursor: not-allowed; }
+.action-button.danger { background-color: var(--danger-color); }
+.action-button.secondary { background-color: var(--text-secondary); }
 
 /* --- CARRINHO DE COMPRAS --- */
 .cart-container { background-color: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border-color); padding: 25px; box-shadow: 0 4px 12px var(--shadow-color); }
-.cart-container h2 { font-family: var(--font-display); margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 15px; }
+.cart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 15px; }
+.cart-header h2 { font-family: var(--font-display); margin: 0; }
+#clear-cart-btn { background: none; border: none; color: var(--danger-color); font-weight: 500; cursor: pointer; font-size: 0.9rem; }
 #cart-items { min-height: 80px; max-height: 300px; overflow-y: auto; padding-right: 10px; }
-.cart-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; font-size: 0.9rem; }
+.cart-item { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; font-size: 0.9rem; }
+.cart-item-image { width: 50px; height: 50px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
 .cart-item-info { flex-grow: 1; }
 .cart-item-info strong { display: block; }
 .cart-item-info small { color: var(--text-secondary); }
@@ -85,24 +94,32 @@ aside { flex: 1; position: sticky; top: 20px; }
 .total-row.grand-total { font-size: 1.2rem; font-weight: 700; color: var(--primary-color); }
 .checkout-form { margin-top: 20px; }
 .checkout-form label { display: block; margin-bottom: 5px; font-weight: 500; }
-.checkout-form input { width: 100%; padding: 10px; margin-bottom: 15px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary); }
+.checkout-form input[type="text"], .checkout-form input[type="tel"] { width: 100%; padding: 10px; margin-bottom: 15px; border-radius: 6px; border: 1px solid var(--border-color); background-color: var(--bg-primary); color: var(--text-primary); }
+.delivery-options, .payment-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; border: 1px solid var(--border-color); padding: 10px; border-radius: 8px; }
+.delivery-options label, .payment-options label { display: flex; align-items: center; gap: 8px; }
+.payment-options p { font-weight: 500; }
 #order-success-message { text-align: center; padding: 40px 20px; }
 #order-success-message h3 { color: var(--success-color); font-size: 1.5rem; margin-bottom: 15px; }
 
-/* --- MODAIS --- */
+/* --- MODAIS (COM AJUSTES ESTÉTICOS) --- */
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(5px); display: none; justify-content: center; align-items: center; z-index: 1000; padding: 20px; }
 .modal-content { position: relative; background: var(--bg-secondary); padding: 30px; border-radius: 12px; width: 100%; max-width: 500px; border: 1px solid var(--border-color); max-height: 90vh; display: flex; flex-direction: column; }
-.modal-header { border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; }
+.modal-header { border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; text-align: center; }
 .modal-header h3 { font-family: var(--font-display); }
 .modal-header p { color: var(--text-secondary); }
 .modal-body { overflow-y: auto; padding-right: 15px; }
 .modal-close-btn { position: absolute; top: 15px; right: 15px; background: none; border: none; color: var(--text-primary); font-size: 1.5rem; cursor: pointer; opacity: 0.7; transition: all 0.2s; }
 .modal-close-btn:hover { opacity: 1; transform: rotate(90deg); }
-.modal-footer { border-top: 1px solid var(--border-color); padding-top: 20px; margin-top: 20px; }
-.modal-item-option { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
+.modal-footer { border-top: 1px solid var(--border-color); padding-top: 20px; margin-top: 20px; display: flex; flex-direction: column; align-items: stretch; gap: 15px; }
+.modal-feedback { text-align: center; font-size: 0.9rem; color: var(--danger-color); font-weight: 500; min-height: 1.2em; }
+.modal-item-option, .modal-parent-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
 .modal-item-option:nth-child(odd) { background-color: var(--bg-primary); }
+.modal-parent-item { font-weight: 500; font-size: 1.1rem; }
+.modal-item-option.disabled { opacity: 0.5; }
+.modal-item-option.disabled label { cursor: not-allowed; }
 .modal-item-option label { display: flex; align-items: center; gap: 10px; cursor: pointer; flex-grow: 1; }
 .modal-item-option .price-modifier { font-weight: 500; color: var(--success-color); margin-left: auto; padding-right: 15px; }
 .quantity-control { display: flex; align-items: center; gap: 10px; }
 .quantity-control button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border-color); background-color: transparent; color: var(--text-primary); font-size: 1.2rem; cursor: pointer; }
+.quantity-control button:disabled { opacity: 0.4; cursor: not-allowed; }
 .quantity-control span { font-weight: 500; min-width: 20px; text-align: center; }

@@ -8,7 +8,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/dashboard/style.css">
-    <!-- NOVA BIBLIOTECA PARA ARRASTAR E SOLTAR -->
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <style>
         .parent-controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 0.9rem; padding: 5px; background-color: rgba(0,0,0,0.1); border-radius: 6px; }
@@ -21,14 +20,14 @@
         #combo-quantity-validator { font-size: 0.9rem; font-weight: 600; margin-top: 15px; padding: 10px; border-radius: 6px; text-align: center; transition: all 0.3s ease; }
         #combo-quantity-validator.valid { color: var(--success-color); background-color: rgba(56, 161, 105, 0.1); }
         #combo-quantity-validator.invalid { color: var(--danger-color); background-color: rgba(229, 62, 62, 0.1); }
-        
-        /* NOVOS ESTILOS PARA REORDENAÇÃO E ITENS RETRÁTEIS */
-        .drag-handle { cursor: grab; width: 20px; text-align: center; color: var(--text-secondary); }
+        .drag-handle { cursor: grab; width: 20px; text-align: center; color: var(--text-secondary); user-select: none; }
         .product-name-cell { display: flex; align-items: center; gap: 10px; }
         .toggle-children-btn { cursor: pointer; transition: transform 0.2s ease; user-select: none; width: 14px; display: inline-block; text-align: center; }
         .toggle-children-btn.expanded { transform: rotate(90deg); }
-        .product-row.is-child { display: none; } /* Começam escondidos */
+        .product-row.is-child { display: none; background-color: rgba(0,0,0,0.15); }
         .product-row.is-child.visible { display: table-row; }
+        .product-row.is-child td:nth-child(2) { padding-left: 40px; }
+        .child-indicator { color: var(--secondary-color); font-size: 1.2rem; }
     </style>
 </head>
 <body>
@@ -100,8 +99,12 @@
                       <div id="addons-list" class="addons-list"></div>
                       <div class="addon-options">
                         <div class="option-group">
-                          <label class="toggle-switch"><input type="checkbox" id="force-addons"><span class="slider"></span></label>
-                          <span>Obrigar escolha de complemento</span>
+                          <label class="toggle-switch"><input type="checkbox" id="force-one-to-one-complement"><span class="slider"></span></label>
+                          <span>Obrigar 1 complemento por item</span>
+                        </div>
+                        <div class="option-group">
+                          <label class="toggle-switch"><input type="checkbox" id="sell-parent-product"><span class="slider"></span></label>
+                          <span>Vender este item (com preço próprio)</span>
                         </div>
                       </div>
                   </div>
@@ -114,7 +117,7 @@
         </div>
     </div>
 
-    <!-- Modal de Combos -->
+    <!-- Modal de Combos (sem alterações) -->
     <div id="combo-modal-overlay" class="modal-overlay">
         <div class="modal-content">
             <button id="combo-modal-close-btn" class="modal-close-btn">&times;</button>
@@ -136,7 +139,6 @@
                           <div class="form-group"><label for="combo-status">Status</label><select id="combo-status" class="input-field"><option value="true">Ativo</option><option value="false">Inativo</option></select></div>
                       </div>
                   </div>
-                  
                   <div class="combo-rules-grid">
                       <div class="form-group">
                           <label for="total-items-limit">Quantidade de Itens no Combo</label>
@@ -153,7 +155,6 @@
                           </div>
                       </div>
                   </div>
-
                   <div class="combo-products-section">
                       <h4>Itens Disponíveis para o Combo</h4>
                       <p style="opacity: 0.7; font-size: 0.9rem; margin-bottom: 15px;">Selecione os itens, defina a quantidade (se o modo for fixo) e ajuste o preço se necessário.</p>
@@ -280,14 +281,14 @@
                 addOrderCard(orderData);
             } else { card.remove(); }
         };
-        const updateOrderStatus = async (orderId, newStatus) => {
+        window.updateOrderStatus = async (orderId, newStatus) => {
             try { await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
             } catch (error) { console.error(`Falha ao atualizar status:`, error); }
         };
 
         const renderProdutosPage = () => {
             pageTitle.textContent = 'Produtos Principais';
-            dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`;
+            dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`;
             document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true));
             renderProdutosPageContent();
         };
@@ -310,15 +311,16 @@
 
         const renderComplementosPage = () => {
             pageTitle.textContent = 'Itens de Complemento';
-            dashboardContent.innerHTML = `<div class="page-header"><h2>Banco de Itens para Complemento</h2><button id="add-complemento-btn" class="btn btn-primary">Adicionar Novo Item</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Itens criados aqui não aparecem no cardápio principal. Eles devem ser vinculados a um Produto Principal para serem utilizados.</p><table class="data-table product-table"><thead><tr><th></th><th>Item</th><th>Preço</th><th>Status</th><th>Estoque</th><th>Ações</th></tr></thead><tbody id="complementos-tbody"></tbody></table>`;
+            dashboardContent.innerHTML = `<div class="page-header"><h2>Banco de Itens para Complemento</h2><button id="add-complemento-btn" class="btn btn-primary">Adicionar Novo Item</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Itens criados e gerenciados aqui. Podem ser vinculados a um Produto Principal para serem vendidos como opções.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Item</th><th>Preço</th><th>Status</th><th>Estoque</th><th>Ações</th></tr></thead><tbody id="complementos-tbody"></tbody></table>`;
             document.getElementById('add-complemento-btn').addEventListener('click', () => openProductModal(null, false));
             renderComplementosPageContent();
         };
+        
         const renderComplementosPageContent = () => {
             const tbody = document.getElementById('complementos-tbody');
             if (!tbody) return;
             tbody.innerHTML = '';
-            const complementItems = allProductsFlat.filter(p => !p.is_main_product && !p.parent_product_id);
+            const complementItems = allProductsFlat.filter(p => !p.is_main_product);
             complementItems.forEach(item => {
                 tbody.innerHTML += createProductRow(item, false);
             });
@@ -334,7 +336,7 @@
                  parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="updateProductSync(${product.id}, this.checked)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
             }
             const hasChildren = !isChild && product.children && product.children.length > 0;
-            const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px;"></span>';
+            const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
             const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
 
             return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">
@@ -361,7 +363,7 @@
             childrenRows.forEach(row => row.classList.toggle('visible'));
         };
 
-        const updateProductSync = async (productId, isChecked) => {
+        window.updateProductSync = async (productId, isChecked) => {
             try {
                 await apiFetch(`/products/${productId}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: isChecked }) });
                 await fetchAndRefreshAllViews();
@@ -386,14 +388,14 @@
             });
         };
 
-        const updateStock = async (productId, dataToUpdate) => {
+        window.updateStock = async (productId, dataToUpdate) => {
             document.querySelectorAll(`tr[data-id='${productId}'] .stock-feedback`).forEach(span => {
                 span.textContent = 'Salvando...';
                 span.className = 'stock-feedback show';
             });
             try {
                 await apiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify(dataToUpdate) });
-                await fetchAndRefreshAllViews();
+                await fetchAndRefreshAllViews(); 
             } catch (error) {
                 console.error("Erro ao atualizar estoque:", error);
                 document.querySelectorAll(`tr[data-id='${productId}'] .stock-feedback`).forEach(span => {
@@ -404,7 +406,7 @@
             }
         };
 
-        const openProductModal = async (id = null, isMainProduct = true) => {
+        window.openProductModal = async (id = null, isMainProduct = true) => {
             const modal = document.getElementById('product-modal-overlay');
             const form = document.getElementById('product-form');
             form.reset();
@@ -427,10 +429,11 @@
                 document.getElementById('product-modal-title').textContent = 'Editar Item';
                 document.getElementById('product-id').value = currentProduct.id;
                 document.getElementById('product-name').value = currentProduct.name;
-                document.getElementById('product-description').value = currentProduct.description;
+                document.getElementById('product-description').value = currentProduct.description || '';
                 document.getElementById('product-price').value = parseFloat(currentProduct.price).toFixed(2);
                 document.getElementById('product-status').value = String(currentProduct.status);
-                document.getElementById('force-addons').checked = currentProduct.force_addons;
+                document.getElementById('force-one-to-one-complement').checked = currentProduct.force_one_to_one_complement;
+                document.getElementById('sell-parent-product').checked = currentProduct.sell_parent_product;
                 document.getElementById('is-main-product-flag').value = currentProduct.is_main_product;
                 document.getElementById('parent-product-id').value = currentProduct.parent_product_id || '';
 
@@ -451,6 +454,8 @@
             } else {
                 document.getElementById('product-modal-title').textContent = isMainProduct ? 'Adicionar Novo Produto Principal' : 'Adicionar Novo Item de Complemento';
                 addonsManagementSection.style.display = isMainProduct ? 'block' : 'none';
+                document.getElementById('sell-parent-product').checked = true;
+                document.getElementById('force-one-to-one-complement').checked = false;
             }
             
             const addonsListDiv = document.getElementById('addons-list');
@@ -487,7 +492,7 @@
                     const data = await res.json();
                     if (data.secure_url) { imageUrl = data.secure_url; }
                     else { throw new Error(data.error?.message || 'Falha no upload'); }
-                } catch (error) { console.error('Erro no upload:', error); saveButton.disabled = false; saveButton.textContent = 'Salvar'; return; }
+                } catch (error) { console.error('Erro no upload:', error); alert('Erro ao fazer upload da imagem.'); saveButton.disabled = false; saveButton.textContent = 'Salvar'; return; }
             }
 
             const id = document.getElementById('product-id').value;
@@ -499,7 +504,8 @@
                 price: parseFloat(document.getElementById('product-price').value),
                 status: document.getElementById('product-status').value === 'true',
                 image_url: imageUrl,
-                force_addons: document.getElementById('force-addons').checked,
+                force_one_to_one_complement: document.getElementById('force-one-to-one-complement').checked,
+                sell_parent_product: document.getElementById('sell-parent-product').checked,
                 parent_product_id: document.getElementById('parent-product-id').value || null,
                 is_main_product: document.getElementById('is-main-product-flag').value === 'true',
                 children: children
@@ -509,22 +515,22 @@
                 await apiFetch(id ? `/products/${id}` : '/products', { method: id ? 'PUT' : 'POST', body: JSON.stringify(productData) });
                 closeProductModal();
                 await fetchAndRefreshAllViews();
-            } catch (error) { console.error('Erro ao salvar produto:', error); }
+            } catch (error) { console.error('Erro ao salvar produto:', error); alert('Falha ao salvar o produto.'); }
             finally { saveButton.disabled = false; saveButton.textContent = 'Salvar'; }
         };
 
-        const deleteProduct = async (id) => {
+        window.deleteProduct = async (id) => {
             if (confirm('Tem a certeza de que deseja apagar este item? Esta ação não pode ser desfeita.')) {
                 try {
                     await apiFetch(`/products/${id}`, { method: 'DELETE' });
                     await fetchAndRefreshAllViews();
-                } catch (error) { console.error('Erro ao apagar:', error); }
+                } catch (error) { console.error('Erro ao apagar:', error); alert('Não foi possível apagar o item.'); }
             }
         };
         
         const renderCombosPage = () => {
             pageTitle.textContent = 'Gestão de Combos';
-            dashboardContent.innerHTML = `<div class="page-header"><h2>Todos os Combos</h2><button id="add-combo-btn" class="btn btn-primary">Criar Combo</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table"><thead><tr><th></th><th>Combo</th><th>Preço Base</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="combos-tbody"></tbody></table>`;
+            dashboardContent.innerHTML = `<div class="page-header"><h2>Todos os Combos</h2><button id="add-combo-btn" class="btn btn-primary">Criar Combo</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table"><thead><tr><th style="width: 40px;"></th><th>Combo</th><th>Preço Base</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="combos-tbody"></tbody></table>`;
             document.getElementById('add-combo-btn').addEventListener('click', () => openComboModal());
             fetchAndRenderCombos();
         };
@@ -544,7 +550,7 @@
             } catch (error) { console.error("Erro ao buscar combos:", error); }
         };
 
-        const openComboModal = async (id = null) => {
+        window.openComboModal = async (id = null) => {
             const modal = document.getElementById('combo-modal-overlay');
             const form = document.getElementById('combo-form');
             form.reset();
@@ -684,13 +690,12 @@
             if (imageInput.files[0]) {
                 try {
                     const { timestamp, signature } = await apiFetch('/cloudinary-signature');
-                    const formData = new FormData();
-                    formData.append('file', imageInput.files[0]); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature);
+                    const formData = new FormData(); formData.append('file', imageInput.files[0]); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature);
                     const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/image/upload`, { method: 'POST', body: formData });
                     const data = await res.json();
                     if (data.secure_url) imageUrl = data.secure_url;
                     else throw new Error('Falha no upload');
-                } catch (error) { console.error('Erro no upload:', error); saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; return; }
+                } catch (error) { console.error('Erro no upload:', error); alert('Erro ao fazer upload da imagem do combo.'); saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; return; }
             }
             const id = document.getElementById('combo-id').value;
             
@@ -700,7 +705,7 @@
                 return { 
                     id: parseInt(cb.dataset.productId), 
                     quantity_in_combo: quantity,
-                    price_modifier: parseFloat(itemRow.querySelector('.price-modifier').value)
+                    price_modifier: parseFloat(itemRow.querySelector('.price-modifier').value) || 0
                 };
             });
             
@@ -719,11 +724,11 @@
                 await apiFetch(id ? `/combos/${id}` : '/combos', { method: id ? 'PUT' : 'POST', body: JSON.stringify(comboData) });
                 closeComboModal();
                 fetchAndRenderCombos();
-            } catch (error) { console.error('Erro ao salvar combo:', error); }
+            } catch (error) { console.error('Erro ao salvar combo:', error); alert('Falha ao salvar o combo.'); }
             finally { saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; }
         };
 
-        const deleteCombo = async (id) => { if (confirm('Tem a certeza?')) try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); fetchAndRenderCombos(); } catch (error) { console.error('Erro ao apagar combo:', error); } };
+        window.deleteCombo = async (id) => { if (confirm('Tem a certeza?')) try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); fetchAndRenderCombos(); } catch (error) { console.error('Erro ao apagar combo:', error); } };
         
         const renderSettingsPage = () => {
             pageTitle.textContent = 'Configurações da Loja';
@@ -785,16 +790,22 @@
             new Sortable(tbody, {
                 handle: '.drag-handle',
                 animation: 150,
+                filter: '.is-child',
+                onMove: function (evt) {
+                    return evt.related.className.indexOf('is-child') === -1;
+                },
                 onEnd: async (evt) => {
-                    const orderedIds = Array.from(tbody.children).map(row => row.dataset.id);
+                    const orderedIds = Array.from(tbody.querySelectorAll('tr:not(.is-child)')).map(row => row.dataset.id);
                     try {
                         await apiFetch(reorderEndpoint, {
                             method: 'POST',
                             body: JSON.stringify({ orderedIds })
                         });
+                        await fetchAndRefreshAllViews();
                     } catch (error) {
                         console.error('Falha ao reordenar:', error);
                         alert('Não foi possível salvar a nova ordem.');
+                        await fetchAndRefreshAllViews();
                     }
                 }
             });
@@ -848,10 +859,7 @@
                 const prompt = document.getElementById('product-upload-prompt');
                 if (event.target.files[0]) {
                     const reader = new FileReader();
-                    reader.onload = (e) => {
-                        preview.src = e.target.result;
-                        prompt.style.display = 'none';
-                    };
+                    reader.onload = (e) => { preview.src = e.target.result; prompt.style.display = 'none'; };
                     reader.readAsDataURL(event.target.files[0]);
                 }
             });
@@ -861,10 +869,7 @@
                 const prompt = document.getElementById('combo-upload-prompt');
                 if (event.target.files[0]) {
                     const reader = new FileReader();
-                    reader.onload = (e) => {
-                        preview.src = e.target.result;
-                        prompt.style.display = 'none';
-                    };
+                    reader.onload = (e) => { preview.src = e.target.result; prompt.style.display = 'none'; };
                     reader.readAsDataURL(event.target.files[0]);
                 }
             });
