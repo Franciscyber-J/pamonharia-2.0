@@ -18,7 +18,12 @@ module.exports = {
         combo.products = await connection('combo_products')
           .join('products', 'products.id', '=', 'combo_products.product_id')
           .where('combo_products.combo_id', combo.id)
-          .select('products.*', 'combo_products.quantity_in_combo', 'combo_products.price_modifier', 'combo_products.product_id as product_id'); // Garante que o product_id seja selecionado
+          .select(
+            'products.*', 
+            'combo_products.quantity_in_combo', 
+            'combo_products.price_modifier', 
+            'combo_products.product_id as product_id' // Garante que o product_id seja selecionado
+          );
       }
       
       return response.json(combos);
@@ -43,6 +48,8 @@ module.exports = {
           .andWhere('products.status', true)
           .select(
             'products.*',
+            // **MUDANÇA**: Alias `products.id` para `id` para consistência no frontend.
+            'products.id as id',
             'combo_products.quantity_in_combo',
             'combo_products.price_modifier'
           );

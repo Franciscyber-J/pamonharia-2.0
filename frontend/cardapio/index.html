@@ -90,7 +90,6 @@
         </div>
     </div>
 
-    <!-- Modal Genérico para Seleção de Itens -->
     <div id="selection-modal" class="modal-overlay">
         <div class="modal-content">
             <button class="modal-close-btn">&times;</button>
@@ -137,6 +136,7 @@
             let cart = [];
             let allItems = []; 
             let allProductsFlat = [];
+            let productParentMap = {};
             let storeSettings = {};
             let liveStockState = {};
 
@@ -155,14 +155,46 @@
                 localStorage.setItem('pamonharia-theme', theme);
             };
 
-            const isItemEffectivelyOutOfStock = (item) => {
-                if (!item) return true; // Se o item não for encontrado, é considerado esgotado.
-                if (!item.stock_enabled) return false;
-                if (item.children && item.children.length > 0 && !item.sell_parent_product) {
-                    return item.children.every(child => isItemEffectivelyOutOfStock(allProductsFlat.find(p => p.id === child.id)));
+            const getAvailableStock = (item) => {
+                if (!item) return 0;
+
+                const parentId = productParentMap[item.id];
+                if (parentId) {
+                    const parent = allProductsFlat.find(p => p.id === parentId);
+                    if (parent && parent.stock_sync_enabled && parent.stock_enabled) {
+                        return liveStockState[parent.id] || 0;
+                    }
                 }
-                const stock = liveStockState[item.id];
-                return stock !== undefined && stock <= 0;
+
+                if (item.stock_enabled) {
+                    return liveStockState[item.id] || 0;
+                }
+                
+                return Infinity;
+            };
+
+            const isItemEffectivelyOutOfStock = (item) => {
+                if (!item) return true; 
+
+                if (item.children && item.children.length > 0 && !item.sell_parent_product) {
+                    return item.children.every(child => {
+                        const childData = allProductsFlat.find(p => p.id === child.id);
+                        return isItemEffectivelyOutOfStock(childData);
+                    });
+                }
+                
+                return getAvailableStock(item) <= 0;
+            };
+
+            const isComboEffectivelyOutOfStock = (combo) => {
+                if (!combo || !combo.products) return true;
+
+                const totalAvailableStock = combo.products.reduce((sum, product) => {
+                    const fullProductData = allProductsFlat.find(p => p.id === product.id);
+                    return sum + getAvailableStock(fullProductData);
+                }, 0);
+                
+                return totalAvailableStock < combo.total_items_limit;
             };
 
             const renderItems = () => {
@@ -195,7 +227,7 @@
                     }
                     
                     const hasOptions = (item.children && item.children.length > 0) || (item.is_combo);
-                    const isOutOfStock = isItemEffectivelyOutOfStock(item);
+                    const isOutOfStock = item.is_combo ? isComboEffectivelyOutOfStock(item) : isItemEffectivelyOutOfStock(item);
                     
                     const onClickAction = item.is_combo 
                         ? `openComboModal(${item.id})` 
@@ -212,7 +244,7 @@
                                 <p class="description">${item.description || ''}</p>
                                 <div class="item-price">${priceText}</div>
                                 <button class="action-button" onclick="${onClickAction}" ${!storeSettings.is_open || isOutOfStock ? 'disabled' : ''}>
-                                    ${item.is_combo ? 'Montar' : 'Adicionar'}
+                                    ${hasOptions ? 'Montar' : 'Adicionar'}
                                 </button>
                             </div>
                         </div>`;
@@ -274,27 +306,55 @@
                 if(storeSettings.store_name) dom.storeNameHeader.textContent = storeSettings.store_name;
             };
 
-            const handleQuantityChange = (target, state, validator, item) => {
+            const handleQuantityChange = (target, state, validator, item, options = {}) => {
                 const itemId = parseInt(target.dataset.itemId);
                 const isIncrement = target.textContent === '+';
-                const currentQtyInModal = state[itemId] || 0;
-
+                
+                let currentTotalQuantityInModalForSyncGroup = 0;
+                let stockHoldingProduct = item;
+                
+                const parentId = productParentMap[item.id];
+                if (parentId) {
+                    const parent = allProductsFlat.find(p => p.id === parentId);
+                    if (parent && parent.stock_sync_enabled) {
+                        stockHoldingProduct = parent;
+                        currentTotalQuantityInModalForSyncGroup = Object.entries(state)
+                            .filter(([key, _]) => productParentMap[key] === parentId)
+                            .reduce((sum, [_, qty]) => sum + qty, 0);
+                    }
+                }
+                
                 console.log(`[Cardapio-Modal] Tentativa de alterar quantidade para item ID: ${itemId} (${item.name}). Ação: ${isIncrement ? 'Aumentar' : 'Diminuir'}.`);
-
-                if (isIncrement) {
-                    const availableStock = liveStockState[itemId];
-                    console.log(`[Cardapio-Modal] Verificando estoque para ${item.name}. Habilitado: ${item.stock_enabled}. Em estoque: ${availableStock}. Quantidade no modal: ${currentQtyInModal}.`);
-
-                    if (item.stock_enabled && availableStock !== undefined && currentQtyInModal >= availableStock) {
-                        const feedbackMsg = `Limite de estoque para "${item.name}" atingido: ${availableStock} unid.`;
+                
+                if (isIncrement && options.isComplement && options.oneToOneRuleActive) {
+                    const parentQty = options.getParentQty();
+                    const totalComplements = options.getTotalComplementsQty();
+                    if (totalComplements >= parentQty) {
+                        const feedbackMsg = `Limite de complementos atingido (${parentQty}).`;
                         console.warn(`[Cardapio-Modal] ⚠️ Validação falhou: ${feedbackMsg}`);
                         dom.modalFeedback.textContent = feedbackMsg;
                         setTimeout(() => dom.modalFeedback.textContent = '', 3000);
                         return;
                     }
-                    state[itemId] = currentQtyInModal + 1;
+                }
+
+                if (isIncrement) {
+                    const availableStock = getAvailableStock(item);
+                    const currentQuantity = stockHoldingProduct.id === item.id ? (state[itemId] || 0) : currentTotalQuantityInModalForSyncGroup;
+
+                    console.log(`[Cardapio-Modal] Verificando estoque para ${stockHoldingProduct.name}. Habilitado: ${stockHoldingProduct.stock_enabled}. Em estoque: ${availableStock}. Quantidade no modal: ${currentQuantity}.`);
+
+                    if (availableStock !== Infinity && currentQuantity >= availableStock) {
+                         const feedbackMsg = `Limite de estoque para "${stockHoldingProduct.name}" atingido: ${availableStock} unid.`;
+                        console.warn(`[Cardapio-Modal] ⚠️ Validação falhou: ${feedbackMsg}`);
+                        dom.modalFeedback.textContent = feedbackMsg;
+                        setTimeout(() => dom.modalFeedback.textContent = '', 3000);
+                        return;
+                    }
+                    
+                    state[itemId] = (state[itemId] || 0) + 1;
                 } else {
-                    state[itemId] = Math.max(0, currentQtyInModal - 1);
+                    state[itemId] = Math.max(0, (state[itemId] || 0) - 1);
                 }
                 
                 console.log(`[Cardapio-Modal] Nova quantidade para item ${itemId} é ${state[itemId]}.`);
@@ -323,8 +383,7 @@
                 const item = allProductsFlat.find(p => p.id === itemId);
                 if (!item) return;
 
-                const availableStock = liveStockState[item.id];
-                if (item.stock_enabled && availableStock !== undefined && availableStock < 1) {
+                if (isItemEffectivelyOutOfStock(item)) {
                     alert('Desculpe, este item acabou de esgotar.');
                     return;
                 }
@@ -341,43 +400,61 @@
                 if (!itemToRemove) return;
 
                 let itemsToRelease = [];
+
                 if (itemToRemove.is_combo || itemToRemove.has_addons) {
-                     const children = itemToRemove.selected_items.map(si => ({ id: si.id, quantity: itemToRemove.quantity }));
-                     if(itemToRemove.has_addons && itemToRemove.sell_parent_product) {
-                        children.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
-                     }
-                     itemsToRelease = children;
+                    const parentData = allProductsFlat.find(p => p.id === itemToRemove.original_id);
+                    const isStockSynced = parentData && parentData.stock_sync_enabled;
+
+                    if (isStockSynced) {
+                        itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
+                    } else {
+                        itemToRemove.selected_items.forEach(si => {
+                            itemsToRelease.push({ id: si.id, quantity: si.quantity });
+                        });
+                        if(itemToRemove.has_addons && itemToRemove.sell_parent_product) {
+                            itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
+                        }
+                    }
                 } else {
                     itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
                 }
                 
-                socket.emit('release_stock', itemsToRelease.filter(i => i.id));
+                socket.emit('release_stock', itemsToRelease.filter(i => i && i.id));
                 cart.splice(cartIndex, 1);
                 renderCart();
             };
 
             dom.clearCartBtn.addEventListener('click', () => {
                 if (cart.length === 0) return;
+                
                 const allItemsToRelease = cart.flatMap(item => {
                     if (item.is_combo || item.has_addons) {
-                         const children = item.selected_items.map(si => ({ id: si.id, quantity: item.quantity }));
-                         if(item.has_addons && item.sell_parent_product) {
-                            children.push({ id: item.original_id, quantity: item.quantity });
+                         const parentData = allProductsFlat.find(p => p.id === item.original_id);
+                         const isStockSynced = parentData && parentData.stock_sync_enabled;
+
+                         if (isStockSynced) {
+                            return [{ id: item.original_id, quantity: item.quantity }];
+                         } else {
+                             const children = item.selected_items.map(si => ({ id: si.id, quantity: si.quantity }));
+                             if(item.has_addons && item.sell_parent_product) {
+                                children.push({ id: item.original_id, quantity: item.quantity });
+                             }
+                             return children;
                          }
-                         return children;
                     }
                     return [{ id: item.original_id, quantity: item.quantity }];
-                }).filter(i => i.id);
+                }).filter(i => i && i.id);
 
                 socket.emit('release_stock', allItemsToRelease);
                 cart = [];
                 renderCart();
             });
-
+            
             const setupModal = (config) => {
                 dom.modalHeader.innerHTML = `<h3>${config.title}</h3><p>${config.description}</p>`;
                 dom.modalBody.innerHTML = config.body || '';
                 dom.modalFeedback.textContent = '';
+                dom.addToCartBtn.textContent = 'Adicionar ao Carrinho';
                 dom.addToCartBtn.onclick = config.onSave;
                 dom.modal.querySelector('.modal-close-btn').onclick = () => dom.modal.style.display = 'none';
                 dom.modal.style.display = 'flex';
@@ -393,10 +470,12 @@
                 let selectedItemsInModal = {};
                 let bodyHtml = '';
                 
+                const initialParentQty = (product.sell_parent_product || !product.children || product.children.length === 0) ? 1 : 0;
+
                 if (product.sell_parent_product) {
                     const isParentOutOfStock = isItemEffectivelyOutOfStock(product);
-                    bodyHtml += `<div class="modal-parent-item"><span>${product.name} (Base)</span><div class="quantity-control"><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${product.id}">1</span><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
-                    selectedItemsInModal[product.id] = 1;
+                    bodyHtml += `<div class="modal-parent-item"><span>${product.name} (Base)</span><div class="quantity-control"><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${product.id}">${initialParentQty}</span><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
+                    if (initialParentQty > 0) selectedItemsInModal[product.id] = initialParentQty;
                 }
 
                 if (product.children && product.children.length > 0) {
@@ -404,49 +483,121 @@
                     product.children.forEach(option => {
                         const fullOptionData = allProductsFlat.find(p => p.id === option.id);
                         const isOptionOutOfStock = isItemEffectivelyOutOfStock(fullOptionData);
-                        bodyHtml += `<div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}"><label>${option.name} (R$ ${parseFloat(option.price).toFixed(2).replace('.',',')})</label><div class="quantity-control"><button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${option.id}">0</span><button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
+                        bodyHtml += `<div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}"><label>${option.name} (R$ ${parseFloat(option.price).toFixed(2).replace('.',',')})</label><div class="quantity-control"><button data-item-id="${option.id}" data-is-complement="true" ${isOptionOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${option.id}">0</span><button data-item-id="${option.id}" data-is-complement="true" ${isOptionOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
                     });
                 }
 
                 const onSave = () => {
                     let finalPrice = 0;
                     let finalQuantity = selectedItemsInModal[product.id] || 1;
+                    
+                    if (!product.sell_parent_product) {
+                        finalQuantity = Object.entries(selectedItemsInModal)
+                            .filter(([id, _]) => id != product.id)
+                            .reduce((sum, [_, qty]) => sum + qty, 0);
+                    }
+
                     let selected_items_details = [];
                     let itemsToReserve = [];
+
+                    const parentData = allProductsFlat.find(p => p.id === product.id);
+                    const isStockSynced = parentData && parentData.stock_sync_enabled;
+
+                    if (isStockSynced) {
+                        const totalQuantityToReserve = Object.values(selectedItemsInModal).reduce((sum, qty) => sum + qty, 0);
+                        if (totalQuantityToReserve > 0) {
+                            itemsToReserve.push({ id: product.id, quantity: totalQuantityToReserve });
+                        }
+                    }
 
                     for (const [id, quantity] of Object.entries(selectedItemsInModal)) {
                         if (quantity > 0) {
                             const selectedItem = allProductsFlat.find(i => i.id == id);
                             if (!selectedItem) continue;
-                            
-                            itemsToReserve.push({ id: selectedItem.id, quantity: quantity });
-                            finalPrice += parseFloat(selectedItem.price) * quantity;
-                            
+
+                            if (!isStockSynced) {
+                                itemsToReserve.push({ id: selectedItem.id, quantity: quantity });
+                            }
+                             
+                            if (product.sell_parent_product) {
+                                if (selectedItem.id === product.id) finalPrice += parseFloat(selectedItem.price) * quantity;
+                            }
                             if (selectedItem.id !== product.id) {
-                                selected_items_details.push({ id: selectedItem.id, name: `${quantity}x ${selectedItem.name}` });
+                                finalPrice += parseFloat(selectedItem.price) * quantity;
+                                selected_items_details.push({ id: selectedItem.id, name: `${quantity}x ${selectedItem.name}`, quantity: quantity });
                             }
                         }
                     }
-
+                     
+                    const finalItemPrice = finalQuantity > 0 ? finalPrice / finalQuantity : 0;
+                    
                     const itemData = {
-                        original_id: product.id, name: product.name, price: finalPrice / finalQuantity, quantity: finalQuantity, has_addons: true, sell_parent_product: product.sell_parent_product, selected_items: selected_items_details, image_url: product.image_url
+                        original_id: product.id, name: product.name, price: finalItemPrice, quantity: finalQuantity, has_addons: true, sell_parent_product: product.sell_parent_product, selected_items: selected_items_details, image_url: product.image_url
                     };
                     addToCartAndReserve(itemData, itemsToReserve);
                 };
-
+                
                 const validator = () => {
                     const totalSelected = Object.values(selectedItemsInModal).reduce((sum, qty) => sum + qty, 0);
-                    dom.addToCartBtn.disabled = totalSelected === 0;
+                    let isValid = totalSelected > 0;
+                    let totalQuantityForButton = 0;
+
+                    if (product.force_one_to_one_complement) {
+                        const parentQty = selectedItemsInModal[product.id] || 0;
+                        totalQuantityForButton = parentQty;
+                        const totalComplementsQty = Object.entries(selectedItemsInModal)
+                            .filter(([id, _]) => id != product.id)
+                            .reduce((sum, [_, qty]) => sum + qty, 0);
+                        
+                        const diff = parentQty - totalComplementsQty;
+                        if (diff > 0) dom.modalFeedback.textContent = `Selecione mais ${diff} complemento(s).`;
+                        else if (diff < 0) dom.modalFeedback.textContent = `Remova ${-diff} complemento(s).`;
+                        else dom.modalFeedback.textContent = '';
+                        
+                        isValid = (parentQty === totalComplementsQty) && parentQty > 0;
+                    } else if (!product.sell_parent_product) {
+                        totalQuantityForButton = Object.entries(selectedItemsInModal)
+                            .filter(([id, _]) => id != product.id)
+                            .reduce((sum, [_, qty]) => sum + qty, 0);
+                        isValid = totalQuantityForButton > 0;
+                    }
+                     else {
+                        totalQuantityForButton = selectedItemsInModal[product.id] || 0;
+                        isValid = totalQuantityForButton > 0;
+                        dom.modalFeedback.textContent = '';
+                    }
+
+                    if (isValid && totalQuantityForButton > 0) {
+                        dom.addToCartBtn.textContent = `Adicionar (${totalQuantityForButton}) ao Carrinho`;
+                    } else {
+                        dom.addToCartBtn.textContent = 'Adicionar ao Carrinho';
+                    }
+
+                    dom.addToCartBtn.disabled = !isValid;
                 };
 
-                setupModal({ title: `Adicionar ${product.name}`, description: 'Selecione as opções.', body: bodyHtml, onSave, onOpen: validator });
+                setupModal({ 
+                    title: `Adicionar ${product.name}`, 
+                    description: product.force_one_to_one_complement ? 'Escolha a mesma quantidade de complementos que a do item principal.' : 'Selecione as opções.', 
+                    body: bodyHtml, 
+                    onSave, 
+                    onOpen: validator 
+                });
 
                 dom.modalBody.querySelectorAll('.quantity-control button[data-item-id]').forEach(button => {
                     button.addEventListener('click', (e) => {
                         const optionId = e.target.dataset.itemId;
                         const option = allProductsFlat.find(i => i.id == optionId);
                         if (option) {
-                            handleQuantityChange(e.target, selectedItemsInModal, validator, option);
+                            const changeOptions = {
+                                isComplement: e.target.dataset.isComplement === 'true',
+                                oneToOneRuleActive: product.force_one_to_one_complement,
+                                getParentQty: () => selectedItemsInModal[product.id] || 0,
+                                getTotalComplementsQty: () => Object.entries(selectedItemsInModal)
+                                    .filter(([id, _]) => id != product.id)
+                                    .reduce((sum, [_, qty]) => sum + qty, 0)
+                            };
+                            handleQuantityChange(e.target, selectedItemsInModal, validator, option, changeOptions);
                         }
                     });
                 });
@@ -471,6 +622,7 @@
                     const totalSelected = Object.values(selectedQuantities).reduce((sum, qty) => sum + qty, 0);
                     const totalLimit = combo.total_items_limit;
                     dom.addToCartBtn.disabled = totalSelected !== totalLimit;
+                    dom.modalFeedback.textContent = '';
                     dom.addToCartBtn.textContent = `Adicionar (${totalSelected}/${totalLimit}) ao Carrinho`;
                 };
 
@@ -483,7 +635,7 @@
                             const product = allProductsFlat.find(p => p.id == id);
                             const comboProductInfo = combo.products.find(p => p.id == id);
                             finalPrice += parseFloat(comboProductInfo.price_modifier || 0) * quantity;
-                            selected_items.push({ id: product.id, name: `${quantity}x ${product.name}` });
+                            selected_items.push({ id: product.id, name: `${quantity}x ${product.name}`, quantity: quantity });
                             itemsToReserve.push({ id: product.id, quantity });
                         }
                     }
@@ -524,16 +676,21 @@
                     
                     storeSettings = settingsResponse;
                     
-                    const tempFlatList = [];
-                    const processItem = (item) => {
-                        if (!item || !item.id) return;
-                        tempFlatList.push(item);
-                        if (item.children) {
-                            item.children.forEach(processItem);
-                        }
+                    allProductsFlat = [];
+                    productParentMap = {};
+                    const recursiveFlattenAndMap = (products, parent = null) => {
+                        if (!products) return;
+                        products.forEach(p => {
+                            allProductsFlat.push(p);
+                            if (parent) {
+                                productParentMap[p.id] = parent.id;
+                            }
+                            if (p.children && p.children.length > 0) {
+                                recursiveFlattenAndMap(p.children, p);
+                            }
+                        });
                     };
-                    productsResponse.forEach(processItem);
-                    allProductsFlat = tempFlatList;
+                    recursiveFlattenAndMap(productsResponse);
                     
                     combosResponse.forEach(c => {
                         if (c.products) {

@@ -327,9 +327,17 @@
                 document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true));
                 renderProdutosPageContent();
             };
+
             const renderProdutosPageContent = () => {
                 const tbody = document.getElementById('products-tbody');
                 if (!tbody) return;
+
+                const expandedRowIds = new Set();
+                tbody.querySelectorAll('.toggle-children-btn.expanded').forEach(btn => {
+                    const parentRow = btn.closest('.product-row');
+                    if(parentRow) expandedRowIds.add(parentRow.dataset.id);
+                });
+
                 tbody.innerHTML = '';
                 const mainProducts = allProducts.filter(p => p.is_main_product);
                 mainProducts.forEach(product => {
@@ -340,6 +348,17 @@
                         });
                     }
                 });
+
+                expandedRowIds.forEach(id => {
+                    const row = tbody.querySelector(`.product-row[data-id='${id}']`);
+                    const btn = row?.querySelector('.toggle-children-btn');
+                    if(btn) {
+                        btn.classList.add('expanded');
+                        const childrenRows = document.querySelectorAll(`.product-row.is-child[data-parent-id='${id}']`);
+                        childrenRows.forEach(childRow => childRow.style.display = 'table-row');
+                    }
+                });
+                
                 addStockEventListeners();
                 initSortable('products-tbody', '/products/reorder');
             };
@@ -365,7 +384,9 @@
 
             const createProductRow = (product, isChild = false, isSynced = false) => {
                 const stock_quantity = product.stock_quantity ?? '';
-                const stock_controls_disabled = !product.stock_enabled || (isChild && isSynced) ? 'disabled' : '';
+                const isActuallyDisabled = (isChild && isSynced) || (!product.stock_enabled);
+                const stock_controls_disabled = isActuallyDisabled ? 'disabled' : '';
+
                 let parentControls = '';
                 if (!isChild && product.is_main_product) {
                      parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="updateProductSync(${product.id}, this.checked)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
@@ -395,13 +416,15 @@
             window.toggleChildren = (btn, parentId) => {
                 btn.classList.toggle('expanded');
                 const childrenRows = document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`);
-                childrenRows.forEach(row => row.classList.toggle('visible'));
+                childrenRows.forEach(row => {
+                    const isVisible = row.style.display === 'table-row';
+                    row.style.display = isVisible ? 'none' : 'table-row';
+                });
             };
 
             window.updateProductSync = async (productId, isChecked) => {
                 try {
                     await apiFetch(`/products/${productId}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: isChecked }) });
-                    socket.emit('force_inventory_reload');
                 } catch (error) {
                     console.error("Falha ao atualizar a sincronização de estoque:", error);
                     alert("Não foi possível atualizar a configuração de sincronização.");
@@ -413,12 +436,30 @@
                     const productId = row.dataset.id;
                     const stockControls = row.querySelector('.stock-controls');
                     if (!stockControls) return;
+
                     const stockInput = stockControls.querySelector('.stock-input');
-                    stockControls.querySelector('.stock-enabled-toggle').addEventListener('change', e => updateStock(productId, { stock_enabled: e.target.checked }));
-                    stockControls.querySelector('.stock-decrease').addEventListener('click', () => { if (stockInput.value !== '') stockInput.value--; });
-                    stockControls.querySelector('.stock-increase').addEventListener('click', () => { if (stockInput.value !== '') stockInput.value++; else stockInput.value = 1; });
+                    const decreaseBtn = stockControls.querySelector('.stock-decrease');
+                    const increaseBtn = stockControls.querySelector('.stock-increase');
+                    const saveBtn = stockControls.querySelector('.stock-save-btn');
+                    
+                    const toggle = stockControls.querySelector('.stock-enabled-toggle');
+                    toggle.addEventListener('change', e => {
+                        const isEnabled = e.target.checked;
+                        const isChild = row.classList.contains('is-child');
+                        const parentSyncToggle = isChild ? document.querySelector(`.product-row[data-id="${row.dataset.parentId}"] .parent-controls input`) : null;
+                        const isSynced = parentSyncToggle ? parentSyncToggle.checked : false;
+
+                        if (!isChild || !isSynced) {
+                           [stockInput, decreaseBtn, increaseBtn, saveBtn].forEach(el => el.disabled = !isEnabled);
+                        }
+                        updateStock(productId, { stock_enabled: isEnabled });
+                    });
+                    
+                    decreaseBtn.addEventListener('click', () => { if (stockInput.value !== '') stockInput.value--; });
+                    increaseBtn.addEventListener('click', () => { if (stockInput.value !== '') stockInput.value++; else stockInput.value = 1; });
                     const saveQuantity = () => { if (stockInput.value !== '') updateStock(productId, { stock_quantity: parseInt(stockInput.value) }) };
-                    stockControls.querySelector('.stock-save-btn').addEventListener('click', saveQuantity);
+                    
+                    saveBtn.addEventListener('click', saveQuantity);
                     stockInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveQuantity(); } });
                 });
             };
@@ -432,8 +473,7 @@
                 }
                 try {
                     await apiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify(dataToUpdate) });
-                    socket.emit('force_inventory_reload'); 
-                    console.log(`[Dashboard] ✅ Atualização de estoque para ${productId} enviada. Pedido de recarga do inventário emitido.`);
+                    console.log(`[Dashboard] ✅ Atualização de estoque para ${productId} enviada.`);
                     if(feedbackSpan) {
                         feedbackSpan.textContent = 'Salvo!';
                         feedbackSpan.className = 'stock-feedback success show';
@@ -557,7 +597,6 @@
                 try {
                     await apiFetch(id ? `/products/${id}` : '/products', { method: id ? 'PUT' : 'POST', body: JSON.stringify(productData) });
                     closeProductModal();
-                    socket.emit('force_data_reload');
                 } catch (error) { console.error('Erro ao salvar produto:', error); alert('Falha ao salvar o produto.'); }
                 finally { saveButton.disabled = false; saveButton.textContent = 'Salvar'; }
             };
@@ -566,7 +605,6 @@
                 if (confirm('Tem a certeza de que deseja apagar este item? Esta ação não pode ser desfeita.')) {
                     try {
                         await apiFetch(`/products/${id}`, { method: 'DELETE' });
-                        socket.emit('force_data_reload');
                     } catch (error) { console.error('Erro ao apagar:', error); alert('Não foi possível apagar o item.'); }
                 }
             };
@@ -767,12 +805,11 @@
                 try {
                     await apiFetch(id ? `/combos/${id}` : '/combos', { method: id ? 'PUT' : 'POST', body: JSON.stringify(comboData) });
                     closeComboModal();
-                    socket.emit('force_data_reload');
                 } catch (error) { console.error('Erro ao salvar combo:', error); alert('Falha ao salvar o combo.'); }
                 finally { saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; }
             };
 
-            window.deleteCombo = async (id) => { if (confirm('Tem a certeza?')) try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); socket.emit('force_data_reload'); } catch (error) { console.error('Erro ao apagar combo:', error); } };
+            window.deleteCombo = async (id) => { if (confirm('Tem a certeza?')) try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); } catch (error) { console.error('Erro ao apagar combo:', error); } };
             
             const renderSettingsPage = () => {
                 pageTitle.textContent = 'Configurações da Loja';
@@ -822,7 +859,6 @@
                     try {
                         await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(data) });
                         feedback.textContent = 'Salvo!'; 
-                        socket.emit('force_data_reload');
                         setupAudioPlayer(data.notification_sound_url);
                         setTimeout(() => feedback.textContent = '', 2000);
                     } catch (error) { feedback.textContent = 'Erro ao salvar.'; }
@@ -847,7 +883,6 @@
                                 method: 'POST',
                                 body: JSON.stringify({ orderedIds })
                             });
-                            socket.emit('force_data_reload');
                         } catch (error) {
                             console.error('Falha ao reordenar:', error);
                             alert('Não foi possível salvar a nova ordem.');
@@ -857,7 +892,6 @@
                 });
             };
             
-            // --- INICIALIZAÇÃO ---
             const navLinks = {
                 pedidos: document.getElementById('nav-pedidos'),
                 produtos: document.getElementById('nav-produtos'),
