@@ -170,661 +170,694 @@
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
-        const API_BASE_URL = 'http://localhost:10000';
-        const dashboardContent = document.getElementById('dashboard-content');
-        const pageTitle = document.getElementById('page-title');
-        const PLACEHOLDER_IMG_60 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2260%22%20height%3D%2260%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%229%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESem%20Foto%3C%2Ftext%3E%3C%2Fsvg%3E';
-        const PLACEHOLDER_IMG_200 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22200%22%20height%3D%22200%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22200%22%20height%3D%22200%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%2214%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESelecionar%20Imagem%3C%2Ftext%3E%3C%2Fsvg%3E';
-        
-        let allProducts = [];
-        let allProductsFlat = [];
-        let notificationAudio;
-        let isSoundEnabled = false;
-
-        const apiFetch = async (endpoint, options = {}) => {
-            options.headers = { ...options.headers, 'Authorization': `Bearer ${localStorage.getItem('authToken')}`, 'Content-Type': 'application/json' };
-            const response = await fetch(`${API_BASE_URL}/api${endpoint}`, options);
-            if (response.status === 401) {
-                localStorage.removeItem('authToken');
-                window.location.href = 'login.html';
-                throw new Error('Token inválido ou expirado.');
-            }
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-            }
-            return response.status === 204 ? null : response.json();
-        };
-
-        const flattenProductsWithParentInfo = (products) => {
-            let flatList = [];
-            products.forEach(p => {
-                const { children, ...parent } = p;
-                flatList.push(parent);
-                if (children?.length > 0) {
-                    const childrenWithInfo = children.map(c => ({ ...c, parent_stock_sync_enabled: parent.stock_sync_enabled }));
-                    flatList.push(...childrenWithInfo);
-                }
-            });
-            return flatList;
-        };
-
-        const fetchAllProducts = async () => {
-            try {
-                allProducts = await apiFetch('/products');
-                allProductsFlat = flattenProductsWithParentInfo(allProducts);
-            } catch (error) {
-                console.error("Falha crítica ao buscar produtos:", error);
-                dashboardContent.innerHTML = `<p>Não foi possível carregar os dados. Verifique a conexão com o servidor e a configuração de CORS no backend.</p>`
-            }
-        };
-
-        const fetchAndRefreshAllViews = async () => {
-            await fetchAllProducts();
-            const activeNav = document.querySelector('nav a.active')?.id;
-            if (activeNav === 'nav-produtos') renderProdutosPageContent();
-            else if (activeNav === 'nav-complementos') renderComplementosPageContent();
-            else if (activeNav === 'nav-combos') fetchAndRenderCombos();
-        };
-        
-        const socket = io(API_BASE_URL);
-        const setupAudioPlayer = (soundUrl) => { if (soundUrl) { notificationAudio = new Audio(soundUrl); notificationAudio.loop = true; } else { notificationAudio = null; } }
-        const playNotification = () => { if (isSoundEnabled && notificationAudio) notificationAudio.play().catch(console.error); }
-        const stopNotification = () => { if (notificationAudio) { notificationAudio.pause(); notificationAudio.currentTime = 0; } }
-        
-        socket.on('connect', () => console.log('Socket.IO conectado.'));
-        socket.on('new_order', (order) => { 
-            playNotification(); 
-            if (document.querySelector('.orders-panel')) {
-                addOrderCard(order); 
-            }
-            // ✅ CORREÇÃO: Atualiza a visualização de produtos após um novo pedido para refletir o estoque.
-            fetchAndRefreshAllViews(); 
-        });
-        socket.on('order_status_updated', ({ id, status }) => moveOrderCard(id, status));
-
-        // ✅ CORREÇÃO: O Dashboard agora ouve o evento 'data_updated' para se manter sincronizado.
-        socket.on('data_updated', () => {
-            console.log('Dashboard recebeu evento "data_updated". Atualizando visualizações...');
-            fetchAndRefreshAllViews();
-        });
-
-
-        const renderPedidosPage = () => {
-            pageTitle.textContent = 'Painel de Pedidos';
-            dashboardContent.innerHTML = `<div class="orders-panel"><div class="order-column"><h3>Novos</h3><div class="order-list" id="col-novo"></div></div><div class="order-column"><h3>Em Preparo</h3><div class="order-list" id="col-em-preparo"></div></div><div class="order-column"><h3>Pronto para Entrega</h3><div class="order-list" id="col-pronto"></div></div></div>`;
-            fetchAndRenderOrders();
-        };
-        const fetchAndRenderOrders = async () => {
-            try {
-                const orders = await apiFetch('/orders');
-                ['col-novo', 'col-em-preparo', 'col-pronto'].forEach(id => document.getElementById(id).innerHTML = '');
-                orders.forEach(order => addOrderCard(order, false));
-            } catch (error) { console.error("Erro ao buscar pedidos:", error); }
-        };
-        const createOrderCard = (order) => {
-            const card = document.createElement('div');
-            card.className = 'order-card';
-            card.id = `order-${order.id}`;
-            let actionsHtml = '';
-            if (order.status === 'Novo') actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`;
-            else if (order.status === 'Em Preparo') actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto</button>`;
-            else if (order.status === 'Pronto para Entrega') actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Entregue</button>`;
-            card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Endereço:</strong> ${order.client_address}</p><div class="order-card-actions">${actionsHtml}</div>`;
-            return card;
-        };
-        const addOrderCard = (order, prepend = true) => {
-            const statusMap = { 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' };
-            const column = document.getElementById(statusMap[order.status]);
-            if (column) {
-                const card = createOrderCard(order);
-                if (prepend) column.prepend(card);
-                else column.appendChild(card);
-            }
-        };
-        const moveOrderCard = (orderId, newStatus) => {
-            const card = document.getElementById(`order-${orderId}`);
-            if (!card) return;
-            stopNotification();
-            const statusMap = { 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' };
-            const targetColumn = document.getElementById(statusMap[newStatus]);
-            if (targetColumn) {
-                const orderData = { id: orderId, status: newStatus, total_price: card.querySelector('span:last-child').textContent.replace('R$ ','').replace(',','.'), client_name: card.querySelector('p:nth-child(2) > strong').nextSibling.textContent.trim(), client_address: card.querySelector('p:nth-child(3) > strong').nextSibling.textContent.trim() };
-                card.remove();
-                addOrderCard(orderData);
-            } else { card.remove(); }
-        };
-        window.updateOrderStatus = async (orderId, newStatus) => {
-            try { await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
-            } catch (error) { console.error(`Falha ao atualizar status:`, error); }
-        };
-
-        const renderProdutosPage = () => {
-            pageTitle.textContent = 'Produtos Principais';
-            dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`;
-            document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true));
-            renderProdutosPageContent();
-        };
-        const renderProdutosPageContent = () => {
-            const tbody = document.getElementById('products-tbody');
-            if (!tbody) return;
-            tbody.innerHTML = '';
-            const mainProducts = allProducts.filter(p => p.is_main_product);
-            mainProducts.forEach(product => {
-                tbody.innerHTML += createProductRow(product);
-                if (product.children && product.children.length > 0) {
-                    product.children.forEach(child => {
-                        tbody.innerHTML += createProductRow(child, true, product.stock_sync_enabled);
-                    });
-                }
-            });
-            addStockEventListeners();
-            initSortable('products-tbody', '/products/reorder');
-        };
-
-        const renderComplementosPage = () => {
-            pageTitle.textContent = 'Itens de Complemento';
-            dashboardContent.innerHTML = `<div class="page-header"><h2>Banco de Itens para Complemento</h2><button id="add-complemento-btn" class="btn btn-primary">Adicionar Novo Item</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Itens criados e gerenciados aqui. Podem ser vinculados a um Produto Principal para serem vendidos como opções.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Item</th><th>Preço</th><th>Status</th><th>Estoque</th><th>Ações</th></tr></thead><tbody id="complementos-tbody"></tbody></table>`;
-            document.getElementById('add-complemento-btn').addEventListener('click', () => openProductModal(null, false));
-            renderComplementosPageContent();
-        };
-        
-        const renderComplementosPageContent = () => {
-            const tbody = document.getElementById('complementos-tbody');
-            if (!tbody) return;
-            tbody.innerHTML = '';
-            const complementItems = allProductsFlat.filter(p => !p.is_main_product);
-            complementItems.forEach(item => {
-                tbody.innerHTML += createProductRow(item, false);
-            });
-            addStockEventListeners();
-            initSortable('complementos-tbody', '/products/reorder');
-        };
-
-        const createProductRow = (product, isChild = false, isSynced = false) => {
-            const stock_quantity = product.stock_quantity ?? '';
-            const stock_controls_disabled = !product.stock_enabled || (isChild && isSynced) ? 'disabled' : '';
-            let parentControls = '';
-            if (!isChild && product.is_main_product) {
-                 parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="updateProductSync(${product.id}, this.checked)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
-            }
-            const hasChildren = !isChild && product.children && product.children.length > 0;
-            const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
-            const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
-
-            return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">
-                        ${dragHandle}
-                        <td>
-                            <div class="product-name-cell">
-                                ${toggleButton}
-                                ${isChild ? '<span class="child-indicator">↳</span>' : ''}
-                                <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail">
-                                <span>${product.name}</span>
-                            </div>
-                            ${parentControls}
-                        </td>
-                        <td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td>
-                        <td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>
-                        <td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" ${stock_controls_disabled}><button class="stock-btn stock-increase" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span></div></td>
-                        <td class="action-buttons"><button onclick="openProductModal(${product.id})">Editar</button><button onclick="deleteProduct(${product.id})">Apagar</button></td>
-                    </tr>`;
-        };
-        
-        window.toggleChildren = (btn, parentId) => {
-            btn.classList.toggle('expanded');
-            const childrenRows = document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`);
-            childrenRows.forEach(row => row.classList.toggle('visible'));
-        };
-
-        window.updateProductSync = async (productId, isChecked) => {
-            try {
-                await apiFetch(`/products/${productId}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: isChecked }) });
-                await fetchAndRefreshAllViews();
-            } catch (error) {
-                console.error("Falha ao atualizar a sincronização de estoque:", error);
-                alert("Não foi possível atualizar a configuração de sincronização.");
-            }
-        };
-
-        const addStockEventListeners = () => {
-            document.querySelectorAll('.product-row').forEach(row => {
-                const productId = row.dataset.id;
-                const stockControls = row.querySelector('.stock-controls');
-                if (!stockControls) return;
-                const stockInput = stockControls.querySelector('.stock-input');
-                stockControls.querySelector('.stock-enabled-toggle').addEventListener('change', e => updateStock(productId, { stock_enabled: e.target.checked }));
-                stockControls.querySelector('.stock-decrease').addEventListener('click', () => { if (stockInput.value !== '') stockInput.value--; });
-                stockControls.querySelector('.stock-increase').addEventListener('click', () => { if (stockInput.value !== '') stockInput.value++; else stockInput.value = 1; });
-                const saveQuantity = () => { if (stockInput.value !== '') updateStock(productId, { stock_quantity: parseInt(stockInput.value) }) };
-                stockControls.querySelector('.stock-save-btn').addEventListener('click', saveQuantity);
-                stockInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveQuantity(); } });
-            });
-        };
-
-        window.updateStock = async (productId, dataToUpdate) => {
-            document.querySelectorAll(`tr[data-id='${productId}'] .stock-feedback`).forEach(span => {
-                span.textContent = 'Salvando...';
-                span.className = 'stock-feedback show';
-            });
-            try {
-                await apiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify(dataToUpdate) });
-                await fetchAndRefreshAllViews(); 
-            } catch (error) {
-                console.error("Erro ao atualizar estoque:", error);
-                document.querySelectorAll(`tr[data-id='${productId}'] .stock-feedback`).forEach(span => {
-                    span.textContent = 'Falhou!';
-                    span.className = 'stock-feedback error show';
-                    setTimeout(() => span.className = 'stock-feedback', 3000);
-                });
-            }
-        };
-
-        window.openProductModal = async (id = null, isMainProduct = true) => {
-            const modal = document.getElementById('product-modal-overlay');
-            const form = document.getElementById('product-form');
-            form.reset();
-            document.getElementById('product-id').value = '';
-            document.getElementById('product-image-url').value = '';
-            document.getElementById('parent-product-id').value = '';
-            document.getElementById('is-main-product-flag').value = isMainProduct;
-            document.getElementById('product-image-preview').src = PLACEHOLDER_IMG_200;
-            document.getElementById('product-upload-prompt').style.display = 'block';
-
-            const parentInfoSection = document.getElementById('parent-info-section');
-            const addonsManagementSection = document.getElementById('addons-management-section');
-            parentInfoSection.style.display = 'none';
-
-            let currentProduct = null;
-            if (id) {
-                currentProduct = allProductsFlat.find(p => p.id === id);
-                if (!currentProduct) return;
-                
-                document.getElementById('product-modal-title').textContent = 'Editar Item';
-                document.getElementById('product-id').value = currentProduct.id;
-                document.getElementById('product-name').value = currentProduct.name;
-                document.getElementById('product-description').value = currentProduct.description || '';
-                document.getElementById('product-price').value = parseFloat(currentProduct.price).toFixed(2);
-                document.getElementById('product-status').value = String(currentProduct.status);
-                document.getElementById('force-one-to-one-complement').checked = currentProduct.force_one_to_one_complement;
-                document.getElementById('sell-parent-product').checked = currentProduct.sell_parent_product;
-                document.getElementById('is-main-product-flag').value = currentProduct.is_main_product;
-                document.getElementById('parent-product-id').value = currentProduct.parent_product_id || '';
-
-                if (currentProduct.image_url) {
-                    document.getElementById('product-image-preview').src = currentProduct.image_url;
-                    document.getElementById('product-image-url').value = currentProduct.image_url;
-                    document.getElementById('product-upload-prompt').style.display = 'none';
-                }
-
-                if (currentProduct.parent_product_id) {
-                    const parent = allProductsFlat.find(p => p.id === currentProduct.parent_product_id);
-                    document.getElementById('parent-product-name').textContent = parent?.name || 'Desconhecido';
-                    parentInfoSection.style.display = 'flex';
-                    addonsManagementSection.style.display = 'none';
-                } else {
-                    addonsManagementSection.style.display = currentProduct.is_main_product ? 'block' : 'none';
-                }
-            } else {
-                document.getElementById('product-modal-title').textContent = isMainProduct ? 'Adicionar Novo Produto Principal' : 'Adicionar Novo Item de Complemento';
-                addonsManagementSection.style.display = isMainProduct ? 'block' : 'none';
-                document.getElementById('sell-parent-product').checked = true;
-                document.getElementById('force-one-to-one-complement').checked = false;
-            }
+        document.addEventListener('DOMContentLoaded', async () => {
+            const API_BASE_URL = 'http://localhost:10000';
+            const dashboardContent = document.getElementById('dashboard-content');
+            const pageTitle = document.getElementById('page-title');
+            const PLACEHOLDER_IMG_60 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2260%22%20height%3D%2260%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%229%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESem%20Foto%3C%2Ftext%3E%3C%2Fsvg%3E';
+            const PLACEHOLDER_IMG_200 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22200%22%20height%3D%22200%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22200%22%20height%3D%22200%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%2214%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESelecionar%20Imagem%3C%2Ftext%3E%3C%2Fsvg%3E';
             
-            const addonsListDiv = document.getElementById('addons-list');
-            addonsListDiv.innerHTML = '';
-            const parentWithChildren = allProducts.find(p => p.id === id);
-            const linkedAddonIds = new Set(parentWithChildren?.children.map(c => c.id) || []);
-            const complementosPotenciais = allProductsFlat.filter(p => !p.is_main_product);
-            
-            complementosPotenciais.forEach(p => {
-                addonsListDiv.innerHTML += `<div class="addon-item"><label class="addon-item-name"><input type="checkbox" data-addon-id="${p.id}" ${linkedAddonIds.has(p.id) ? 'checked' : ''}><span>${p.name}</span></label></div>`;
-            });
+            let allProducts = [];
+            let allProductsFlat = [];
+            let notificationAudio;
+            let isSoundEnabled = false;
 
-            modal.style.display = 'flex';
-        };
-
-        const closeProductModal = () => document.getElementById('product-modal-overlay').style.display = 'none';
-
-        const saveProduct = async (event) => {
-            event.preventDefault();
-            const saveButton = document.getElementById('save-product-button');
-            saveButton.disabled = true; saveButton.textContent = 'Salvando...';
-            let imageUrl = document.getElementById('product-image-url').value;
-
-            const productImageInput = document.getElementById('product-image-input');
-            if (productImageInput.files[0]) {
-                try {
-                    const { timestamp, signature } = await apiFetch('/cloudinary-signature');
-                    const formData = new FormData();
-                    formData.append('file', productImageInput.files[0]);
-                    formData.append('api_key', '351266855176353');
-                    formData.append('timestamp', timestamp);
-                    formData.append('signature', signature);
-                    const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/image/upload`, { method: 'POST', body: formData });
-                    const data = await res.json();
-                    if (data.secure_url) { imageUrl = data.secure_url; }
-                    else { throw new Error(data.error?.message || 'Falha no upload'); }
-                } catch (error) { console.error('Erro no upload:', error); alert('Erro ao fazer upload da imagem.'); saveButton.disabled = false; saveButton.textContent = 'Salvar'; return; }
-            }
-
-            const id = document.getElementById('product-id').value;
-            const children = Array.from(document.querySelectorAll('#addons-list input:checked')).map(cb => ({ id: parseInt(cb.dataset.addonId) }));
-            
-            const productData = {
-                name: document.getElementById('product-name').value,
-                description: document.getElementById('product-description').value,
-                price: parseFloat(document.getElementById('product-price').value),
-                status: document.getElementById('product-status').value === 'true',
-                image_url: imageUrl,
-                force_one_to_one_complement: document.getElementById('force-one-to-one-complement').checked,
-                sell_parent_product: document.getElementById('sell-parent-product').checked,
-                parent_product_id: document.getElementById('parent-product-id').value || null,
-                is_main_product: document.getElementById('is-main-product-flag').value === 'true',
-                children: children
+            const apiFetch = async (endpoint, options = {}) => {
+                options.headers = { ...options.headers, 'Authorization': `Bearer ${localStorage.getItem('authToken')}`, 'Content-Type': 'application/json' };
+                const response = await fetch(`${API_BASE_URL}/api${endpoint}`, options);
+                if (response.status === 401) {
+                    localStorage.removeItem('authToken');
+                    window.location.href = 'login.html';
+                    throw new Error('Token inválido ou expirado.');
+                }
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                }
+                return response.status === 204 ? null : response.json();
             };
 
-            try {
-                await apiFetch(id ? `/products/${id}` : '/products', { method: id ? 'PUT' : 'POST', body: JSON.stringify(productData) });
-                closeProductModal();
-                await fetchAndRefreshAllViews();
-            } catch (error) { console.error('Erro ao salvar produto:', error); alert('Falha ao salvar o produto.'); }
-            finally { saveButton.disabled = false; saveButton.textContent = 'Salvar'; }
-        };
+            const flattenProductsWithParentInfo = (products) => {
+                let flatList = [];
+                products.forEach(p => {
+                    const { children, ...parent } = p;
+                    flatList.push(parent);
+                    if (children?.length > 0) {
+                        const childrenWithInfo = children.map(c => ({ ...c, parent_stock_sync_enabled: parent.stock_sync_enabled }));
+                        flatList.push(...childrenWithInfo);
+                    }
+                });
+                return flatList;
+            };
 
-        window.deleteProduct = async (id) => {
-            if (confirm('Tem a certeza de que deseja apagar este item? Esta ação não pode ser desfeita.')) {
+            const fetchAllProducts = async () => {
                 try {
-                    await apiFetch(`/products/${id}`, { method: 'DELETE' });
-                    await fetchAndRefreshAllViews();
-                } catch (error) { console.error('Erro ao apagar:', error); alert('Não foi possível apagar o item.'); }
-            }
-        };
-        
-        const renderCombosPage = () => {
-            pageTitle.textContent = 'Gestão de Combos';
-            dashboardContent.innerHTML = `<div class="page-header"><h2>Todos os Combos</h2><button id="add-combo-btn" class="btn btn-primary">Criar Combo</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table"><thead><tr><th style="width: 40px;"></th><th>Combo</th><th>Preço Base</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="combos-tbody"></tbody></table>`;
-            document.getElementById('add-combo-btn').addEventListener('click', () => openComboModal());
-            fetchAndRenderCombos();
-        };
-        const fetchAndRenderCombos = async () => {
-            try {
-                const combos = await apiFetch('/combos');
-                const tbody = document.getElementById('combos-tbody');
+                    console.log('[Dashboard] Buscando todos os produtos da API...');
+                    allProducts = await apiFetch('/products');
+                    allProductsFlat = flattenProductsWithParentInfo(allProducts);
+                    console.log('[Dashboard] ✅ Produtos carregados.');
+                } catch (error) {
+                    console.error("[Dashboard] ❌ Falha crítica ao buscar produtos:", error);
+                    dashboardContent.innerHTML = `<p>Não foi possível carregar os dados. Verifique a conexão com o servidor.</p>`
+                }
+            };
+
+            const fetchAndRefreshAllViews = async () => {
+                console.log('[Dashboard] 🔄 Executando fetchAndRefreshAllViews...');
+                await fetchAllProducts();
+                const activeNav = document.querySelector('nav a.active')?.id;
+                if (activeNav === 'nav-produtos') renderProdutosPageContent();
+                else if (activeNav === 'nav-complementos') renderComplementosPageContent();
+                else if (activeNav === 'nav-combos') fetchAndRenderCombos();
+                console.log('[Dashboard] ✅ Visualizações atualizadas.');
+            };
+            
+            const socket = io(API_BASE_URL);
+            const setupAudioPlayer = (soundUrl) => { if (soundUrl) { notificationAudio = new Audio(soundUrl); notificationAudio.loop = true; } else { notificationAudio = null; } }
+            const playNotification = () => { if (isSoundEnabled && notificationAudio) notificationAudio.play().catch(console.error); }
+            const stopNotification = () => { if (notificationAudio) { notificationAudio.pause(); notificationAudio.currentTime = 0; } }
+            
+            socket.on('connect', () => console.log('[Dashboard] ✅ Socket.IO conectado.'));
+            
+            socket.on('new_order', (order) => { 
+                console.log('[Dashboard] 🔔 Recebido evento "new_order":', order);
+                playNotification(); 
+                if (document.querySelector('.orders-panel')) {
+                    addOrderCard(order); 
+                }
+                console.log('[Dashboard] 🔁 Pedido novo recebido, solicitando recarga de inventário do servidor...');
+                socket.emit('force_inventory_reload');
+            });
+
+            socket.on('order_status_updated', ({ id, status }) => {
+                console.log(`[Dashboard] 📊 Recebido evento "order_status_updated". Pedido ID: ${id}, Novo Status: ${status}`);
+                moveOrderCard(id, status);
+            });
+
+            socket.on('data_updated', () => {
+                console.log('[Dashboard] 🔄 Recebido evento "data_updated". Iniciando recarga completa das visualizações...');
+                fetchAndRefreshAllViews();
+            });
+
+            socket.on('stock_update', (liveInventory) => {
+                console.log('[Dashboard] 🔄 Recebido evento "stock_update". Atualizando valores de estoque na tabela...', liveInventory);
+                for (const productId in liveInventory) {
+                    const productRow = document.querySelector(`.product-row[data-id='${productId}']`);
+                    if (productRow) {
+                        const stockInput = productRow.querySelector('.stock-input');
+                        if (stockInput && document.activeElement !== stockInput) {
+                            stockInput.value = liveInventory[productId];
+                        }
+                    }
+                }
+            });
+
+            const renderPedidosPage = () => {
+                pageTitle.textContent = 'Painel de Pedidos';
+                dashboardContent.innerHTML = `<div class="orders-panel"><div class="order-column"><h3>Novos</h3><div class="order-list" id="col-novo"></div></div><div class="order-column"><h3>Em Preparo</h3><div class="order-list" id="col-em-preparo"></div></div><div class="order-column"><h3>Pronto para Entrega</h3><div class="order-list" id="col-pronto"></div></div></div>`;
+                fetchAndRenderOrders();
+            };
+            const fetchAndRenderOrders = async () => {
+                try {
+                    const orders = await apiFetch('/orders');
+                    ['col-novo', 'col-em-preparo', 'col-pronto'].forEach(id => document.getElementById(id).innerHTML = '');
+                    orders.forEach(order => addOrderCard(order, false));
+                } catch (error) { console.error("Erro ao buscar pedidos:", error); }
+            };
+            const createOrderCard = (order) => {
+                const card = document.createElement('div');
+                card.className = 'order-card';
+                card.id = `order-${order.id}`;
+                let actionsHtml = '';
+                if (order.status === 'Novo') actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`;
+                else if (order.status === 'Em Preparo') actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto</button>`;
+                else if (order.status === 'Pronto para Entrega') actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Entregue</button>`;
+                card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Endereço:</strong> ${order.client_address}</p><div class="order-card-actions">${actionsHtml}</div>`;
+                return card;
+            };
+            const addOrderCard = (order, prepend = true) => {
+                const statusMap = { 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' };
+                const column = document.getElementById(statusMap[order.status]);
+                if (column) {
+                    const card = createOrderCard(order);
+                    if (prepend) column.prepend(card);
+                    else column.appendChild(card);
+                }
+            };
+            const moveOrderCard = (orderId, newStatus) => {
+                const card = document.getElementById(`order-${orderId}`);
+                if (!card) return;
+                stopNotification();
+                const statusMap = { 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' };
+                const targetColumn = document.getElementById(statusMap[newStatus]);
+                if (targetColumn) {
+                    const orderData = { id: orderId, status: newStatus, total_price: card.querySelector('span:last-child').textContent.replace('R$ ','').replace(',','.'), client_name: card.querySelector('p:nth-child(2) > strong').nextSibling.textContent.trim(), client_address: card.querySelector('p:nth-child(3) > strong').nextSibling.textContent.trim() };
+                    card.remove();
+                    addOrderCard(orderData);
+                } else { card.remove(); }
+            };
+            window.updateOrderStatus = async (orderId, newStatus) => {
+                try { await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
+                } catch (error) { console.error(`Falha ao atualizar status:`, error); }
+            };
+
+            const renderProdutosPage = () => {
+                pageTitle.textContent = 'Produtos Principais';
+                dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`;
+                document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true));
+                renderProdutosPageContent();
+            };
+            const renderProdutosPageContent = () => {
+                const tbody = document.getElementById('products-tbody');
+                if (!tbody) return;
                 tbody.innerHTML = '';
-                combos.forEach(combo => {
-                    const productNames = combo.allow_free_choice
-                        ? combo.products.map(p => p.name).join(', ')
-                        : combo.products.map(p => `${p.quantity_in_combo}x ${p.name}`).join(', ');
-                    
-                    tbody.innerHTML += `<tr data-id="${combo.id}"><td><span class="drag-handle">⠿</span></td><td><div style="display: flex; align-items: center; gap: 15px;"><img src="${combo.image_url || PLACEHOLDER_IMG_60}" alt="${combo.name}" class="product-image-thumbnail"><span>${combo.name}</span></div></td><td>R$ ${parseFloat(combo.price).toFixed(2).replace('.', ',')}</td><td>${productNames || 'Nenhum'}</td><td><span class="status-badge ${combo.status ? 'active' : 'inactive'}">${combo.status ? 'Ativo' : 'Inativo'}</span></td><td class="action-buttons"><button onclick="openComboModal(${combo.id})">Editar</button><button onclick="deleteCombo(${combo.id})">Apagar</button></td></tr>`;
-                });
-                initSortable('combos-tbody', '/combos/reorder');
-            } catch (error) { console.error("Erro ao buscar combos:", error); }
-        };
-
-        window.openComboModal = async (id = null) => {
-            const modal = document.getElementById('combo-modal-overlay');
-            const form = document.getElementById('combo-form');
-            form.reset();
-            document.getElementById('combo-id').value = '';
-            document.getElementById('combo-image-url').value = '';
-            document.getElementById('combo-image-preview').src = PLACEHOLDER_IMG_200;
-            document.getElementById('combo-upload-prompt').style.display = 'block';
-            const productsListDiv = document.getElementById('combo-products-list');
-            productsListDiv.innerHTML = 'Carregando...';
-            
-            if (allProductsFlat.length === 0) await fetchAllProducts();
-            
-            let comboData = { products: [], total_items_limit: 1, allow_free_choice: true };
-            if (id) {
-                document.getElementById('combo-modal-title').textContent = 'Editar Combo';
-                const allCombos = await apiFetch('/combos');
-                comboData = allCombos.find(c => c.id === id);
-                document.getElementById('combo-id').value = comboData.id;
-                document.getElementById('combo-name').value = comboData.name;
-                document.getElementById('combo-description').value = comboData.description;
-                document.getElementById('combo-price').value = parseFloat(comboData.price).toFixed(2);
-                document.getElementById('combo-status').value = String(comboData.status);
-                if (comboData.image_url) { 
-                    document.getElementById('combo-image-url').value = comboData.image_url; 
-                    document.getElementById('combo-image-preview').src = comboData.image_url; 
-                    document.getElementById('combo-upload-prompt').style.display = 'none';
-                }
-            } else {
-                document.getElementById('combo-modal-title').textContent = 'Adicionar Novo Combo';
-            }
-
-            document.getElementById('total-items-limit').value = comboData.total_items_limit;
-            const freeChoiceToggle = document.getElementById('allow-free-choice');
-            freeChoiceToggle.checked = comboData.allow_free_choice;
-            
-            const productsInComboMap = new Map(comboData.products.map(p => [p.product_id, { 
-                quantity: p.quantity_in_combo,
-                modifier: p.price_modifier || '0.00'
-            }]));
-
-            productsListDiv.innerHTML = `<div class="combo-product-item-header"><span>Produto</span><span class="quantity-header">Qtd. no Combo</span><span>Ajuste de Preço (R$)</span></div>`;
-            
-            allProductsFlat.forEach(product => {
-                const comboInfo = productsInComboMap.get(product.id);
-                const isChecked = !!comboInfo;
-                const quantity = comboInfo ? comboInfo.quantity : 1;
-                const priceModifier = comboInfo ? parseFloat(comboInfo.modifier).toFixed(2) : '0.00';
-
-                productsListDiv.innerHTML += `
-                    <div class="combo-product-item">
-                        <label class="combo-product-name">
-                            <input type="checkbox" data-product-id="${product.id}" ${isChecked ? 'checked' : ''}> 
-                            ${product.name}
-                        </label>
-                        <input type="number" class="input-field quantity-in-combo" min="1" value="${quantity}" ${!isChecked ? 'disabled' : ''}>
-                        <input type="number" step="0.01" class="input-field price-modifier" value="${priceModifier}" ${!isChecked ? 'disabled' : ''}>
-                    </div>
-                `;
-            });
-
-            const validatorDiv = document.getElementById('combo-quantity-validator');
-            const saveButton = document.getElementById('save-combo-button');
-
-            const validateQuantities = () => {
-                if (freeChoiceToggle.checked) {
-                    validatorDiv.style.display = 'none';
-                    saveButton.disabled = false;
-                    return;
-                }
-
-                validatorDiv.style.display = 'block';
-                const totalLimit = parseInt(document.getElementById('total-items-limit').value) || 0;
-                let currentTotal = 0;
-                productsListDiv.querySelectorAll('.combo-product-item').forEach(itemRow => {
-                    const checkbox = itemRow.querySelector('input[type="checkbox"]');
-                    if (checkbox.checked) {
-                        const quantityInput = itemRow.querySelector('.quantity-in-combo');
-                        currentTotal += parseInt(quantityInput.value) || 0;
+                const mainProducts = allProducts.filter(p => p.is_main_product);
+                mainProducts.forEach(product => {
+                    tbody.innerHTML += createProductRow(product);
+                    if (product.children && product.children.length > 0) {
+                        product.children.forEach(child => {
+                            tbody.innerHTML += createProductRow(child, true, product.stock_sync_enabled);
+                        });
                     }
                 });
-
-                validatorDiv.textContent = `Total de itens selecionados: ${currentTotal} / ${totalLimit}`;
-                if (currentTotal === totalLimit) {
-                    validatorDiv.className = 'valid';
-                    saveButton.disabled = false;
-                } else {
-                    validatorDiv.className = 'invalid';
-                    saveButton.disabled = true;
-                }
+                addStockEventListeners();
+                initSortable('products-tbody', '/products/reorder');
             };
 
-            const toggleItemInputs = () => {
-                const isFreeChoice = freeChoiceToggle.checked;
-                productsListDiv.querySelector('.quantity-header').style.display = isFreeChoice ? 'none' : 'block';
-                
-                productsListDiv.querySelectorAll('.combo-product-item').forEach(itemRow => {
-                    const checkbox = itemRow.querySelector('input[type="checkbox"]');
-                    const quantityInput = itemRow.querySelector('.quantity-in-combo');
-                    quantityInput.style.display = isFreeChoice ? 'none' : 'block';
-                    if (checkbox.checked) {
-                        quantityInput.disabled = isFreeChoice;
-                    }
-                });
-
-                const gridStyle = isFreeChoice ? '1fr 150px' : '1fr 120px 150px';
-                productsListDiv.querySelector('.combo-product-item-header').style.gridTemplateColumns = gridStyle;
-                productsListDiv.querySelectorAll('.combo-product-item').forEach(item => item.style.gridTemplateColumns = gridStyle);
-
-                validateQuantities();
+            const renderComplementosPage = () => {
+                pageTitle.textContent = 'Itens de Complemento';
+                dashboardContent.innerHTML = `<div class="page-header"><h2>Banco de Itens para Complemento</h2><button id="add-complemento-btn" class="btn btn-primary">Adicionar Novo Item</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Itens criados e gerenciados aqui. Podem ser vinculados a um Produto Principal para serem vendidos como opções.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Item</th><th>Preço</th><th>Status</th><th>Estoque</th><th>Ações</th></tr></thead><tbody id="complementos-tbody"></tbody></table>`;
+                document.getElementById('add-complemento-btn').addEventListener('click', () => openProductModal(null, false));
+                renderComplementosPageContent();
             };
-
-            freeChoiceToggle.addEventListener('change', toggleItemInputs);
-            document.getElementById('total-items-limit').addEventListener('input', validateQuantities);
             
-            productsListDiv.querySelectorAll('input[type="checkbox"], .quantity-in-combo').forEach(el => {
-                el.addEventListener('input', () => {
-                    const itemRow = el.closest('.combo-product-item');
-                    const isChecked = itemRow.querySelector('input[type="checkbox"]').checked;
-                    itemRow.querySelector('.price-modifier').disabled = !isChecked;
-                    itemRow.querySelector('.quantity-in-combo').disabled = !isChecked || freeChoiceToggle.checked;
-                    validateQuantities();
+            const renderComplementosPageContent = () => {
+                const tbody = document.getElementById('complementos-tbody');
+                if (!tbody) return;
+                tbody.innerHTML = '';
+                const complementItems = allProductsFlat.filter(p => !p.is_main_product);
+                complementItems.forEach(item => {
+                    tbody.innerHTML += createProductRow(item, false);
                 });
-            });
+                addStockEventListeners();
+                initSortable('complementos-tbody', '/products/reorder');
+            };
 
-            toggleItemInputs(); 
-            modal.style.display = 'flex';
-        };
+            const createProductRow = (product, isChild = false, isSynced = false) => {
+                const stock_quantity = product.stock_quantity ?? '';
+                const stock_controls_disabled = !product.stock_enabled || (isChild && isSynced) ? 'disabled' : '';
+                let parentControls = '';
+                if (!isChild && product.is_main_product) {
+                     parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="updateProductSync(${product.id}, this.checked)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
+                }
+                const hasChildren = !isChild && product.children && product.children.length > 0;
+                const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
+                const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
 
-        const closeComboModal = () => document.getElementById('combo-modal-overlay').style.display = 'none';
-        
-        const saveCombo = async (event) => {
-            event.preventDefault();
-            const saveButton = document.getElementById('save-combo-button');
-            saveButton.disabled = true; saveButton.textContent = 'Salvando...';
-            let imageUrl = document.getElementById('combo-image-url').value;
-            const imageInput = document.getElementById('combo-image-input');
-            if (imageInput.files[0]) {
+                return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">
+                            ${dragHandle}
+                            <td>
+                                <div class="product-name-cell">
+                                    ${toggleButton}
+                                    ${isChild ? '<span class="child-indicator">↳</span>' : ''}
+                                    <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail">
+                                    <span>${product.name}</span>
+                                </div>
+                                ${parentControls}
+                            </td>
+                            <td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td>
+                            <td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>
+                            <td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" ${stock_controls_disabled}><button class="stock-btn stock-increase" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span></div></td>
+                            <td class="action-buttons"><button onclick="openProductModal(${product.id})">Editar</button><button onclick="deleteProduct(${product.id})">Apagar</button></td>
+                        </tr>`;
+            };
+            
+            window.toggleChildren = (btn, parentId) => {
+                btn.classList.toggle('expanded');
+                const childrenRows = document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`);
+                childrenRows.forEach(row => row.classList.toggle('visible'));
+            };
+
+            window.updateProductSync = async (productId, isChecked) => {
                 try {
-                    const { timestamp, signature } = await apiFetch('/cloudinary-signature');
-                    const formData = new FormData(); formData.append('file', imageInput.files[0]); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature);
-                    const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/image/upload`, { method: 'POST', body: formData });
-                    const data = await res.json();
-                    if (data.secure_url) imageUrl = data.secure_url;
-                    else throw new Error('Falha no upload');
-                } catch (error) { console.error('Erro no upload:', error); alert('Erro ao fazer upload da imagem do combo.'); saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; return; }
-            }
-            const id = document.getElementById('combo-id').value;
-            
-            const selectedProducts = Array.from(document.querySelectorAll('#combo-products-list input:checked')).map(cb => {
-                const itemRow = cb.closest('.combo-product-item');
-                const quantity = document.getElementById('allow-free-choice').checked ? 1 : (parseInt(itemRow.querySelector('.quantity-in-combo').value) || 1);
-                return { 
-                    id: parseInt(cb.dataset.productId), 
-                    quantity_in_combo: quantity,
-                    price_modifier: parseFloat(itemRow.querySelector('.price-modifier').value) || 0
-                };
-            });
-            
-            const comboData = { 
-                name: document.getElementById('combo-name').value,
-                description: document.getElementById('combo-description').value,
-                price: parseFloat(document.getElementById('combo-price').value),
-                status: document.getElementById('combo-status').value === 'true',
-                image_url: imageUrl,
-                products: selectedProducts,
-                total_items_limit: parseInt(document.getElementById('total-items-limit').value),
-                allow_free_choice: document.getElementById('allow-free-choice').checked
+                    await apiFetch(`/products/${productId}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: isChecked }) });
+                    socket.emit('force_inventory_reload');
+                } catch (error) {
+                    console.error("Falha ao atualizar a sincronização de estoque:", error);
+                    alert("Não foi possível atualizar a configuração de sincronização.");
+                }
+            };
+
+            const addStockEventListeners = () => {
+                document.querySelectorAll('.product-row').forEach(row => {
+                    const productId = row.dataset.id;
+                    const stockControls = row.querySelector('.stock-controls');
+                    if (!stockControls) return;
+                    const stockInput = stockControls.querySelector('.stock-input');
+                    stockControls.querySelector('.stock-enabled-toggle').addEventListener('change', e => updateStock(productId, { stock_enabled: e.target.checked }));
+                    stockControls.querySelector('.stock-decrease').addEventListener('click', () => { if (stockInput.value !== '') stockInput.value--; });
+                    stockControls.querySelector('.stock-increase').addEventListener('click', () => { if (stockInput.value !== '') stockInput.value++; else stockInput.value = 1; });
+                    const saveQuantity = () => { if (stockInput.value !== '') updateStock(productId, { stock_quantity: parseInt(stockInput.value) }) };
+                    stockControls.querySelector('.stock-save-btn').addEventListener('click', saveQuantity);
+                    stockInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveQuantity(); } });
+                });
+            };
+
+            window.updateStock = async (productId, dataToUpdate) => {
+                console.log(`[Dashboard] 📤 Enviando atualização de estoque para o produto ${productId}:`, dataToUpdate);
+                const feedbackSpan = document.querySelector(`tr[data-id='${productId}'] .stock-feedback`);
+                if(feedbackSpan) {
+                    feedbackSpan.textContent = 'Salvando...';
+                    feedbackSpan.className = 'stock-feedback show';
+                }
+                try {
+                    await apiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify(dataToUpdate) });
+                    socket.emit('force_inventory_reload'); 
+                    console.log(`[Dashboard] ✅ Atualização de estoque para ${productId} enviada. Pedido de recarga do inventário emitido.`);
+                    if(feedbackSpan) {
+                        feedbackSpan.textContent = 'Salvo!';
+                        feedbackSpan.className = 'stock-feedback success show';
+                        setTimeout(() => feedbackSpan.className = 'stock-feedback', 2000);
+                    }
+                } catch (error) {
+                    console.error("[Dashboard] ❌ Erro ao atualizar estoque:", error);
+                    if(feedbackSpan) {
+                        feedbackSpan.textContent = 'Falhou!';
+                        feedbackSpan.className = 'stock-feedback error show';
+                        setTimeout(() => feedbackSpan.className = 'stock-feedback', 3000);
+                    }
+                }
             };
             
-            try {
-                await apiFetch(id ? `/combos/${id}` : '/combos', { method: id ? 'PUT' : 'POST', body: JSON.stringify(comboData) });
-                closeComboModal();
-                fetchAndRenderCombos();
-            } catch (error) { console.error('Erro ao salvar combo:', error); alert('Falha ao salvar o combo.'); }
-            finally { saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; }
-        };
+            window.openProductModal = async (id = null, isMainProduct = true) => {
+                const modal = document.getElementById('product-modal-overlay');
+                const form = document.getElementById('product-form');
+                form.reset();
+                document.getElementById('product-id').value = '';
+                document.getElementById('product-image-url').value = '';
+                document.getElementById('parent-product-id').value = '';
+                document.getElementById('is-main-product-flag').value = isMainProduct;
+                document.getElementById('product-image-preview').src = PLACEHOLDER_IMG_200;
+                document.getElementById('product-upload-prompt').style.display = 'block';
 
-        window.deleteCombo = async (id) => { if (confirm('Tem a certeza?')) try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); fetchAndRenderCombos(); } catch (error) { console.error('Erro ao apagar combo:', error); } };
-        
-        const renderSettingsPage = () => {
-            pageTitle.textContent = 'Configurações da Loja';
-            dashboardContent.innerHTML = `<form id="settings-form" class="settings-form"><div class="settings-card"><div class="card-header"><h3>Status da Loja</h3></div><div id="status-buttons" class="status-buttons"><button type="button" data-status="true">Forçar Aberta</button><button type="button" data-status="false">Forçar Fechada</button><button type="button" data-status="null">Seguir Horário</button></div></div><div class="settings-card"><div class="card-header"><h3>Informações Gerais</h3></div><div class="info-grid"><div class="grid-col-span-2 form-group"><label for="address">Endereço</label><input type="text" id="address" class="input-field"></div><div class="form-group"><label for="store_name">Nome da Loja</label><input type="text" id="store_name" class="input-field"></div><div class="form-group"><label for="location_link">Link Google Maps</label><input type="text" id="location_link" class="input-field"></div></div></div><div class="settings-card"><div class="card-header"><h3>Financeiro</h3></div><div class="form-group"><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" step="0.50" class="input-field"></div></div><div class="settings-card"><div class="card-header"><h3>Horários</h3></div><div class="operating-hours-grid" id="hours-grid"></div></div><div class="settings-card"><div class="card-header"><h3>Notificações</h3></div><div class="form-group"><label for="notification_sound">Carregar Som (MP3, WAV)</label><input type="file" id="notification_sound" accept="audio/*"></div><div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;"><p id="sound-feedback"></p><button type="button" id="remove-sound-btn" style="display: none;" class="btn btn-danger">Remover</button></div></div><div class="form-buttons"><span id="save-feedback"></span><button type="submit" class="btn btn-primary">Salvar Alterações</button></div></form>`;
-            fetchAndPopulateSettings();
-        };
-        const fetchAndPopulateSettings = async () => {
-            try {
-                const settings = await apiFetch('/settings');
-                document.getElementById('store_name').value = settings.store_name; document.getElementById('address').value = settings.address; document.getElementById('location_link').value = settings.location_link; document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2);
-                document.querySelectorAll('#status-buttons button').forEach(button => { button.classList.remove('selected'); if (String(button.dataset.status) === String(settings.is_open_manual_override)) button.classList.add('selected'); });
-                const soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
-                if (settings.notification_sound_filename) { soundFeedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`; removeSoundBtn.style.display = 'inline-block'; }
-                else { soundFeedback.textContent = 'Nenhum som configurado.'; removeSoundBtn.style.display = 'none'; }
-                const hoursGrid = document.getElementById('hours-grid');
-                hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre</div><div class="grid-header">Fecha</div><div class="grid-header">Aberto?</div>`;
-                ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => {
-                    const daySettings = settings.operating_hours[day] || { open: '00:00', close: '00:00', enabled: false };
-                    hoursGrid.innerHTML += `<div class="day">${day.charAt(0).toUpperCase() + day.slice(1)}</div><input type="time" id="open-${day}" value="${daySettings.open}" class="input-field"><input type="time" id="close-${day}" value="${daySettings.close}" class="input-field"><label class="toggle-switch"><input type="checkbox" id="enabled-${day}" ${daySettings.enabled ? "checked" : ""}><span class="slider"></span></label>`;
+                const parentInfoSection = document.getElementById('parent-info-section');
+                const addonsManagementSection = document.getElementById('addons-management-section');
+                parentInfoSection.style.display = 'none';
+
+                let currentProduct = null;
+                if (id) {
+                    currentProduct = allProductsFlat.find(p => p.id === id);
+                    if (!currentProduct) return;
+                    
+                    document.getElementById('product-modal-title').textContent = 'Editar Item';
+                    document.getElementById('product-id').value = currentProduct.id;
+                    document.getElementById('product-name').value = currentProduct.name;
+                    document.getElementById('product-description').value = currentProduct.description || '';
+                    document.getElementById('product-price').value = parseFloat(currentProduct.price).toFixed(2);
+                    document.getElementById('product-status').value = String(currentProduct.status);
+                    document.getElementById('force-one-to-one-complement').checked = currentProduct.force_one_to_one_complement;
+                    document.getElementById('sell-parent-product').checked = currentProduct.sell_parent_product;
+                    document.getElementById('is-main-product-flag').value = currentProduct.is_main_product;
+                    document.getElementById('parent-product-id').value = currentProduct.parent_product_id || '';
+
+                    if (currentProduct.image_url) {
+                        document.getElementById('product-image-preview').src = currentProduct.image_url;
+                        document.getElementById('product-image-url').value = currentProduct.image_url;
+                        document.getElementById('product-upload-prompt').style.display = 'none';
+                    }
+
+                    if (currentProduct.parent_product_id) {
+                        const parent = allProductsFlat.find(p => p.id === currentProduct.parent_product_id);
+                        document.getElementById('parent-product-name').textContent = parent?.name || 'Desconhecido';
+                        parentInfoSection.style.display = 'flex';
+                        addonsManagementSection.style.display = 'none';
+                    } else {
+                        addonsManagementSection.style.display = currentProduct.is_main_product ? 'block' : 'none';
+                    }
+                } else {
+                    document.getElementById('product-modal-title').textContent = isMainProduct ? 'Adicionar Novo Produto Principal' : 'Adicionar Novo Item de Complemento';
+                    addonsManagementSection.style.display = isMainProduct ? 'block' : 'none';
+                    document.getElementById('sell-parent-product').checked = true;
+                    document.getElementById('force-one-to-one-complement').checked = false;
+                }
+                
+                const addonsListDiv = document.getElementById('addons-list');
+                addonsListDiv.innerHTML = '';
+                const parentWithChildren = allProducts.find(p => p.id === id);
+                const linkedAddonIds = new Set(parentWithChildren?.children.map(c => c.id) || []);
+                const complementosPotenciais = allProductsFlat.filter(p => !p.is_main_product);
+                
+                complementosPotenciais.forEach(p => {
+                    addonsListDiv.innerHTML += `<div class="addon-item"><label class="addon-item-name"><input type="checkbox" data-addon-id="${p.id}" ${linkedAddonIds.has(p.id) ? 'checked' : ''}><span>${p.name}</span></label></div>`;
                 });
-                addSettingsListeners(settings);
-            } catch (error) { console.error("Falha ao buscar config:", error); }
-        };
-        const addSettingsListeners = (currentSettings) => {
-            const form = document.getElementById('settings-form'); if (!form) return;
-            document.querySelectorAll('#status-buttons button').forEach(b => b.addEventListener('click', () => { document.querySelector('#status-buttons button.selected')?.classList.remove('selected'); b.classList.add('selected'); }));
-            const soundInput = document.getElementById('notification_sound'), soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
-            removeSoundBtn.onclick = () => { currentSettings.notification_sound_url = null; currentSettings.notification_sound_filename = null; soundInput.value = ''; soundFeedback.textContent = 'Som removido ao salvar.'; removeSoundBtn.style.display = 'none'; };
-            form.addEventListener('submit', async e => {
-                e.preventDefault();
-                const saveButton = form.querySelector('button[type="submit"]'), feedback = document.getElementById('save-feedback');
-                saveButton.disabled = true; feedback.textContent = 'Salvando...';
-                let soundUrlToSave = currentSettings.notification_sound_url, soundFilenameToSave = currentSettings.notification_sound_filename;
-                if (soundInput.files[0]) {
+
+                modal.style.display = 'flex';
+            };
+
+            const closeProductModal = () => document.getElementById('product-modal-overlay').style.display = 'none';
+
+            const saveProduct = async (event) => {
+                event.preventDefault();
+                const saveButton = document.getElementById('save-product-button');
+                saveButton.disabled = true; saveButton.textContent = 'Salvando...';
+                let imageUrl = document.getElementById('product-image-url').value;
+
+                const productImageInput = document.getElementById('product-image-input');
+                if (productImageInput.files[0]) {
                     try {
                         const { timestamp, signature } = await apiFetch('/cloudinary-signature');
-                        const formData = new FormData(); formData.append('file', soundInput.files[0]); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature);
-                        const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`, { method: 'POST', body: formData });
+                        const formData = new FormData();
+                        formData.append('file', productImageInput.files[0]);
+                        formData.append('api_key', '351266855176353');
+                        formData.append('timestamp', timestamp);
+                        formData.append('signature', signature);
+                        const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/image/upload`, { method: 'POST', body: formData });
                         const data = await res.json();
-                        if (data.secure_url) { soundUrlToSave = data.secure_url; soundFilenameToSave = soundInput.files[0].name; }
-                        else throw new Error('Falha no upload');
-                    } catch (error) { feedback.textContent = 'Erro no upload.'; setTimeout(() => feedback.textContent = '', 3000); saveButton.disabled = false; return; }
+                        if (data.secure_url) { imageUrl = data.secure_url; }
+                        else { throw new Error(data.error?.message || 'Falha no upload'); }
+                    } catch (error) { console.error('Erro no upload:', error); alert('Erro ao fazer upload da imagem.'); saveButton.disabled = false; saveButton.textContent = 'Salvar'; return; }
                 }
-                const operating_hours = {}; ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { operating_hours[day] = { open: document.getElementById(`open-${day}`).value, close: document.getElementById(`close-${day}`).value, enabled: document.getElementById(`enabled-${day}`).checked }; });
-                let override = document.querySelector('#status-buttons button.selected')?.dataset.status;
-                const data = { store_name: document.getElementById('store_name').value, address: document.getElementById('address').value, location_link: document.getElementById('location_link').value, delivery_fee: document.getElementById('delivery_fee').value, is_open_manual_override: override === 'null' ? null : override === 'true', operating_hours, notification_sound_url: soundUrlToSave, notification_sound_filename: soundFilenameToSave };
-                try {
-                    const newSettings = await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(data) });
-                    feedback.textContent = 'Salvo!'; setupAudioPlayer(newSettings.notification_sound_url);
-                    setTimeout(() => feedback.textContent = '', 2000);
-                } catch (error) { feedback.textContent = 'Erro ao salvar.'; }
-                finally { saveButton.disabled = false; }
-            });
-        };
 
-        const initSortable = (tbodyId, reorderEndpoint) => {
-            const tbody = document.getElementById(tbodyId);
-            if (!tbody) return;
-            new Sortable(tbody, {
-                handle: '.drag-handle',
-                animation: 150,
-                filter: '.is-child',
-                onMove: function (evt) {
-                    return evt.related.className.indexOf('is-child') === -1;
-                },
-                onEnd: async (evt) => {
-                    const orderedIds = Array.from(tbody.querySelectorAll('tr:not(.is-child)')).map(row => row.dataset.id);
+                const id = document.getElementById('product-id').value;
+                const children = Array.from(document.querySelectorAll('#addons-list input:checked')).map(cb => ({ id: parseInt(cb.dataset.addonId) }));
+                
+                const productData = {
+                    name: document.getElementById('product-name').value,
+                    description: document.getElementById('product-description').value,
+                    price: parseFloat(document.getElementById('product-price').value),
+                    status: document.getElementById('product-status').value === 'true',
+                    image_url: imageUrl,
+                    force_one_to_one_complement: document.getElementById('force-one-to-one-complement').checked,
+                    sell_parent_product: document.getElementById('sell-parent-product').checked,
+                    parent_product_id: document.getElementById('parent-product-id').value || null,
+                    is_main_product: document.getElementById('is-main-product-flag').value === 'true',
+                    children: children
+                };
+
+                try {
+                    await apiFetch(id ? `/products/${id}` : '/products', { method: id ? 'PUT' : 'POST', body: JSON.stringify(productData) });
+                    closeProductModal();
+                    socket.emit('force_data_reload');
+                } catch (error) { console.error('Erro ao salvar produto:', error); alert('Falha ao salvar o produto.'); }
+                finally { saveButton.disabled = false; saveButton.textContent = 'Salvar'; }
+            };
+
+            window.deleteProduct = async (id) => {
+                if (confirm('Tem a certeza de que deseja apagar este item? Esta ação não pode ser desfeita.')) {
                     try {
-                        await apiFetch(reorderEndpoint, {
-                            method: 'POST',
-                            body: JSON.stringify({ orderedIds })
-                        });
-                        await fetchAndRefreshAllViews();
-                    } catch (error) {
-                        console.error('Falha ao reordenar:', error);
-                        alert('Não foi possível salvar a nova ordem.');
-                        await fetchAndRefreshAllViews();
-                    }
+                        await apiFetch(`/products/${id}`, { method: 'DELETE' });
+                        socket.emit('force_data_reload');
+                    } catch (error) { console.error('Erro ao apagar:', error); alert('Não foi possível apagar o item.'); }
                 }
-            });
-        };
-        
-        document.addEventListener('DOMContentLoaded', async () => {
+            };
+            
+            const renderCombosPage = () => {
+                pageTitle.textContent = 'Gestão de Combos';
+                dashboardContent.innerHTML = `<div class="page-header"><h2>Todos os Combos</h2><button id="add-combo-btn" class="btn btn-primary">Criar Combo</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table"><thead><tr><th style="width: 40px;"></th><th>Combo</th><th>Preço Base</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="combos-tbody"></tbody></table>`;
+                document.getElementById('add-combo-btn').addEventListener('click', () => openComboModal());
+                fetchAndRenderCombos();
+            };
+
+            const fetchAndRenderCombos = async () => {
+                try {
+                    const combos = await apiFetch('/combos');
+                    const tbody = document.getElementById('combos-tbody');
+                    tbody.innerHTML = '';
+                    combos.forEach(combo => {
+                        const productNames = combo.allow_free_choice
+                            ? combo.products.map(p => p.name).join(', ')
+                            : combo.products.map(p => `${p.quantity_in_combo}x ${p.name}`).join(', ');
+                        
+                        tbody.innerHTML += `<tr data-id="${combo.id}"><td><span class="drag-handle">⠿</span></td><td><div style="display: flex; align-items: center; gap: 15px;"><img src="${combo.image_url || PLACEHOLDER_IMG_60}" alt="${combo.name}" class="product-image-thumbnail"><span>${combo.name}</span></div></td><td>R$ ${parseFloat(combo.price).toFixed(2).replace('.', ',')}</td><td>${productNames || 'Nenhum'}</td><td><span class="status-badge ${combo.status ? 'active' : 'inactive'}">${combo.status ? 'Ativo' : 'Inativo'}</span></td><td class="action-buttons"><button onclick="openComboModal(${combo.id})">Editar</button><button onclick="deleteCombo(${combo.id})">Apagar</button></td></tr>`;
+                    });
+                    initSortable('combos-tbody', '/combos/reorder');
+                } catch (error) { console.error("Erro ao buscar combos:", error); }
+            };
+
+            window.openComboModal = async (id = null) => {
+                const modal = document.getElementById('combo-modal-overlay');
+                const form = document.getElementById('combo-form');
+                form.reset();
+                document.getElementById('combo-id').value = '';
+                document.getElementById('combo-image-url').value = '';
+                document.getElementById('combo-image-preview').src = PLACEHOLDER_IMG_200;
+                document.getElementById('combo-upload-prompt').style.display = 'block';
+                const productsListDiv = document.getElementById('combo-products-list');
+                productsListDiv.innerHTML = 'Carregando...';
+                
+                if (allProductsFlat.length === 0) await fetchAllProducts();
+                
+                let comboData = { products: [], total_items_limit: 1, allow_free_choice: true };
+                if (id) {
+                    document.getElementById('combo-modal-title').textContent = 'Editar Combo';
+                    const allCombos = await apiFetch('/combos');
+                    comboData = allCombos.find(c => c.id === id);
+                    document.getElementById('combo-id').value = comboData.id;
+                    document.getElementById('combo-name').value = comboData.name;
+                    document.getElementById('combo-description').value = comboData.description;
+                    document.getElementById('combo-price').value = parseFloat(comboData.price).toFixed(2);
+                    document.getElementById('combo-status').value = String(comboData.status);
+                    if (comboData.image_url) { 
+                        document.getElementById('combo-image-url').value = comboData.image_url; 
+                        document.getElementById('combo-image-preview').src = comboData.image_url; 
+                        document.getElementById('combo-upload-prompt').style.display = 'none';
+                    }
+                } else {
+                    document.getElementById('combo-modal-title').textContent = 'Adicionar Novo Combo';
+                }
+
+                document.getElementById('total-items-limit').value = comboData.total_items_limit;
+                const freeChoiceToggle = document.getElementById('allow-free-choice');
+                freeChoiceToggle.checked = comboData.allow_free_choice;
+                
+                const productsInComboMap = new Map(comboData.products.map(p => [p.product_id, { 
+                    quantity: p.quantity_in_combo,
+                    modifier: p.price_modifier || '0.00'
+                }]));
+
+                productsListDiv.innerHTML = `<div class="combo-product-item-header"><span>Produto</span><span class="quantity-header">Qtd. no Combo</span><span>Ajuste de Preço (R$)</span></div>`;
+                
+                allProductsFlat.forEach(product => {
+                    const comboInfo = productsInComboMap.get(product.id);
+                    const isChecked = !!comboInfo;
+                    const quantity = comboInfo ? comboInfo.quantity : 1;
+                    const priceModifier = comboInfo ? parseFloat(comboInfo.modifier).toFixed(2) : '0.00';
+
+                    productsListDiv.innerHTML += `
+                        <div class="combo-product-item">
+                            <label class="combo-product-name">
+                                <input type="checkbox" data-product-id="${product.id}" ${isChecked ? 'checked' : ''}> 
+                                ${product.name}
+                            </label>
+                            <input type="number" class="input-field quantity-in-combo" min="1" value="${quantity}" ${!isChecked ? 'disabled' : ''}>
+                            <input type="number" step="0.01" class="input-field price-modifier" value="${priceModifier}" ${!isChecked ? 'disabled' : ''}>
+                        </div>
+                    `;
+                });
+
+                const validatorDiv = document.getElementById('combo-quantity-validator');
+                const saveButton = document.getElementById('save-combo-button');
+
+                const validateQuantities = () => {
+                    if (freeChoiceToggle.checked) {
+                        validatorDiv.style.display = 'none';
+                        saveButton.disabled = false;
+                        return;
+                    }
+
+                    validatorDiv.style.display = 'block';
+                    const totalLimit = parseInt(document.getElementById('total-items-limit').value) || 0;
+                    let currentTotal = 0;
+                    productsListDiv.querySelectorAll('.combo-product-item').forEach(itemRow => {
+                        const checkbox = itemRow.querySelector('input[type="checkbox"]');
+                        if (checkbox.checked) {
+                            const quantityInput = itemRow.querySelector('.quantity-in-combo');
+                            currentTotal += parseInt(quantityInput.value) || 0;
+                        }
+                    });
+
+                    validatorDiv.textContent = `Total de itens selecionados: ${currentTotal} / ${totalLimit}`;
+                    if (currentTotal === totalLimit) {
+                        validatorDiv.className = 'valid';
+                        saveButton.disabled = false;
+                    } else {
+                        validatorDiv.className = 'invalid';
+                        saveButton.disabled = true;
+                    }
+                };
+
+                const toggleItemInputs = () => {
+                    const isFreeChoice = freeChoiceToggle.checked;
+                    productsListDiv.querySelector('.quantity-header').style.display = isFreeChoice ? 'none' : 'block';
+                    
+                    productsListDiv.querySelectorAll('.combo-product-item').forEach(itemRow => {
+                        const checkbox = itemRow.querySelector('input[type="checkbox"]');
+                        const quantityInput = itemRow.querySelector('.quantity-in-combo');
+                        quantityInput.style.display = isFreeChoice ? 'none' : 'block';
+                        if (checkbox.checked) {
+                            quantityInput.disabled = isFreeChoice;
+                        }
+                    });
+
+                    const gridStyle = isFreeChoice ? '1fr 150px' : '1fr 120px 150px';
+                    productsListDiv.querySelector('.combo-product-item-header').style.gridTemplateColumns = gridStyle;
+                    productsListDiv.querySelectorAll('.combo-product-item').forEach(item => item.style.gridTemplateColumns = gridStyle);
+
+                    validateQuantities();
+                };
+
+                freeChoiceToggle.addEventListener('change', toggleItemInputs);
+                document.getElementById('total-items-limit').addEventListener('input', validateQuantities);
+                
+                productsListDiv.querySelectorAll('input[type="checkbox"], .quantity-in-combo').forEach(el => {
+                    el.addEventListener('input', () => {
+                        const itemRow = el.closest('.combo-product-item');
+                        const isChecked = itemRow.querySelector('input[type="checkbox"]').checked;
+                        itemRow.querySelector('.price-modifier').disabled = !isChecked;
+                        itemRow.querySelector('.quantity-in-combo').disabled = !isChecked || freeChoiceToggle.checked;
+                        validateQuantities();
+                    });
+                });
+
+                toggleItemInputs(); 
+                modal.style.display = 'flex';
+            };
+
+            const closeComboModal = () => document.getElementById('combo-modal-overlay').style.display = 'none';
+            
+            const saveCombo = async (event) => {
+                event.preventDefault();
+                const saveButton = document.getElementById('save-combo-button');
+                saveButton.disabled = true; saveButton.textContent = 'Salvando...';
+                let imageUrl = document.getElementById('combo-image-url').value;
+                const imageInput = document.getElementById('combo-image-input');
+                if (imageInput.files[0]) {
+                    try {
+                        const { timestamp, signature } = await apiFetch('/cloudinary-signature');
+                        const formData = new FormData(); formData.append('file', imageInput.files[0]); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature);
+                        const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/image/upload`, { method: 'POST', body: formData });
+                        const data = await res.json();
+                        if (data.secure_url) imageUrl = data.secure_url;
+                        else throw new Error('Falha no upload');
+                    } catch (error) { console.error('Erro no upload:', error); alert('Erro ao fazer upload da imagem do combo.'); saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; return; }
+                }
+                const id = document.getElementById('combo-id').value;
+                
+                const selectedProducts = Array.from(document.querySelectorAll('#combo-products-list input:checked')).map(cb => {
+                    const itemRow = cb.closest('.combo-product-item');
+                    const quantity = document.getElementById('allow-free-choice').checked ? 1 : (parseInt(itemRow.querySelector('.quantity-in-combo').value) || 1);
+                    return { 
+                        id: parseInt(cb.dataset.productId), 
+                        quantity_in_combo: quantity,
+                        price_modifier: parseFloat(itemRow.querySelector('.price-modifier').value) || 0
+                    };
+                });
+                
+                const comboData = { 
+                    name: document.getElementById('combo-name').value,
+                    description: document.getElementById('combo-description').value,
+                    price: parseFloat(document.getElementById('combo-price').value),
+                    status: document.getElementById('combo-status').value === 'true',
+                    image_url: imageUrl,
+                    products: selectedProducts,
+                    total_items_limit: parseInt(document.getElementById('total-items-limit').value),
+                    allow_free_choice: document.getElementById('allow-free-choice').checked
+                };
+                
+                try {
+                    await apiFetch(id ? `/combos/${id}` : '/combos', { method: id ? 'PUT' : 'POST', body: JSON.stringify(comboData) });
+                    closeComboModal();
+                    socket.emit('force_data_reload');
+                } catch (error) { console.error('Erro ao salvar combo:', error); alert('Falha ao salvar o combo.'); }
+                finally { saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; }
+            };
+
+            window.deleteCombo = async (id) => { if (confirm('Tem a certeza?')) try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); socket.emit('force_data_reload'); } catch (error) { console.error('Erro ao apagar combo:', error); } };
+            
+            const renderSettingsPage = () => {
+                pageTitle.textContent = 'Configurações da Loja';
+                dashboardContent.innerHTML = `<form id="settings-form" class="settings-form"><div class="settings-card"><div class="card-header"><h3>Status da Loja</h3></div><div id="status-buttons" class="status-buttons"><button type="button" data-status="true">Forçar Aberta</button><button type="button" data-status="false">Forçar Fechada</button><button type="button" data-status="null">Seguir Horário</button></div></div><div class="settings-card"><div class="card-header"><h3>Informações Gerais</h3></div><div class="info-grid"><div class="grid-col-span-2 form-group"><label for="address">Endereço</label><input type="text" id="address" class="input-field"></div><div class="form-group"><label for="store_name">Nome da Loja</label><input type="text" id="store_name" class="input-field"></div><div class="form-group"><label for="location_link">Link Google Maps</label><input type="text" id="location_link" class="input-field"></div></div></div><div class="settings-card"><div class="card-header"><h3>Financeiro</h3></div><div class="form-group"><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" step="0.50" class="input-field"></div></div><div class="settings-card"><div class="card-header"><h3>Horários</h3></div><div class="operating-hours-grid" id="hours-grid"></div></div><div class="settings-card"><div class="card-header"><h3>Notificações</h3></div><div class="form-group"><label for="notification_sound">Carregar Som (MP3, WAV)</label><input type="file" id="notification_sound" accept="audio/*"></div><div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;"><p id="sound-feedback"></p><button type="button" id="remove-sound-btn" style="display: none;" class="btn btn-danger">Remover</button></div></div><div class="form-buttons"><span id="save-feedback"></span><button type="submit" class="btn btn-primary">Salvar Alterações</button></div></form>`;
+                fetchAndPopulateSettings();
+            };
+            const fetchAndPopulateSettings = async () => {
+                try {
+                    const settings = await apiFetch('/settings');
+                    document.getElementById('store_name').value = settings.store_name; document.getElementById('address').value = settings.address; document.getElementById('location_link').value = settings.location_link; document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2);
+                    document.querySelectorAll('#status-buttons button').forEach(button => { button.classList.remove('selected'); if (String(button.dataset.status) === String(settings.is_open_manual_override)) button.classList.add('selected'); });
+                    const soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
+                    if (settings.notification_sound_filename) { soundFeedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`; removeSoundBtn.style.display = 'inline-block'; }
+                    else { soundFeedback.textContent = 'Nenhum som configurado.'; removeSoundBtn.style.display = 'none'; }
+                    const hoursGrid = document.getElementById('hours-grid');
+                    hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre</div><div class="grid-header">Fecha</div><div class="grid-header">Aberto?</div>`;
+                    ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => {
+                        const daySettings = settings.operating_hours[day] || { open: '00:00', close: '00:00', enabled: false };
+                        hoursGrid.innerHTML += `<div class="day">${day.charAt(0).toUpperCase() + day.slice(1)}</div><input type="time" id="open-${day}" value="${daySettings.open}" class="input-field"><input type="time" id="close-${day}" value="${daySettings.close}" class="input-field"><label class="toggle-switch"><input type="checkbox" id="enabled-${day}" ${daySettings.enabled ? "checked" : ""}><span class="slider"></span></label>`;
+                    });
+                    addSettingsListeners(settings);
+                } catch (error) { console.error("Falha ao buscar config:", error); }
+            };
+            const addSettingsListeners = (currentSettings) => {
+                const form = document.getElementById('settings-form'); if (!form) return;
+                document.querySelectorAll('#status-buttons button').forEach(b => b.addEventListener('click', () => { document.querySelector('#status-buttons button.selected')?.classList.remove('selected'); b.classList.add('selected'); }));
+                const soundInput = document.getElementById('notification_sound'), soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
+                removeSoundBtn.onclick = () => { currentSettings.notification_sound_url = null; currentSettings.notification_sound_filename = null; soundInput.value = ''; soundFeedback.textContent = 'Som removido ao salvar.'; removeSoundBtn.style.display = 'none'; };
+                form.addEventListener('submit', async e => {
+                    e.preventDefault();
+                    const saveButton = form.querySelector('button[type="submit"]'), feedback = document.getElementById('save-feedback');
+                    saveButton.disabled = true; feedback.textContent = 'Salvando...';
+                    let soundUrlToSave = currentSettings.notification_sound_url, soundFilenameToSave = currentSettings.notification_sound_filename;
+                    if (soundInput.files[0]) {
+                        try {
+                            const { timestamp, signature } = await apiFetch('/cloudinary-signature');
+                            const formData = new FormData(); formData.append('file', soundInput.files[0]); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature);
+                            const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`, { method: 'POST', body: formData });
+                            const data = await res.json();
+                            if (data.secure_url) { soundUrlToSave = data.secure_url; soundFilenameToSave = soundInput.files[0].name; }
+                            else throw new Error('Falha no upload');
+                        } catch (error) { feedback.textContent = 'Erro no upload.'; setTimeout(() => feedback.textContent = '', 3000); saveButton.disabled = false; return; }
+                    }
+                    const operating_hours = {}; ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { operating_hours[day] = { open: document.getElementById(`open-${day}`).value, close: document.getElementById(`close-${day}`).value, enabled: document.getElementById(`enabled-${day}`).checked }; });
+                    let override = document.querySelector('#status-buttons button.selected')?.dataset.status;
+                    const data = { store_name: document.getElementById('store_name').value, address: document.getElementById('address').value, location_link: document.getElementById('location_link').value, delivery_fee: document.getElementById('delivery_fee').value, is_open_manual_override: override === 'null' ? null : override === 'true', operating_hours, notification_sound_url: soundUrlToSave, notification_sound_filename: soundFilenameToSave };
+                    try {
+                        await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(data) });
+                        feedback.textContent = 'Salvo!'; 
+                        socket.emit('force_data_reload');
+                        setupAudioPlayer(data.notification_sound_url);
+                        setTimeout(() => feedback.textContent = '', 2000);
+                    } catch (error) { feedback.textContent = 'Erro ao salvar.'; }
+                    finally { saveButton.disabled = false; }
+                });
+            };
+
+            const initSortable = (tbodyId, reorderEndpoint) => {
+                const tbody = document.getElementById(tbodyId);
+                if (!tbody) return;
+                new Sortable(tbody, {
+                    handle: '.drag-handle',
+                    animation: 150,
+                    filter: '.is-child',
+                    onMove: function (evt) {
+                        return evt.related.className.indexOf('is-child') === -1;
+                    },
+                    onEnd: async (evt) => {
+                        const orderedIds = Array.from(tbody.querySelectorAll('tr:not(.is-child)')).map(row => row.dataset.id);
+                        try {
+                            await apiFetch(reorderEndpoint, {
+                                method: 'POST',
+                                body: JSON.stringify({ orderedIds })
+                            });
+                            socket.emit('force_data_reload');
+                        } catch (error) {
+                            console.error('Falha ao reordenar:', error);
+                            alert('Não foi possível salvar a nova ordem.');
+                            await fetchAndRefreshAllViews();
+                        }
+                    }
+                });
+            };
+            
+            // --- INICIALIZAÇÃO ---
             const navLinks = {
                 pedidos: document.getElementById('nav-pedidos'),
                 produtos: document.getElementById('nav-produtos'),
@@ -846,7 +879,10 @@
                 document.querySelector('nav a.active')?.classList.remove('active');
                 const link = e.currentTarget;
                 link.classList.add('active');
-                pages[link.id.split('-')[1]]?.();
+                const pageKey = link.id.split('-')[1];
+                if (pages[pageKey]) {
+                    pages[pageKey]();
+                }
             };
 
             Object.values(navLinks).forEach(link => link.addEventListener('click', handleNavigation));
