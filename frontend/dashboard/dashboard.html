@@ -181,7 +181,6 @@
             let allProductsFlat = [];
             let notificationAudio;
             let isSoundEnabled = false;
-            // Flag para garantir que os listeners sejam anexados apenas uma vez por tabela
             let listenersAttached = {
                 'products-tbody': false,
                 'complementos-tbody': false
@@ -267,13 +266,12 @@
             socket.on('stock_update', (liveInventory) => {
                 console.log('[Dashboard] 🔄 Recebido evento "stock_update". Atualizando valores de estoque na tabela...', liveInventory);
                 for (const productId in liveInventory) {
-                    const productRow = document.querySelector(`.product-row[data-id='${productId}']`);
-                    if (productRow) {
+                    document.querySelectorAll(`.product-row[data-id='${productId}']`).forEach(productRow => {
                         const stockInput = productRow.querySelector('.stock-input');
                         if (stockInput && document.activeElement !== stockInput) {
                             stockInput.value = liveInventory[productId];
                         }
-                    }
+                    });
                 }
             });
 
@@ -387,6 +385,7 @@
                 initSortable('complementos-tbody', '/products/reorder');
             };
 
+            // ######################## INÍCIO DA CORREÇÃO (LÓGICA DE VISUALIZAÇÃO) ########################
             const createProductRow = (product, isChild = false, isSynced = false) => {
                 const stock_quantity = product.stock_quantity ?? '';
                 const isActuallyDisabled = (isChild && isSynced) || (!product.stock_enabled);
@@ -394,11 +393,21 @@
 
                 let parentControls = '';
                 if (!isChild && product.is_main_product) {
-                     parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="updateProductSync(${product.id}, this.checked)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
+                     parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="apiFetch('/products/${product.id}', { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: this.checked }) })" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
                 }
                 const hasChildren = !isChild && product.children && product.children.length > 0;
                 const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
                 const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
+
+                // Lógica para decidir o que renderizar na célula de estoque
+                let stockControlsCell = '';
+                const isParentContainerOnly = !isChild && hasChildren && !product.sell_parent_product;
+
+                if (isParentContainerOnly) {
+                    stockControlsCell = `<td style="font-size: 0.8rem; color: var(--text-secondary); font-style: italic; text-align: center; vertical-align: middle;">Gerenciado pelos<br>complementos</td>`;
+                } else {
+                    stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" ${stock_controls_disabled}><button class="stock-btn stock-increase" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span></div></td>`;
+                }
 
                 return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">
                             ${dragHandle}
@@ -413,10 +422,11 @@
                             </td>
                             <td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td>
                             <td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>
-                            <td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" ${stock_controls_disabled}><button class="stock-btn stock-increase" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span></div></td>
+                            ${stockControlsCell}
                             <td class="action-buttons"><button onclick="openProductModal(${product.id})">Editar</button><button onclick="deleteProduct(${product.id})">Apagar</button></td>
                         </tr>`;
             };
+            // ######################### FIM DA CORREÇÃO (LÓGICA DE VISUALIZAÇÃO) ##########################
             
             window.toggleChildren = (btn, parentId) => {
                 btn.classList.toggle('expanded');
@@ -427,25 +437,12 @@
                 });
             };
 
-            window.updateProductSync = async (productId, isChecked) => {
-                try {
-                    await apiFetch(`/products/${productId}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: isChecked }) });
-                    // Recarregar a view para refletir a mudança no estado 'disabled' dos filhos
-                    await fetchAndRefreshAllViews();
-                } catch (error) {
-                    console.error("Falha ao atualizar a sincronização de estoque:", error);
-                    alert("Não foi possível atualizar a configuração de sincronização.");
-                }
-            };
-
-            // ######################## INÍCIO DA CORREÇÃO (BUGS DO DASHBOARD) ########################
             const attachStockEventListeners = (tbodyId) => {
                 const tbody = document.getElementById(tbodyId);
                 if (!tbody || listenersAttached[tbodyId]) {
-                    return; // Sai se não encontrar o tbody ou se os listeners já foram anexados
+                    return;
                 }
 
-                // Listener para cliques nos botões de estoque
                 tbody.addEventListener('click', (e) => {
                     const target = e.target;
                     const row = target.closest('.product-row');
@@ -465,7 +462,6 @@
                     }
                 });
 
-                // Listener para a tecla Enter nos inputs de estoque
                 tbody.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter' && e.target.classList.contains('stock-input')) {
                         e.preventDefault();
@@ -477,7 +473,6 @@
                     }
                 });
 
-                // Listener para o toggle de ativação de estoque
                 tbody.addEventListener('change', (e) => {
                     const target = e.target;
                     if (!target.classList.contains('stock-enabled-toggle')) return;
@@ -488,17 +483,14 @@
                     const productId = row.dataset.id;
                     const isEnabled = target.checked;
                     
-                    // Atualiza o estado dos controles na mesma linha
                     const controls = row.querySelector('.stock-controls');
                     controls.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn').forEach(el => el.disabled = !isEnabled);
                     
-                    // Envia a atualização para a API
                     updateStock(productId, { stock_enabled: isEnabled });
                 });
 
-                listenersAttached[tbodyId] = true; // Marca que os listeners foram anexados
+                listenersAttached[tbodyId] = true;
             };
-            // ######################### FIM DA CORREÇÃO (BUGS DO DASHBOARD) ##########################
 
             window.updateStock = async (productId, dataToUpdate) => {
                 console.log(`[Dashboard] 📤 Enviando atualização de estoque para o produto ${productId}:`, dataToUpdate);
@@ -527,6 +519,7 @@
                 }
             };
             
+            // ######################## INÍCIO DA CORREÇÃO (LÓGICA DO MODAL) ########################
             window.openProductModal = async (id = null, isMainProduct = true) => {
                 const modal = document.getElementById('product-modal-overlay');
                 const form = document.getElementById('product-form');
@@ -589,8 +582,19 @@
                     addonsListDiv.innerHTML += `<div class="addon-item"><label class="addon-item-name"><input type="checkbox" data-addon-id="${p.id}" ${linkedAddonIds.has(p.id) ? 'checked' : ''}><span>${p.name}</span></label></div>`;
                 });
 
+                // Lógica para controlar o campo de preço
+                const sellParentToggle = document.getElementById('sell-parent-product');
+                const priceInput = document.getElementById('product-price');
+                const handleSellParentChange = () => {
+                    priceInput.disabled = !sellParentToggle.checked;
+                };
+                sellParentToggle.removeEventListener('change', handleSellParentChange); // Evita duplicatas
+                sellParentToggle.addEventListener('change', handleSellParentChange);
+                handleSellParentChange(); // Define o estado inicial
+
                 modal.style.display = 'flex';
             };
+            // ######################### FIM DA CORREÇÃO (LÓGICA DO MODAL) ##########################
 
             const closeProductModal = () => document.getElementById('product-modal-overlay').style.display = 'none';
 

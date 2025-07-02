@@ -62,83 +62,73 @@ io.on('connection', (socket) => {
     console.log(`[SocketIO-Server] 📦 Enviando estado inicial do estoque para o cliente ${socket.id}.`);
     socket.emit('stock_update', liveInventory);
 
-    // **LÓGICA DE RESERVA DE ESTOQUE REATORADA**
+    // ######################## INÍCIO DA CORREÇÃO (SINCRONIZAÇÃO ATÔMICA) ########################
+    const handleStockChange = async (items, operation) => {
+        const trx = await connection.transaction();
+        try {
+            for (const item of items) {
+                if (!item.id || !item.quantity) continue;
+
+                // Encontra o produto que efetivamente controla o estoque (pode ser ele mesmo ou o pai)
+                const product = await trx('products').where('id', item.id).first();
+                if (!product) continue;
+
+                let stockHoldingProduct = product;
+                if (product.parent_product_id) {
+                    const parent = await trx('products').where('id', product.parent_product_id).first();
+                    if (parent && parent.stock_sync_enabled) {
+                        stockHoldingProduct = parent;
+                    }
+                }
+                
+                if (stockHoldingProduct.stock_enabled) {
+                    const currentStock = liveInventory[stockHoldingProduct.id] ?? stockHoldingProduct.stock_quantity;
+                    const quantityChange = operation === 'decrement' ? item.quantity : -item.quantity;
+
+                    if (operation === 'decrement' && currentStock < item.quantity) {
+                        throw new Error(`Estoque insuficiente para ${stockHoldingProduct.name}. Disponível: ${currentStock}.`);
+                    }
+
+                    // 1. Atualiza o estoque do produto que detém o controle
+                    await trx('products').where('id', stockHoldingProduct.id)[operation]('stock_quantity', item.quantity);
+                    liveInventory[stockHoldingProduct.id] = (liveInventory[stockHoldingProduct.id] || 0) - quantityChange;
+
+                    // 2. Se o produto que detém o estoque tem sincronização ativa, propaga a alteração para os filhos
+                    if (stockHoldingProduct.stock_sync_enabled) {
+                        console.log(`[SocketIO-Server] Sincronização ativa para ${stockHoldingProduct.name}. Propagando estoque para os filhos.`);
+                        const newStockValue = await trx('products').where('id', stockHoldingProduct.id).select('stock_quantity').first();
+                        await trx('products')
+                            .where('parent_product_id', stockHoldingProduct.id)
+                            .update({ stock_quantity: newStockValue.stock_quantity });
+                    }
+                }
+            }
+            await trx.commit();
+            return { success: true };
+        } catch (error) {
+            await trx.rollback();
+            console.error(`[SocketIO-Server] ❌ Falha na operação de estoque:`, error.message);
+            return { success: false, message: error.message };
+        }
+    };
+
     socket.on('reserve_stock', async (itemsToReserve) => {
         console.log(`[SocketIO-Server] 📥 Recebido "reserve_stock" de ${socket.id} para os itens:`, itemsToReserve);
-        console.log('[SocketIO-Server] Estoque ANTES da reserva:', JSON.stringify(liveInventory));
-        try {
-            await connection.transaction(async (trx) => {
-                for (const item of itemsToReserve) {
-                    if (!item.id || !item.quantity) continue;
-                    
-                    const product = await trx('products').where('id', item.id).first();
-                    if (!product) continue;
-
-                    let stockHoldingProduct = product;
-                    if (product.parent_product_id) {
-                        const parent = await trx('products').where('id', product.parent_product_id).first();
-                        if (parent && parent.stock_sync_enabled) {
-                            stockHoldingProduct = parent;
-                        }
-                    }
-
-                    if (stockHoldingProduct.stock_enabled) {
-                        if (liveInventory[stockHoldingProduct.id] === undefined) {
-                            liveInventory[stockHoldingProduct.id] = stockHoldingProduct.stock_quantity;
-                        }
-                        
-                        if (liveInventory[stockHoldingProduct.id] < item.quantity) {
-                            throw new Error(`Estoque insuficiente para ${product.name}. Disponível: ${liveInventory[stockHoldingProduct.id]}.`);
-                        }
-
-                        liveInventory[stockHoldingProduct.id] -= item.quantity;
-                        await trx('products').where('id', stockHoldingProduct.id).decrement('stock_quantity', item.quantity);
-                    }
-                }
-            });
-            console.log('[SocketIO-Server] Estoque DEPOIS da reserva:', JSON.stringify(liveInventory));
+        const result = await handleStockChange(itemsToReserve, 'decrement');
+        if (result.success) {
             socket.emit('reservation_success');
-            broadcastLiveInventory();
-        } catch (error) {
-            console.error(`[SocketIO-Server] ❌ Falha na reserva para ${socket.id}:`, error.message);
-            socket.emit('reservation_failure', { message: error.message });
+            await initializeInventory(); // Recarrega o inventário do DB e transmite para todos
+        } else {
+            socket.emit('reservation_failure', { message: result.message });
         }
     });
 
-    // **LÓGICA DE LIBERAÇÃO DE ESTOQUE REATORADA**
     socket.on('release_stock', async (itemsToRelease) => {
         console.log(`[SocketIO-Server] 📤 Recebido "release_stock" de ${socket.id} para os itens:`, itemsToRelease);
-        console.log('[SocketIO-Server] Estoque ANTES da liberação:', JSON.stringify(liveInventory));
-        try {
-            await connection.transaction(async (trx) => {
-                for (const item of itemsToRelease) {
-                    if (!item.id || !item.quantity) continue;
-
-                    const product = await trx('products').where('id', item.id).first();
-                    if (!product) continue;
-
-                    let stockHoldingProduct = product;
-                    if (product.parent_product_id) {
-                        const parent = await trx('products').where('id', product.parent_product_id).first();
-                        if (parent && parent.stock_sync_enabled) {
-                            stockHoldingProduct = parent;
-                        }
-                    }
-
-                    if (stockHoldingProduct.stock_enabled) {
-                         if (liveInventory[stockHoldingProduct.id] !== undefined) {
-                            liveInventory[stockHoldingProduct.id] += item.quantity;
-                        }
-                        await trx('products').where('id', stockHoldingProduct.id).increment('stock_quantity', item.quantity);
-                    }
-                }
-            });
-            console.log('[SocketIO-Server] Estoque DEPOIS da liberação:', JSON.stringify(liveInventory));
-            broadcastLiveInventory();
-        } catch (error) {
-            console.error(`[SocketIO-Server] ❌ Falha na liberação de estoque para ${socket.id}:`, error);
-        }
+        await handleStockChange(itemsToRelease, 'increment');
+        await initializeInventory(); // Recarrega o inventário do DB e transmite para todos
     });
+    // ######################### FIM DA CORREÇÃO (SINCRONIZAÇÃO ATÔMICA) ##########################
     
     socket.on('force_inventory_reload', () => {
         console.log(`[SocketIO-Server] 🔄 Recebido "force_inventory_reload" de ${socket.id}. Recarregando...`);
