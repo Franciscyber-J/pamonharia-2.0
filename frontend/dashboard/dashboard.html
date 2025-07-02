@@ -181,6 +181,11 @@
             let allProductsFlat = [];
             let notificationAudio;
             let isSoundEnabled = false;
+            // Flag para garantir que os listeners sejam anexados apenas uma vez por tabela
+            let listenersAttached = {
+                'products-tbody': false,
+                'complementos-tbody': false
+            };
 
             const apiFetch = async (endpoint, options = {}) => {
                 options.headers = { ...options.headers, 'Authorization': `Bearer ${localStorage.getItem('authToken')}`, 'Content-Type': 'application/json' };
@@ -359,7 +364,7 @@
                     }
                 });
                 
-                addStockEventListeners();
+                attachStockEventListeners('products-tbody');
                 initSortable('products-tbody', '/products/reorder');
             };
 
@@ -378,7 +383,7 @@
                 complementItems.forEach(item => {
                     tbody.innerHTML += createProductRow(item, false);
                 });
-                addStockEventListeners();
+                attachStockEventListeners('complementos-tbody');
                 initSortable('complementos-tbody', '/products/reorder');
             };
 
@@ -425,48 +430,81 @@
             window.updateProductSync = async (productId, isChecked) => {
                 try {
                     await apiFetch(`/products/${productId}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: isChecked }) });
+                    // Recarregar a view para refletir a mudança no estado 'disabled' dos filhos
+                    await fetchAndRefreshAllViews();
                 } catch (error) {
                     console.error("Falha ao atualizar a sincronização de estoque:", error);
                     alert("Não foi possível atualizar a configuração de sincronização.");
                 }
             };
 
-            const addStockEventListeners = () => {
-                document.querySelectorAll('.product-row').forEach(row => {
-                    const productId = row.dataset.id;
-                    const stockControls = row.querySelector('.stock-controls');
-                    if (!stockControls) return;
+            // ######################## INÍCIO DA CORREÇÃO (BUGS DO DASHBOARD) ########################
+            const attachStockEventListeners = (tbodyId) => {
+                const tbody = document.getElementById(tbodyId);
+                if (!tbody || listenersAttached[tbodyId]) {
+                    return; // Sai se não encontrar o tbody ou se os listeners já foram anexados
+                }
 
-                    const stockInput = stockControls.querySelector('.stock-input');
-                    const decreaseBtn = stockControls.querySelector('.stock-decrease');
-                    const increaseBtn = stockControls.querySelector('.stock-increase');
-                    const saveBtn = stockControls.querySelector('.stock-save-btn');
-                    
-                    const toggle = stockControls.querySelector('.stock-enabled-toggle');
-                    toggle.addEventListener('change', e => {
-                        const isEnabled = e.target.checked;
-                        const isChild = row.classList.contains('is-child');
-                        const parentSyncToggle = isChild ? document.querySelector(`.product-row[data-id="${row.dataset.parentId}"] .parent-controls input`) : null;
-                        const isSynced = parentSyncToggle ? parentSyncToggle.checked : false;
+                // Listener para cliques nos botões de estoque
+                tbody.addEventListener('click', (e) => {
+                    const target = e.target;
+                    const row = target.closest('.product-row');
+                    if (!row) return;
 
-                        if (!isChild || !isSynced) {
-                           [stockInput, decreaseBtn, increaseBtn, saveBtn].forEach(el => el.disabled = !isEnabled);
-                        }
-                        updateStock(productId, { stock_enabled: isEnabled });
-                    });
+                    const stockInput = row.querySelector('.stock-input');
+                    if (!stockInput || stockInput.disabled) return;
                     
-                    decreaseBtn.addEventListener('click', () => { if (stockInput.value !== '') stockInput.value--; });
-                    increaseBtn.addEventListener('click', () => { if (stockInput.value !== '') stockInput.value++; else stockInput.value = 1; });
-                    const saveQuantity = () => { if (stockInput.value !== '') updateStock(productId, { stock_quantity: parseInt(stockInput.value) }) };
-                    
-                    saveBtn.addEventListener('click', saveQuantity);
-                    stockInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveQuantity(); } });
+                    let value = parseInt(stockInput.value) || 0;
+
+                    if (target.classList.contains('stock-decrease')) {
+                        stockInput.value = Math.max(0, value - 1);
+                    } else if (target.classList.contains('stock-increase')) {
+                        stockInput.value = value + 1;
+                    } else if (target.classList.contains('stock-save-btn')) {
+                        updateStock(row.dataset.id, { stock_quantity: parseInt(stockInput.value) });
+                    }
                 });
+
+                // Listener para a tecla Enter nos inputs de estoque
+                tbody.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && e.target.classList.contains('stock-input')) {
+                        e.preventDefault();
+                        const row = e.target.closest('.product-row');
+                        if (row && !e.target.disabled) {
+                            updateStock(row.dataset.id, { stock_quantity: parseInt(e.target.value) });
+                            e.target.blur();
+                        }
+                    }
+                });
+
+                // Listener para o toggle de ativação de estoque
+                tbody.addEventListener('change', (e) => {
+                    const target = e.target;
+                    if (!target.classList.contains('stock-enabled-toggle')) return;
+
+                    const row = target.closest('.product-row');
+                    if (!row) return;
+
+                    const productId = row.dataset.id;
+                    const isEnabled = target.checked;
+                    
+                    // Atualiza o estado dos controles na mesma linha
+                    const controls = row.querySelector('.stock-controls');
+                    controls.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn').forEach(el => el.disabled = !isEnabled);
+                    
+                    // Envia a atualização para a API
+                    updateStock(productId, { stock_enabled: isEnabled });
+                });
+
+                listenersAttached[tbodyId] = true; // Marca que os listeners foram anexados
             };
+            // ######################### FIM DA CORREÇÃO (BUGS DO DASHBOARD) ##########################
 
             window.updateStock = async (productId, dataToUpdate) => {
                 console.log(`[Dashboard] 📤 Enviando atualização de estoque para o produto ${productId}:`, dataToUpdate);
-                const feedbackSpan = document.querySelector(`tr[data-id='${productId}'] .stock-feedback`);
+                const row = document.querySelector(`tr[data-id='${productId}']`);
+                const feedbackSpan = row ? row.querySelector('.stock-feedback') : null;
+
                 if(feedbackSpan) {
                     feedbackSpan.textContent = 'Salvando...';
                     feedbackSpan.className = 'stock-feedback show';
@@ -477,14 +515,14 @@
                     if(feedbackSpan) {
                         feedbackSpan.textContent = 'Salvo!';
                         feedbackSpan.className = 'stock-feedback success show';
-                        setTimeout(() => feedbackSpan.className = 'stock-feedback', 2000);
+                        setTimeout(() => { if(feedbackSpan) feedbackSpan.className = 'stock-feedback'; }, 2000);
                     }
                 } catch (error) {
                     console.error("[Dashboard] ❌ Erro ao atualizar estoque:", error);
                     if(feedbackSpan) {
                         feedbackSpan.textContent = 'Falhou!';
                         feedbackSpan.className = 'stock-feedback error show';
-                        setTimeout(() => feedbackSpan.className = 'stock-feedback', 3000);
+                        setTimeout(() => { if(feedbackSpan) feedbackSpan.className = 'stock-feedback'; }, 3000);
                     }
                 }
             };

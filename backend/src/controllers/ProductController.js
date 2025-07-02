@@ -1,6 +1,7 @@
 // backend/src/controllers/ProductController.js
 const connection = require('../database/connection');
 
+// Função auxiliar para buscar colunas de uma tabela, para evitar erros de inserção/atualização.
 async function getTableColumns(tableName) {
   try {
     const result = await connection.raw(`SELECT column_name FROM information_schema.columns WHERE table_name = '${tableName}'`);
@@ -11,12 +12,14 @@ async function getTableColumns(tableName) {
   }
 }
 
+// Função auxiliar para emitir o evento de atualização de dados para os clientes.
 const emitDataUpdated = (request) => {
   console.log('[Socket.IO] Emitindo evento "data_updated" para todos os clientes do cardápio.');
   request.io.emit('data_updated');
 };
 
 module.exports = {
+  // Lista produtos para o dashboard, mantendo a estrutura hierárquica.
   async index(request, response) {
     const products = await connection('products').select('*').orderBy('display_order', 'asc');
     const productMap = new Map();
@@ -40,6 +43,7 @@ module.exports = {
     return response.json(parentProducts);
   },
 
+  // Lista produtos para o cardápio público, apenas itens ativos e principais.
   async indexPublic(request, response) {
     const allActiveProducts = await connection('products')
       .where({ status: true })
@@ -67,6 +71,7 @@ module.exports = {
     return response.json(finalList);
   },
 
+  // Cria um novo produto.
   async create(request, response) {
     try {
       const productData = request.body;
@@ -91,6 +96,7 @@ module.exports = {
     }
   },
 
+  // Atualiza um produto existente e seus complementos.
   async update(request, response) {
     try {
       const { id } = request.params;
@@ -108,12 +114,15 @@ module.exports = {
           await trx('products').where({ id }).update(dataToUpdate);
         }
         if (productData.children !== undefined) {
+          // Desvincula todos os filhos antigos
           await trx('products').where('parent_product_id', id).update({ parent_product_id: null });
+          // Vincula os novos filhos
           if (productData.children.length > 0) {
             const childrenIds = productData.children.map(child => child.id);
             await trx('products').whereIn('id', childrenIds).update({ parent_product_id: id });
           }
         }
+        // Se a sincronização de estoque foi ativada, sincroniza o estoque dos filhos imediatamente.
         if (dataToUpdate.stock_sync_enabled === true) {
           const parentProduct = await trx('products').where({ id }).first();
           if (parentProduct && parentProduct.stock_quantity !== null) {
@@ -134,6 +143,7 @@ module.exports = {
     }
   },
 
+  // Apaga um produto.
   async destroy(request, response) {
     const { id } = request.params;
     const deleted_rows = await connection('products').where('id', id).delete();
@@ -145,39 +155,44 @@ module.exports = {
     return response.status(204).send();
   },
 
+  // ######################## INÍCIO DA CORREÇÃO (SINCRONIZAÇÃO ATÔMICA) ########################
+  // Atualiza o estoque de um produto e propaga a alteração para os filhos, se necessário.
   async updateStock(request, response) {
     const { id } = request.params;
-    const productData = request.body;
+    const { stock_quantity, stock_enabled } = request.body;
 
     try {
       await connection.transaction(async (trx) => {
         const dataToUpdate = {};
-        if (productData.stock_quantity !== undefined) dataToUpdate.stock_quantity = productData.stock_quantity;
-        if (productData.stock_enabled !== undefined) dataToUpdate.stock_enabled = productData.stock_enabled;
+        if (stock_quantity !== undefined) dataToUpdate.stock_quantity = stock_quantity;
+        if (stock_enabled !== undefined) dataToUpdate.stock_enabled = stock_enabled;
 
         if (Object.keys(dataToUpdate).length === 0) {
-          return; 
+          return; // Nenhuma alteração a ser feita
         }
 
-        const product = await trx('products').where('id', id).first();
+        // 1. Atualiza o produto principal (pai)
+        const [product] = await trx('products').where('id', id).update(dataToUpdate).returning('*');
+
         if (!product) {
           throw new Error('Produto não encontrado.');
         }
 
-        await trx('products').where('id', id).update(dataToUpdate);
-
+        // 2. Se a sincronização estiver ativa E a quantidade foi alterada, propaga para os filhos.
         if (product.stock_sync_enabled && dataToUpdate.stock_quantity !== undefined) {
+          console.log(`[ProductController] Sincronização ativa para o produto ${id}. Propagando estoque ${dataToUpdate.stock_quantity} para os filhos.`);
           await trx('products')
             .where('parent_product_id', id)
             .update({ stock_quantity: dataToUpdate.stock_quantity });
         }
       });
 
-      // **A SOLUÇÃO**: Agora emite 'data_updated' se a flag for alterada.
-      if (productData.stock_enabled !== undefined) {
-        emitDataUpdated(request);
-      }
+      // 3. Notifica todos os clientes sobre a mudança para recarregar os dados.
+      // O 'data_updated' é mais robusto aqui, pois força a recarga completa,
+      // garantindo que o frontend reflita a mudança nos filhos também.
+      emitDataUpdated(request);
       
+      // 4. Força o servidor a recarregar o inventário da base de dados.
       await request.triggerInventoryReload(); 
       
       return response.status(200).json({ message: 'Estoque atualizado com sucesso.' });
@@ -190,7 +205,9 @@ module.exports = {
       return response.status(500).json({ error: 'Falha ao atualizar o estoque.' });
     }
   },
+  // ######################### FIM DA CORREÇÃO (SINCRONIZAÇÃO ATÔMICA) ##########################
 
+  // Reordena os produtos no cardápio.
   async reorder(request, response) {
     const { orderedIds } = request.body;
     if (!Array.isArray(orderedIds)) {

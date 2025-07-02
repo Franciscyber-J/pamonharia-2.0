@@ -489,35 +489,57 @@
 
                 const onSave = () => {
                     let finalPrice = 0;
-                    let finalQuantity = selectedItemsInModal[product.id] || 1;
+                    let finalQuantity;
                     
-                    if (!product.sell_parent_product) {
-                        finalQuantity = Object.entries(selectedItemsInModal)
-                            .filter(([id, _]) => id != product.id)
-                            .reduce((sum, [_, qty]) => sum + qty, 0);
-                    }
-
                     let selected_items_details = [];
                     let itemsToReserve = [];
 
                     const parentData = allProductsFlat.find(p => p.id === product.id);
                     const isStockSynced = parentData && parentData.stock_sync_enabled;
 
+                    // ######################## INÍCIO DA CORREÇÃO (BUG 2) ########################
                     if (isStockSynced) {
-                        const totalQuantityToReserve = Object.values(selectedItemsInModal).reduce((sum, qty) => sum + qty, 0);
+                        let totalQuantityToReserve = 0;
+                        
+                        // A quantidade que consome o estoque sincronizado é baseada na estrutura do produto.
+                        if (product.sell_parent_product) {
+                            // Se o pai é um item vendável, sua quantidade dita o uso do estoque.
+                            totalQuantityToReserve = selectedItemsInModal[product.id] || 0;
+                        } else {
+                            // Se o pai é apenas um container, a soma das quantidades dos filhos dita o uso do estoque.
+                            totalQuantityToReserve = Object.entries(selectedItemsInModal)
+                                .filter(([id, _]) => parseInt(id) !== product.id)
+                                .reduce((sum, [_, qty]) => sum + qty, 0);
+                        }
+
                         if (totalQuantityToReserve > 0) {
                             itemsToReserve.push({ id: product.id, quantity: totalQuantityToReserve });
                         }
+                    } else {
+                        // Lógica original para itens não sincronizados (permanece a mesma)
+                        for (const [id, quantity] of Object.entries(selectedItemsInModal)) {
+                            if (quantity > 0) {
+                                const selectedItem = allProductsFlat.find(i => i.id == id);
+                                if (selectedItem) {
+                                    itemsToReserve.push({ id: selectedItem.id, quantity: quantity });
+                                }
+                            }
+                        }
+                    }
+                    // ######################### FIM DA CORREÇÃO (BUG 2) ##########################
+                     
+                    if (!product.sell_parent_product) {
+                        finalQuantity = Object.entries(selectedItemsInModal)
+                            .filter(([id, _]) => id != product.id)
+                            .reduce((sum, [_, qty]) => sum + qty, 0);
+                    } else {
+                        finalQuantity = selectedItemsInModal[product.id] || 1;
                     }
 
                     for (const [id, quantity] of Object.entries(selectedItemsInModal)) {
                         if (quantity > 0) {
                             const selectedItem = allProductsFlat.find(i => i.id == id);
                             if (!selectedItem) continue;
-
-                            if (!isStockSynced) {
-                                itemsToReserve.push({ id: selectedItem.id, quantity: quantity });
-                            }
                              
                             if (product.sell_parent_product) {
                                 if (selectedItem.id === product.id) finalPrice += parseFloat(selectedItem.price) * quantity;
