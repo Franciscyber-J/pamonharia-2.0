@@ -52,5 +52,7 @@ routes.get('/api/cloudinary-signature', SettingsController.generateCloudinarySig
 // Pedidos
 routes.get('/api/orders', OrderController.index);
 routes.patch('/api/orders/:id/status', OrderController.updateStatus);
+// NOVA ROTA para limpar o histórico
+routes.delete('/api/orders/history', OrderController.clearHistory);
 
 module.exports = routes;

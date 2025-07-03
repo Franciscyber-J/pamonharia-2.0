@@ -28,6 +28,10 @@
         .product-row.is-child.visible { display: table-row; }
         .product-row.is-child td:nth-child(2) { padding-left: 40px; }
         .child-indicator { color: var(--secondary-color); font-size: 1.2rem; }
+        #sound-status { padding: 8px 15px; border-radius: 8px; border: 1px solid var(--border-color); background-color: transparent; color: var(--text-color); cursor: pointer; font-weight: 500; transition: all 0.3s ease; }
+        #sound-status.sound-on { border-color: var(--success-color); color: var(--success-color); }
+        #sound-status.sound-off { border-color: var(--danger-color); color: var(--danger-color); }
+        .orders-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     </style>
 </head>
 <body>
@@ -174,13 +178,14 @@
             const API_BASE_URL = 'http://localhost:10000';
             const dashboardContent = document.getElementById('dashboard-content');
             const pageTitle = document.getElementById('page-title');
+            const soundStatusBtn = document.getElementById('sound-status');
             const PLACEHOLDER_IMG_60 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2260%22%20height%3D%2260%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%229%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESem%20Foto%3C%2Ftext%3E%3C%2Fsvg%3E';
             const PLACEHOLDER_IMG_200 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22200%22%20height%3D%22200%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22200%22%20height%3D%22200%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%2214%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESelecionar%20Imagem%3C%2Ftext%3E%3C%2Fsvg%3E';
             
             let allProducts = [];
             let allProductsFlat = [];
             let notificationAudio;
-            let isSoundEnabled = false;
+            let isSoundEnabled = true;
             let listenersAttached = {
                 'products-tbody': false,
                 'complementos-tbody': false
@@ -230,16 +235,52 @@
                 console.log('[Dashboard] 🔄 Executando fetchAndRefreshAllViews...');
                 await fetchAllProducts();
                 const activeNav = document.querySelector('nav a.active')?.id;
-                if (activeNav === 'nav-produtos') renderProdutosPageContent();
+                if (activeNav === 'nav-pedidos') renderPedidosPage();
+                else if (activeNav === 'nav-produtos') renderProdutosPageContent();
                 else if (activeNav === 'nav-complementos') renderComplementosPageContent();
                 else if (activeNav === 'nav-combos') fetchAndRenderCombos();
                 console.log('[Dashboard] ✅ Visualizações atualizadas.');
             };
             
             const socket = io(API_BASE_URL);
-            const setupAudioPlayer = (soundUrl) => { if (soundUrl) { notificationAudio = new Audio(soundUrl); notificationAudio.loop = true; } else { notificationAudio = null; } }
-            const playNotification = () => { if (isSoundEnabled && notificationAudio) notificationAudio.play().catch(console.error); }
-            const stopNotification = () => { if (notificationAudio) { notificationAudio.pause(); notificationAudio.currentTime = 0; } }
+
+            const updateSoundStatusButton = () => {
+                if (soundStatusBtn) {
+                    soundStatusBtn.textContent = isSoundEnabled ? '🔊 Som Ligado' : '🔇 Som Desligado';
+                    soundStatusBtn.classList.toggle('sound-on', isSoundEnabled);
+                    soundStatusBtn.classList.toggle('sound-off', !isSoundEnabled);
+                }
+            };
+
+            const setupAudioPlayer = (soundUrl) => { 
+                if (soundUrl) { 
+                    notificationAudio = new Audio(soundUrl); 
+                    notificationAudio.loop = true; 
+                } else { 
+                    notificationAudio = null; 
+                } 
+                updateSoundStatusButton();
+            }
+
+            const playNotification = () => { 
+                if (isSoundEnabled && notificationAudio) {
+                    notificationAudio.play().catch(e => console.warn("Não foi possível tocar o som de notificação:", e.message));
+                }
+            }
+            const stopNotification = () => { 
+                if (notificationAudio) { 
+                    notificationAudio.pause(); 
+                    notificationAudio.currentTime = 0; 
+                } 
+            }
+
+            soundStatusBtn.addEventListener('click', () => {
+                isSoundEnabled = !isSoundEnabled;
+                updateSoundStatusButton();
+                if (!isSoundEnabled) {
+                    stopNotification();
+                }
+            });
             
             socket.on('connect', () => console.log('[Dashboard] ✅ Socket.IO conectado.'));
             
@@ -258,9 +299,9 @@
                 moveOrderCard(id, status);
             });
 
-            socket.on('data_updated', () => {
-                console.log('[Dashboard] 🔄 Recebido evento "data_updated". Iniciando recarga completa das visualizações...');
-                fetchAndRefreshAllViews();
+            socket.on('history_cleared', () => {
+                console.log('[Dashboard] 🧹 Histórico de pedidos limpo. Recarregando a visualização.');
+                fetchAndRenderOrders();
             });
 
             socket.on('stock_update', (liveInventory) => {
@@ -277,51 +318,134 @@
 
             const renderPedidosPage = () => {
                 pageTitle.textContent = 'Painel de Pedidos';
-                dashboardContent.innerHTML = `<div class="orders-panel"><div class="order-column"><h3>Novos</h3><div class="order-list" id="col-novo"></div></div><div class="order-column"><h3>Em Preparo</h3><div class="order-list" id="col-em-preparo"></div></div><div class="order-column"><h3>Pronto para Entrega</h3><div class="order-list" id="col-pronto"></div></div></div>`;
+                dashboardContent.innerHTML = `
+                    <div class="orders-header">
+                        <h2>Acompanhamento de Pedidos</h2>
+                        <button id="clear-history-btn" class="btn btn-danger">Limpar Histórico</button>
+                    </div>
+                    <div class="orders-panel">
+                        <div class="order-column"><h3>Novos</h3><div class="order-list" id="col-novo"></div></div>
+                        <div class="order-column"><h3>Em Preparo</h3><div class="order-list" id="col-em-preparo"></div></div>
+                        <div class="order-column"><h3>Pronto para Entrega</h3><div class="order-list" id="col-pronto"></div></div>
+                        <div class="order-column"><h3>Concluídos</h3><div class="order-list" id="col-concluido"></div></div>
+                        <div class="order-column"><h3>Recusados</h3><div class="order-list" id="col-recusado"></div></div>
+                    </div>`;
+                
+                document.getElementById('clear-history-btn').addEventListener('click', async () => {
+                    if (confirm('Tem a certeza de que deseja apagar permanentemente todos os pedidos concluídos e recusados?')) {
+                        try {
+                            await apiFetch('/orders/history', { method: 'DELETE' });
+                        } catch (error) {
+                            console.error('Falha ao limpar histórico:', error);
+                            alert('Não foi possível limpar o histórico.');
+                        }
+                    }
+                });
+
                 fetchAndRenderOrders();
             };
+
             const fetchAndRenderOrders = async () => {
                 try {
-                    const orders = await apiFetch('/orders');
-                    ['col-novo', 'col-em-preparo', 'col-pronto'].forEach(id => document.getElementById(id).innerHTML = '');
-                    orders.forEach(order => addOrderCard(order, false));
+                    const { activeOrders, finishedOrders, rejectedOrders } = await apiFetch('/orders');
+                    
+                    ['col-novo', 'col-em-preparo', 'col-pronto', 'col-concluido', 'col-recusado'].forEach(id => {
+                        const col = document.getElementById(id);
+                        if(col) col.innerHTML = '';
+                    });
+
+                    if (activeOrders) activeOrders.forEach(order => addOrderCard(order, false));
+                    if (finishedOrders) finishedOrders.forEach(order => addOrderCard(order, false));
+                    if (rejectedOrders) rejectedOrders.forEach(order => addOrderCard(order, false));
+
                 } catch (error) { console.error("Erro ao buscar pedidos:", error); }
             };
+
             const createOrderCard = (order) => {
                 const card = document.createElement('div');
                 card.className = 'order-card';
                 card.id = `order-${order.id}`;
+
                 let actionsHtml = '';
-                if (order.status === 'Novo') actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`;
-                else if (order.status === 'Em Preparo') actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto</button>`;
-                else if (order.status === 'Pronto para Entrega') actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Entregue</button>`;
-                card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Endereço:</strong> ${order.client_address}</p><div class="order-card-actions">${actionsHtml}</div>`;
+                if (order.status === 'Novo') {
+                    actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`;
+                } else if (order.status === 'Em Preparo') {
+                    actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto</button>`;
+                } else if (order.status === 'Pronto para Entrega') {
+                    actionsHtml = `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Entregue</button>`;
+                }
+                
+                const displayAddress = order.client_address === 'Retirada no local' 
+                    ? '<strong>Retirada no Local</strong>' 
+                    : order.client_address;
+
+                card.innerHTML = `
+                    <div class="order-card-header">
+                        <span>Pedido #${order.id}</span>
+                        <span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span>
+                    </div>
+                    <p><strong>Cliente:</strong> ${order.client_name}</p>
+                    <p><strong>Contacto:</strong> ${order.client_phone || 'Não informado'}</p>
+                    <p><strong>Destino:</strong> ${displayAddress}</p>
+                    <div class="order-card-actions">${actionsHtml}</div>`;
                 return card;
             };
+
             const addOrderCard = (order, prepend = true) => {
-                const statusMap = { 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' };
-                const column = document.getElementById(statusMap[order.status]);
+                const statusMap = { 
+                    'Novo': 'col-novo', 
+                    'Em Preparo': 'col-em-preparo', 
+                    'Pronto para Entrega': 'col-pronto',
+                    'Finalizado': 'col-concluido',
+                    'Cancelado': 'col-recusado'
+                };
+                const columnId = statusMap[order.status];
+                if (!columnId) return;
+
+                const column = document.getElementById(columnId);
                 if (column) {
                     const card = createOrderCard(order);
                     if (prepend) column.prepend(card);
                     else column.appendChild(card);
                 }
             };
+
             const moveOrderCard = (orderId, newStatus) => {
                 const card = document.getElementById(`order-${orderId}`);
                 if (!card) return;
-                stopNotification();
-                const statusMap = { 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto' };
-                const targetColumn = document.getElementById(statusMap[newStatus]);
-                if (targetColumn) {
-                    const orderData = { id: orderId, status: newStatus, total_price: card.querySelector('span:last-child').textContent.replace('R$ ','').replace(',','.'), client_name: card.querySelector('p:nth-child(2) > strong').nextSibling.textContent.trim(), client_address: card.querySelector('p:nth-child(3) > strong').nextSibling.textContent.trim() };
+
+                const statusMap = { 
+                    'Em Preparo': 'col-em-preparo', 
+                    'Pronto para Entrega': 'col-pronto',
+                    'Finalizado': 'col-concluido',
+                    'Cancelado': 'col-recusado'
+                };
+                const targetColumnId = statusMap[newStatus];
+
+                if (targetColumnId) {
+                    const targetColumn = document.getElementById(targetColumnId);
+                    const orderData = { 
+                        id: orderId, 
+                        status: newStatus, 
+                        total_price: card.querySelector('.order-card-header span:last-child').textContent.replace('R$ ','').replace(',','.'), 
+                        client_name: card.querySelector('p:nth-child(2)').textContent.replace('Cliente: ', ''),
+                        client_phone: card.querySelector('p:nth-child(3)').textContent.replace('Contacto: ', ''),
+                        client_address: card.querySelector('p:nth-child(4)').textContent.replace('Destino: ', '')
+                    };
                     card.remove();
                     addOrderCard(orderData);
-                } else { card.remove(); }
+                } else { 
+                    card.remove(); 
+                }
             };
+
             window.updateOrderStatus = async (orderId, newStatus) => {
-                try { await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
-                } catch (error) { console.error(`Falha ao atualizar status:`, error); }
+                stopNotification();
+                try { 
+                    await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
+                } catch (error) { 
+                    console.error(`Falha ao atualizar status:`, error); 
+                }
             };
 
             const renderProdutosPage = () => {
@@ -385,7 +509,6 @@
                 initSortable('complementos-tbody', '/products/reorder');
             };
 
-            // ######################## INÍCIO DA CORREÇÃO (LÓGICA DE VISUALIZAÇÃO) ########################
             const createProductRow = (product, isChild = false, isSynced = false) => {
                 const stock_quantity = product.stock_quantity ?? '';
                 const isActuallyDisabled = (isChild && isSynced) || (!product.stock_enabled);
@@ -399,7 +522,6 @@
                 const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
                 const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
 
-                // Lógica para decidir o que renderizar na célula de estoque
                 let stockControlsCell = '';
                 const isParentContainerOnly = !isChild && hasChildren && !product.sell_parent_product;
 
@@ -426,7 +548,6 @@
                             <td class="action-buttons"><button onclick="openProductModal(${product.id})">Editar</button><button onclick="deleteProduct(${product.id})">Apagar</button></td>
                         </tr>`;
             };
-            // ######################### FIM DA CORREÇÃO (LÓGICA DE VISUALIZAÇÃO) ##########################
             
             window.toggleChildren = (btn, parentId) => {
                 btn.classList.toggle('expanded');
@@ -519,7 +640,6 @@
                 }
             };
             
-            // ######################## INÍCIO DA CORREÇÃO (LÓGICA DO MODAL) ########################
             window.openProductModal = async (id = null, isMainProduct = true) => {
                 const modal = document.getElementById('product-modal-overlay');
                 const form = document.getElementById('product-form');
@@ -582,19 +702,17 @@
                     addonsListDiv.innerHTML += `<div class="addon-item"><label class="addon-item-name"><input type="checkbox" data-addon-id="${p.id}" ${linkedAddonIds.has(p.id) ? 'checked' : ''}><span>${p.name}</span></label></div>`;
                 });
 
-                // Lógica para controlar o campo de preço
                 const sellParentToggle = document.getElementById('sell-parent-product');
                 const priceInput = document.getElementById('product-price');
                 const handleSellParentChange = () => {
                     priceInput.disabled = !sellParentToggle.checked;
                 };
-                sellParentToggle.removeEventListener('change', handleSellParentChange); // Evita duplicatas
+                sellParentToggle.removeEventListener('change', handleSellParentChange);
                 sellParentToggle.addEventListener('change', handleSellParentChange);
-                handleSellParentChange(); // Define o estado inicial
+                handleSellParentChange();
 
                 modal.style.display = 'flex';
             };
-            // ######################### FIM DA CORREÇÃO (LÓGICA DO MODAL) ##########################
 
             const closeProductModal = () => document.getElementById('product-modal-overlay').style.display = 'none';
 
@@ -1004,7 +1122,27 @@
                 window.location.href = 'login.html';
             });
 
-            await fetchAllProducts();
+            const initializeSoundSystem = async () => {
+                try {
+                    const settings = await apiFetch('/settings');
+                    setupAudioPlayer(settings.notification_sound_url);
+                    // Adiciona um listener para a primeira interação do utilizador para "desbloquear" o áudio.
+                    document.body.addEventListener('click', () => {
+                        if (notificationAudio && notificationAudio.paused) {
+                           notificationAudio.play().then(() => notificationAudio.pause()).catch(()=>{});
+                        }
+                    }, { once: true });
+                } catch (error) {
+                    console.error("Falha ao inicializar o sistema de som:", error);
+                    setupAudioPlayer(null);
+                }
+            };
+
+            await Promise.all([
+                fetchAllProducts(),
+                initializeSoundSystem()
+            ]);
+            
             navLinks.pedidos.click();
         });
     </script>

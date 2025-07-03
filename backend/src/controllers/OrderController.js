@@ -4,12 +4,30 @@ const connection = require('../database/connection');
 module.exports = {
   // Função para LISTAR pedidos (para o dashboard)
   async index(request, response) {
-    console.log('[OrderController] Buscando lista de pedidos ativos.');
-    const orders = await connection('orders')
-      .whereNotIn('status', ['Finalizado', 'Cancelado'])
+    console.log('[OrderController] Buscando lista de pedidos.');
+    
+    // Busca pedidos que precisam de ação ou estão em andamento
+    const activeOrders = await connection('orders')
+      .whereIn('status', ['Novo', 'Em Preparo', 'Pronto para Entrega'])
       .select('*')
       .orderBy('created_at', 'asc');
-    return response.json(orders);
+
+    // Busca os últimos 20 pedidos finalizados
+    const finishedOrders = await connection('orders')
+      .where('status', 'Finalizado')
+      .select('*')
+      .orderBy('updated_at', 'desc')
+      .limit(20);
+
+    // Busca os últimos 20 pedidos cancelados
+    const rejectedOrders = await connection('orders')
+      .where('status', 'Cancelado')
+      .select('*')
+      .orderBy('updated_at', 'desc')
+      .limit(20);
+
+    // Retorna um objeto com as três listas para o frontend
+    return response.json({ activeOrders, finishedOrders, rejectedOrders });
   },
 
   // Função para ATUALIZAR O STATUS de um pedido
@@ -17,20 +35,22 @@ module.exports = {
     const { id } = request.params;
     const { status } = request.body;
     console.log(`[OrderController] Atualizando status do pedido ${id} para: ${status}`);
-    await connection('orders').where('id', id).update({ status });
+    
+    await connection('orders').where('id', id).update({ 
+      status, 
+      updated_at: new Date() 
+    });
+
     request.io.emit('order_status_updated', { id, status });
     return response.status(204).send();
   },
 
-  // ✅ --- FUNÇÃO CREATE SIMPLIFICADA --- ✅
-  // A responsabilidade de verificar e deduzir estoque foi movida para o StockController.
-  // Esta função agora apenas cria o registro do pedido.
+  // Função para CRIAR um novo pedido
   async create(request, response) {
     try {
       const { client_name, client_phone, client_address, total_price, items } = request.body;
       
       const newOrderData = await connection.transaction(async (trx) => {
-        // --- CRIAÇÃO DO PEDIDO E ITENS ---
         const [order_id_obj] = await trx('orders').insert({ 
           client_name, 
           client_phone, 
@@ -54,10 +74,11 @@ module.exports = {
         await trx('order_items').insert(orderItemsToInsert);
 
         console.log(`[OrderController] Pedido ${order_id} criado com sucesso.`);
-        return { id: order_id, client_name, total_price, status: 'Novo' };
+        
+        const newOrder = await trx('orders').where('id', order_id).first();
+        return newOrder;
       });
 
-      // Emite o evento para o dashboard de pedidos.
       request.io.emit('new_order', newOrderData);
       console.log('[Socket.IO] Evento "new_order" emitido para o dashboard.');
       
@@ -66,6 +87,22 @@ module.exports = {
     } catch (error) {
       console.error('[OrderController] ERRO AO CRIAR PEDIDO:', error.message);
       return response.status(400).json({ error: 'Não foi possível registrar o pedido.' });
+    }
+  },
+
+  // NOVA FUNÇÃO para limpar o histórico de pedidos concluídos e cancelados
+  async clearHistory(request, response) {
+    try {
+      console.log('[OrderController] Limpando histórico de pedidos (Finalizados e Cancelados).');
+      await connection('orders').whereIn('status', ['Finalizado', 'Cancelado']).del();
+      
+      // Notifica o frontend para recarregar a view de pedidos
+      request.io.emit('history_cleared');
+      
+      return response.status(204).send();
+    } catch (error) {
+      console.error('[OrderController] ERRO AO LIMPAR HISTÓRICO:', error);
+      return response.status(500).json({ error: 'Falha ao limpar o histórico de pedidos.' });
     }
   }
 };
