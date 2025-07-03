@@ -8,6 +8,7 @@ const ProductController = require('./controllers/ProductController');
 const SettingsController = require('./controllers/SettingsController');
 const OrderController = require('./controllers/OrderController');
 const ComboController = require('./controllers/ComboController');
+const PaymentController = require('./controllers/PaymentController'); // Importa o novo controller
 const authMiddleware = require('./middlewares/auth');
 
 const routes = express.Router();
@@ -22,6 +23,10 @@ routes.get('/api/public/products', ProductController.indexPublic);
 routes.get('/api/public/combos', ComboController.indexPublic);
 routes.get('/api/public/settings', SettingsController.show);
 routes.post('/api/public/orders', OrderController.create);
+
+// ROTAS DE PAGAMENTO (PÚBLICAS)
+routes.post('/api/payments/create-preference/:order_id', PaymentController.createPreference);
+routes.post('/api/payments/webhook', PaymentController.receiveWebhook);
 
 // --- ROTAS DE AUTENTICAÇÃO ---
 routes.post('/api/sessions', SessionController.create);
@@ -52,7 +57,6 @@ routes.get('/api/cloudinary-signature', SettingsController.generateCloudinarySig
 // Pedidos
 routes.get('/api/orders', OrderController.index);
 routes.patch('/api/orders/:id/status', OrderController.updateStatus);
-// NOVA ROTA para limpar o histórico
 routes.delete('/api/orders/history', OrderController.clearHistory);
 
 module.exports = routes;

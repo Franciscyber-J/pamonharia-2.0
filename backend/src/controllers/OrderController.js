@@ -6,27 +6,23 @@ module.exports = {
   async index(request, response) {
     console.log('[OrderController] Buscando lista de pedidos.');
     
-    // Busca pedidos que precisam de ação ou estão em andamento
     const activeOrders = await connection('orders')
-      .whereIn('status', ['Novo', 'Em Preparo', 'Pronto para Entrega'])
+      .whereIn('status', ['Aguardando Pagamento', 'Pago', 'Novo', 'Em Preparo', 'Pronto para Entrega'])
       .select('*')
       .orderBy('created_at', 'asc');
 
-    // Busca os últimos 20 pedidos finalizados
     const finishedOrders = await connection('orders')
       .where('status', 'Finalizado')
       .select('*')
       .orderBy('updated_at', 'desc')
       .limit(20);
 
-    // Busca os últimos 20 pedidos cancelados
     const rejectedOrders = await connection('orders')
       .where('status', 'Cancelado')
       .select('*')
       .orderBy('updated_at', 'desc')
       .limit(20);
 
-    // Retorna um objeto com as três listas para o frontend
     return response.json({ activeOrders, finishedOrders, rejectedOrders });
   },
 
@@ -41,22 +37,24 @@ module.exports = {
       updated_at: new Date() 
     });
 
-    request.io.emit('order_status_updated', { id, status });
+    request.io.emit('order_status_updated', { id: Number(id), status });
     return response.status(204).send();
   },
 
   // Função para CRIAR um novo pedido
   async create(request, response) {
     try {
-      const { client_name, client_phone, client_address, total_price, items } = request.body;
+      const { client_name, client_phone, client_address, total_price, items, payment_method } = request.body;
       
+      const initialStatus = payment_method === 'online' ? 'Aguardando Pagamento' : 'Novo';
+
       const newOrderData = await connection.transaction(async (trx) => {
         const [order_id_obj] = await trx('orders').insert({ 
           client_name, 
           client_phone, 
           client_address, 
           total_price, 
-          status: 'Novo' 
+          status: initialStatus 
         }).returning('id');
         
         const order_id = order_id_obj.id;
@@ -73,14 +71,20 @@ module.exports = {
 
         await trx('order_items').insert(orderItemsToInsert);
 
-        console.log(`[OrderController] Pedido ${order_id} criado com sucesso.`);
+        console.log(`[OrderController] Pedido ${order_id} criado com sucesso com status "${initialStatus}".`);
         
         const newOrder = await trx('orders').where('id', order_id).first();
         return newOrder;
       });
 
-      request.io.emit('new_order', newOrderData);
-      console.log('[Socket.IO] Evento "new_order" emitido para o dashboard.');
+      if (initialStatus === 'Novo') {
+        request.io.emit('new_order', newOrderData);
+        console.log('[Socket.IO] Evento "new_order" emitido para o dashboard.');
+      } else if (initialStatus === 'Aguardando Pagamento') {
+        // Também emitimos para o dashboard para que ele apareça na coluna de espera.
+        request.io.emit('new_order', newOrderData);
+        console.log('[Socket.IO] Evento "new_order" (aguardando pgto) emitido para o dashboard.');
+      }
       
       return response.status(201).json(newOrderData);
 
@@ -90,13 +94,12 @@ module.exports = {
     }
   },
 
-  // NOVA FUNÇÃO para limpar o histórico de pedidos concluídos e cancelados
+  // Função para limpar o histórico de pedidos concluídos e cancelados
   async clearHistory(request, response) {
     try {
       console.log('[OrderController] Limpando histórico de pedidos (Finalizados e Cancelados).');
       await connection('orders').whereIn('status', ['Finalizado', 'Cancelado']).del();
       
-      // Notifica o frontend para recarregar a view de pedidos
       request.io.emit('history_cleared');
       
       return response.status(204).send();
