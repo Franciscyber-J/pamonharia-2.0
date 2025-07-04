@@ -8,24 +8,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <style>
-        /* Estilos para os ícones de pagamento */
-        .payment-icons {
-            display: inline-flex;
-            gap: 6px;
-            vertical-align: middle;
-            margin-left: 8px;
-        }
-        .payment-icons svg {
-            width: 28px;
-            height: auto;
-            border-radius: 3px;
-        }
-    </style>
 </head>
 <body>
     <div class="container">
-        <!-- O cabeçalho e o resto da estrutura permanecem os mesmos -->
         <header class="header">
             <div class="header-center">
                 <h1 id="store-name-header">Pamonharia Sabor do Goiás</h1>
@@ -55,7 +40,7 @@
                 <div id="cart-wrapper" class="cart-container">
                     <div class="cart-header">
                         <h2>Meu Carrinho</h2>
-                        <button id="clear-cart-btn" style="display: none;">Limpar</button>
+                        <button id="clear-cart-btn" style="display: none;">Limpar Tudo</button>
                     </div>
                     <div id="cart-items">
                         <p id="empty-cart-msg">Seu carrinho está vazio.</p>
@@ -68,75 +53,37 @@
                     <div class="checkout-form">
                         <h3>Finalizar Pedido</h3>
                         <form id="order-form">
-                            <div class="form-group">
-                                <label for="client-name">Nome</label>
-                                <input type="text" id="client-name" required>
-                            </div>
-                            <div class="form-group">
-                                <label for="client-phone">Contacto (WhatsApp)</label>
-                                <input type="tel" id="client-phone" required>
-                            </div>
-                            
-                            <div class="delivery-options">
-                                <label><input type="radio" name="delivery-type" value="delivery" checked> Entrega</label>
-                                <label><input type="radio" name="delivery-type" value="pickup"> Retirada</label>
-                            </div>
-
-                            <div class="form-group" id="address-group">
-                                <label for="client-address">Endereço de Entrega</label>
-                                <input type="text" id="client-address" required>
-                            </div>
-
+                            <div class="form-group"><label for="client-name">Nome</label><input type="text" id="client-name" required></div>
+                            <div class="form-group"><label for="client-phone">Contacto (WhatsApp)</label><input type="tel" id="client-phone" required></div>
+                            <div class="delivery-options"><label><input type="radio" name="delivery-type" value="delivery" checked> Entrega</label><label><input type="radio" name="delivery-type" value="pickup"> Retirada</label></div>
+                            <div class="form-group" id="address-group"><label for="client-address">Endereço de Entrega</label><input type="text" id="client-address" required></div>
                             <div class="payment-options">
                                 <p>Forma de Pagamento:</p>
                                 <label><input type="radio" name="payment-method" value="on_delivery" checked> Pagar na Entrega/Retirada</label>
                                 <label>
                                     <input type="radio" name="payment-method" value="online"> Pagar Online
                                     <span class="payment-icons">
-                                        <!-- Ícone do Pix -->
                                         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12.0002 2.66602L15.3335 5.99935L12.0002 9.33268L8.66683 5.99935L12.0002 2.66602Z" fill="#32BCAD"></path><path d="M5.99984 8.66602L2.6665 11.9993L5.99984 15.3327L9.33317 11.9993L5.99984 8.66602Z" fill="#32BCAD"></path><path d="M18.0002 8.66602L14.6668 11.9993L18.0002 15.3327L21.3335 11.9993L18.0002 8.66602Z" fill="#32BCAD"></path><path d="M12.0002 14.666L15.3335 17.9994L12.0002 21.3327L8.66683 17.9994L12.0002 14.666Z" fill="#32BCAD"></path></svg>
-                                        <!-- Ícone da Visa -->
                                         <svg viewBox="0 0 38 24" xmlns="http://www.w3.org/2000/svg"><path d="M35 0H3C1.3 0 0 1.3 0 3v18c0 1.7 1.4 3 3 3h32c1.7 0 3-1.3 3-3V3c0-1.7-1.4-3-3-3z" fill="#1A1F71"/><path d="M15.2 14.5l-2.3-8.8H9.4l-1.3 6.2c-.3-1.2-1.3-3.1-2.2-4.1-.9-1-2.1-1.8-3.1-2.1L2.6 14.5h3.2l.9-4.1c.2-.9.4-1.7.5-2.1.2.9.4 1.7.6 2.5l.6 3.7h3.1zM28.9 5.7c-1.3 0-2.4.6-2.9 1.5-.5-.8-1.5-1.5-2.8-1.5-1.5 0-2.7 1-2.7 2.5 0 1.3.8 2 1.4 2.4.6.4 1.1.7 1.1.9 0 .3-.3.5-.8.5-.7 0-1.1-.2-1.6-.5l-.3-.1-.3 2.5c.5.2 1.3.4 2.1.4 1.6 0 2.8-1 2.8-2.6 0-1.1-.7-1.8-1.4-2.3-.5-.4-1-.6-1-.9 0-.3.3-.5.7-.5.5 0 .9.2 1.2.4l.2.1.3-2.3c-.4-.2-1-.3-1.6-.3zm-8.2 0l-1.4 8.8h3l1.4-8.8h-3zM34.6 9.1l-1.2-3.4H31l-2.4 8.8h3.1l.4-1.5h2.4l.3 1.5h2.9L34.6 9.1zm-2.8 3.8l.7-2.4.4 2.4h-1.1z" fill="#fff"/></svg>
-                                        <!-- Ícone da Mastercard -->
                                         <svg viewBox="0 0 38 24" xmlns="http://www.w3.org/2000/svg"><path d="M35 0H3C1.3 0 0 1.3 0 3v18c0 1.7 1.4 3 3 3h32c1.7 0 3-1.3 3-3V3c0-1.7-1.4-3-3-3z" fill="#222"/><path d="M15 12a7 7 0 100-14 7 7 0 000 14z" fill="#EB001B"/><path d="M23 12a7 7 0 110-14 7 7 0 010 14z" fill="#F79E1B"/><path d="M19 12a7 7 0 01-8-7 7 7 0 000 14 7 7 0 008-7z" fill="#FF5F00"/></svg>
                                     </span>
                                 </label>
                             </div>
-
                             <button type="submit" class="action-button" id="submit-order" disabled>Finalizar Pedido</button>
                         </form>
                     </div>
                 </div>
-                 <div id="order-success-message" style="display: none;">
-                    <h3>Obrigado pelo seu pedido!</h3>
-                    <p>Ele já foi enviado para a nossa cozinha e em breve chegará até você.</p>
-                </div>
-                <div id="payment-status-message" style="display: none;">
-                    <h3>Status do Pagamento</h3>
-                    <p id="payment-status-text"></p>
-                    <button class="action-button" onclick="window.location.href='/cardapio'">Voltar ao Cardápio</button>
-                </div>
+                <div id="order-success-message" style="display: none;"><h3>Obrigado pelo seu pedido!</h3><p>Ele já foi enviado para a nossa cozinha e em breve chegará até você.</p></div>
+                <div id="payment-status-message" style="display: none;"><h3>Status do Pagamento</h3><p id="payment-status-text"></p><button class="action-button" onclick="window.location.href='/cardapio'">Voltar ao Cardápio</button></div>
             </aside>
         </div>
     </div>
 
     <!-- Modal de Seleção -->
-    <div id="selection-modal" class="modal-overlay">
-        <div class="modal-content">
-            <button class="modal-close-btn">&times;</button>
-            <div id="modal-header" class="modal-header"></div>
-            <div id="modal-body" class="modal-body"></div>
-            <div class="modal-footer">
-                <div id="modal-feedback" class="modal-feedback"></div>
-                <button id="add-to-cart-btn" class="action-button">Adicionar ao Carrinho</button>
-            </div>
-        </div>
-    </div>
+    <div id="selection-modal" class="modal-overlay"><div class="modal-content"><button class="modal-close-btn">&times;</button><div id="modal-header" class="modal-header"></div><div id="modal-body" class="modal-body"></div><div class="modal-footer"><div id="modal-feedback" class="modal-feedback"></div><button id="add-to-cart-btn" class="action-button">Adicionar ao Carrinho</button></div></div></div>
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
-        // O script JS permanece o mesmo da versão anterior, com a adição
-        // da chamada à função checkPaymentStatusFromURL no final.
         document.addEventListener('DOMContentLoaded', () => {
             const API_BASE_URL = 'http://localhost:10000';
             const socket = io(API_BASE_URL);
@@ -176,13 +123,19 @@
             let liveStockState = {};
 
             const apiFetch = async (endpoint, options = {}) => {
-                options.headers = { ...options.headers, 'Content-Type': 'application/json' };
-                const response = await fetch(`${API_BASE_URL}/api${endpoint}`, options);
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ error: `Erro HTTP: ${response.status}` }));
-                    throw new Error(errorData.error);
+                try {
+                    options.headers = { ...options.headers, 'Content-Type': 'application/json' };
+                    const response = await fetch(`${API_BASE_URL}/api${endpoint}`, options);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ error: `Erro HTTP: ${response.status}` }));
+                        console.error(`Falha na API para ${endpoint}:`, errorData);
+                        throw new Error(errorData.error || `Erro: ${response.status}`);
+                    }
+                    return response.status === 204 ? null : response.json();
+                } catch (error) {
+                    console.error(`Erro de rede ou fetch para ${endpoint}:`, error);
+                    throw error;
                 }
-                return response.status === 204 ? null : response.json();
             };
             
             const checkPaymentStatusFromURL = () => {
@@ -196,15 +149,9 @@
                     dom.paymentStatusMessage.style.display = 'block';
                     let message = '';
                     switch (status) {
-                        case 'success':
-                            message = `Pagamento para o pedido #${orderId} foi aprovado com sucesso! Já estamos a preparar tudo.`;
-                            break;
-                        case 'failure':
-                            message = `O pagamento para o pedido #${orderId} falhou. Por favor, tente novamente ou escolha outra forma de pagamento.`;
-                            break;
-                        case 'pending':
-                            message = `O pagamento para o pedido #${orderId} está pendente. Avisaremos assim que for aprovado.`;
-                            break;
+                        case 'success': message = `Pagamento para o pedido #${orderId} foi aprovado com sucesso! Já estamos a preparar tudo.`; break;
+                        case 'failure': message = `O pagamento para o pedido #${orderId} falhou. Por favor, tente novamente ou escolha outra forma de pagamento.`; break;
+                        case 'pending': message = `O pagamento para o pedido #${orderId} está pendente. Avisaremos assim que for aprovado.`; break;
                     }
                     dom.paymentStatusText.textContent = message;
                     window.history.replaceState({}, document.title, "/cardapio");
@@ -252,99 +199,7 @@
                 }
             });
 
-            const applyTheme = (theme) => {
-                document.body.setAttribute('data-theme', theme);
-                localStorage.setItem('pamonharia-theme', theme);
-            };
-
-            const getAvailableStock = (item) => {
-                if (!item) return 0;
-                const parentId = productParentMap[item.id];
-                if (parentId) {
-                    const parent = allProductsFlat.find(p => p.id === parentId);
-                    if (parent && parent.stock_sync_enabled && parent.stock_enabled) {
-                        return liveStockState[parent.id] || 0;
-                    }
-                }
-                if (item.stock_enabled) {
-                    return liveStockState[item.id] || 0;
-                }
-                return Infinity;
-            };
-
-            const isItemEffectivelyOutOfStock = (item) => {
-                if (!item) return true; 
-                if (item.children && item.children.length > 0 && !item.sell_parent_product) {
-                    return item.children.every(child => {
-                        const childData = allProductsFlat.find(p => p.id === child.id);
-                        return isItemEffectivelyOutOfStock(childData);
-                    });
-                }
-                return getAvailableStock(item) <= 0;
-            };
-
-            const isComboEffectivelyOutOfStock = (combo) => {
-                if (!combo || !combo.products) return true;
-                const totalAvailableStock = combo.products.reduce((sum, product) => {
-                    const fullProductData = allProductsFlat.find(p => p.id === product.id);
-                    return sum + getAvailableStock(fullProductData);
-                }, 0);
-                return totalAvailableStock < combo.total_items_limit;
-            };
-
-            const renderItems = () => {
-                dom.productsGrid.innerHTML = '';
-                dom.combosGrid.innerHTML = '';
-                const activeProducts = allItems.filter(item => !item.is_combo && item.is_main_product);
-                const activeCombos = allItems.filter(item => item.is_combo);
-                document.getElementById('products-section').style.display = activeProducts.length > 0 ? 'block' : 'none';
-                document.getElementById('combos-section').style.display = activeCombos.length > 0 ? 'block' : 'none';
-                document.getElementById('section-divider').style.display = activeProducts.length > 0 && activeCombos.length > 0 ? 'block' : 'none';
-
-                allItems.forEach(item => {
-                    if (!item.status) return;
-                    const grid = item.is_combo ? dom.combosGrid : dom.productsGrid;
-                    if (!grid || (!item.is_main_product && !item.is_combo)) return;
-                    
-                    let priceText;
-                    if (item.is_combo) {
-                        priceText = `A partir de R$ ${parseFloat(item.price).toFixed(2).replace('.',',')}`;
-                    } else if (item.children && item.children.length > 0 && !item.sell_parent_product) {
-                        const availableChildren = item.children.filter(c => !isItemEffectivelyOutOfStock(allProductsFlat.find(p => p.id === c.id)));
-                        if (availableChildren.length > 0) {
-                            const minPrice = Math.min(...availableChildren.map(c => c.price));
-                            priceText = `A partir de R$ ${parseFloat(minPrice).toFixed(2).replace('.',',')}`;
-                        } else {
-                            priceText = 'Opções esgotadas';
-                        }
-                    } else {
-                        priceText = `R$ ${parseFloat(item.price).toFixed(2).replace('.',',')}`;
-                    }
-                    
-                    const hasOptions = (item.children && item.children.length > 0) || (item.is_combo);
-                    const isOutOfStock = item.is_combo ? isComboEffectivelyOutOfStock(item) : isItemEffectivelyOutOfStock(item);
-                    
-                    const onClickAction = item.is_combo 
-                        ? `openComboModal(${item.id})` 
-                        : (hasOptions
-                            ? `openProductWithOptionsModal(${item.id})` 
-                            : `addToCartSimple(${item.id})`);
-
-                    grid.innerHTML += `
-                        <div class="item-card ${isOutOfStock ? 'out-of-stock' : ''}" data-id="${item.id}">
-                            <div class="stock-overlay">${isOutOfStock ? 'Esgotado' : ''}</div>
-                            <img src="${item.image_url || 'https://placehold.co/400x250/f59e0b/FFF?text=Pamonha'}" alt="${item.name}" class="item-image">
-                            <div class="item-info">
-                                <h3>${item.name}</h3>
-                                <p class="description">${item.description || ''}</p>
-                                <div class="item-price">${priceText}</div>
-                                <button class="action-button" onclick="${onClickAction}" ${!storeSettings.is_open || isOutOfStock ? 'disabled' : ''}>
-                                    ${hasOptions ? 'Montar' : 'Adicionar'}
-                                </button>
-                            </div>
-                        </div>`;
-                });
-            };
+            // #################### INÍCIO DAS MUDANÇAS NO CARRINHO ####################
 
             const renderCart = () => {
                 dom.clearCartBtn.style.display = cart.length > 0 ? 'inline-block' : 'none';
@@ -353,18 +208,252 @@
                     dom.submitOrderBtn.disabled = true;
                 } else {
                     dom.cartItemsContainer.innerHTML = '';
-                    cart.forEach((item, index) => {
-                        let itemDetails = '';
-                        if (item.selected_items && item.selected_items.length > 0) {
-                            itemDetails = `<small>${item.selected_items.map(si => si.name).join(', ')}</small>`;
+                    cart.forEach((itemGroup, cartIndex) => {
+                        const originalProduct = allProductsFlat.find(p => p.id === itemGroup.original_id) || {};
+                        const isLockedGroup = itemGroup.is_combo || originalProduct.force_one_to_one_complement;
+
+                        let subItemsHtml = '';
+                        if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
+                            subItemsHtml = '<div class="cart-sub-items">';
+                            itemGroup.selected_items.forEach((subItem, subItemIndex) => {
+                                // Para grupos bloqueados, apenas mostramos o texto. Para os flexíveis, mostramos os controlos.
+                                if (isLockedGroup) {
+                                    subItemsHtml += `<div class="cart-sub-item"><span>${subItem.quantity}x ${subItem.name}</span></div>`;
+                                } else {
+                                    subItemsHtml += `
+                                        <div class="cart-sub-item">
+                                            <span>${subItem.name}</span>
+                                            <div class="quantity-control-cart">
+                                                <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, -1)">-</button>
+                                                <span>${subItem.quantity}</span>
+                                                <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, 1)">+</button>
+                                            </div>
+                                        </div>
+                                    `;
+                                }
+                            });
+                            subItemsHtml += '</div>';
                         }
-                        dom.cartItemsContainer.innerHTML += `<div class="cart-item" data-cart-item-id="${item.cart_id}"><img src="${item.image_url || 'https://placehold.co/60x60/f59e0b/FFF?text=Item'}" alt="${item.name}" class="cart-item-image"><div class="cart-item-info"><strong>${item.quantity}x ${item.name}</strong>${itemDetails}</div><div class="cart-item-controls"><button onclick="removeFromCart(${index})">Remover</button><span>R$ ${(item.price * item.quantity).toFixed(2).replace('.',',')}</span></div></div>`;
+
+                        dom.cartItemsContainer.innerHTML += `
+                            <div class="cart-item-group" data-cart-id="${itemGroup.cart_id}">
+                                <div class="cart-main-item">
+                                    <img src="${itemGroup.image_url || 'https://placehold.co/60x60/f59e0b/FFF?text=Item'}" alt="${itemGroup.name}" class="cart-item-image">
+                                    <div class="cart-item-info">
+                                        <strong>${itemGroup.name}</strong>
+                                        <span class="cart-item-price">R$ ${(itemGroup.price * itemGroup.quantity).toFixed(2).replace('.',',')}</span>
+                                    </div>
+                                    <div class="cart-main-controls">
+                                        <div class="quantity-control-cart">
+                                            <button onclick="adjustCartItemGroupQuantity(${cartIndex}, -1)" ${!isLockedGroup ? 'disabled' : ''}>-</button>
+                                            <span>${itemGroup.quantity}</span>
+                                            <button onclick="adjustCartItemGroupQuantity(${cartIndex}, 1)" ${!isLockedGroup ? 'disabled' : ''}>+</button>
+                                        </div>
+                                        <button class="remove-item-btn" onclick="removeCartItemGroup(${cartIndex})">&times;</button>
+                                    </div>
+                                </div>
+                                ${subItemsHtml}
+                            </div>
+                        `;
                     });
                     dom.submitOrderBtn.disabled = !storeSettings.is_open;
                 }
                 calculateTotals();
             };
+            
+            // Função para ajustar a quantidade de um sub-item INDIVIDUAL (para produtos não-obrigatórios)
+            window.adjustCartItemQuantity = (cartIndex, subItemIndex, amount) => {
+                const itemGroup = cart[cartIndex];
+                if (!itemGroup || !itemGroup.selected_items) return;
+                
+                const subItem = itemGroup.selected_items[subItemIndex];
+                const stockCheckItem = allProductsFlat.find(p => p.id === subItem.id);
+                if (!subItem || !stockCheckItem) return;
 
+                const newQuantity = subItem.quantity + amount;
+
+                if (amount > 0) {
+                    if (getAvailableStock(stockCheckItem) < 1) {
+                        alert(`Desculpe, ${stockCheckItem.name} está esgotado.`);
+                        return;
+                    }
+                    socket.emit('reserve_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
+                } else if (amount < 0 && subItem.quantity > 0) {
+                    socket.emit('release_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
+                }
+
+                if (newQuantity <= 0) {
+                    itemGroup.selected_items.splice(subItemIndex, 1);
+                    // Se era o último complemento e o produto pai não é vendável, remove o grupo todo
+                    const parentProduct = allProductsFlat.find(p => p.id === itemGroup.original_id);
+                    if (itemGroup.selected_items.length === 0 && !parentProduct.sell_parent_product) {
+                        cart.splice(cartIndex, 1);
+                    }
+                } else {
+                    subItem.quantity = newQuantity;
+                }
+                
+                // Recalcula o preço total do grupo
+                itemGroup.price = calculateGroupPrice(itemGroup);
+                renderCart();
+            };
+
+            // Função para ajustar a quantidade do GRUPO INTEIRO (para combos e itens obrigatórios)
+            window.adjustCartItemGroupQuantity = (cartIndex, amount) => {
+                const itemGroup = cart[cartIndex];
+                if (!itemGroup) return;
+
+                const newQuantity = itemGroup.quantity + amount;
+                if (newQuantity <= 0) {
+                    removeCartItemGroup(cartIndex);
+                    return;
+                }
+                
+                let itemsToUpdate = [];
+                if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
+                    itemGroup.selected_items.forEach(sub => itemsToUpdate.push({ id: sub.id, quantity: sub.quantity / itemGroup.quantity }));
+                } else {
+                    itemsToUpdate.push({ id: itemGroup.original_id, quantity: 1 });
+                }
+
+                if (amount > 0) {
+                    // Valida o estoque de todos os componentes antes de reservar
+                    for (const item of itemsToUpdate) {
+                        const stockCheckItem = allProductsFlat.find(p => p.id === item.id);
+                        if (getAvailableStock(stockCheckItem) < item.quantity) {
+                            alert(`Não há estoque suficiente para adicionar mais um "${itemGroup.name}".`);
+                            return;
+                        }
+                    }
+                    socket.emit('reserve_stock', itemsToUpdate);
+                } else {
+                    socket.emit('release_stock', itemsToUpdate);
+                }
+
+                const ratio = newQuantity / itemGroup.quantity;
+                itemGroup.quantity = newQuantity;
+                if (itemGroup.selected_items) {
+                    itemGroup.selected_items.forEach(sub => {
+                        sub.quantity = Math.round(sub.base_quantity * newQuantity);
+                    });
+                }
+                
+                renderCart();
+            };
+
+            window.removeCartItemGroup = (cartIndex) => {
+                const itemToRemove = cart[cartIndex];
+                if (!itemToRemove) return;
+
+                let itemsToRelease = [];
+                if (itemToRemove.selected_items && itemToRemove.selected_items.length > 0) {
+                    itemToRemove.selected_items.forEach(sub => {
+                        itemsToRelease.push({ id: sub.id, quantity: sub.quantity });
+                    });
+                } else {
+                    itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
+                }
+
+                if (itemToRemove.has_addons && itemToRemove.sell_parent_product) {
+                    itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
+                }
+
+                socket.emit('release_stock', itemsToRelease.filter(i => i.id && i.quantity > 0));
+                cart.splice(cartIndex, 1);
+                renderCart();
+            };
+
+            dom.clearCartBtn.addEventListener('click', () => {
+                if (cart.length === 0) return;
+                const allItemsToRelease = cart.flatMap(itemGroup => {
+                    let items = [];
+                    if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
+                        items = itemGroup.selected_items.map(sub => ({ id: sub.id, quantity: sub.quantity }));
+                    } else {
+                        items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
+                    }
+                    if (itemGroup.has_addons && itemGroup.sell_parent_product) {
+                         items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
+                    }
+                    return items;
+                }).filter(i => i && i.id && i.quantity > 0);
+
+                socket.emit('release_stock', allItemsToRelease);
+                cart = [];
+                renderCart();
+            });
+
+            const calculateGroupPrice = (itemGroup) => {
+                const parentProduct = allProductsFlat.find(p => p.id === itemGroup.original_id);
+                let totalPrice = 0;
+                if(parentProduct.sell_parent_product) {
+                    totalPrice += parseFloat(parentProduct.price) * itemGroup.quantity;
+                }
+                if (itemGroup.selected_items) {
+                    itemGroup.selected_items.forEach(subItem => {
+                        const subProduct = allProductsFlat.find(p => p.id === subItem.id);
+                        if(subProduct) {
+                            totalPrice += parseFloat(subProduct.price) * subItem.quantity;
+                        }
+                    });
+                }
+                return totalPrice / itemGroup.quantity;
+            };
+
+            // #################### FIM DAS MUDANÇAS NO CARRINHO ####################
+
+
+            // O resto do script (funções de tema, status da loja, modais, etc.) permanece o mesmo.
+            const applyTheme = (theme) => { document.body.setAttribute('data-theme', theme); localStorage.setItem('pamonharia-theme', theme); };
+            const getAvailableStock = (item) => {
+                if (!item) return 0;
+                const parentId = productParentMap[item.id];
+                if (parentId) {
+                    const parent = allProductsFlat.find(p => p.id === parentId);
+                    if (parent && parent.stock_sync_enabled && parent.stock_enabled) { return liveStockState[parent.id] || 0; }
+                }
+                if (item.stock_enabled) { return liveStockState[item.id] || 0; }
+                return Infinity;
+            };
+            const isItemEffectivelyOutOfStock = (item) => {
+                if (!item) return true; 
+                if (item.children && item.children.length > 0 && !item.sell_parent_product) {
+                    return item.children.every(child => isItemEffectivelyOutOfStock(allProductsFlat.find(p => p.id === child.id)));
+                }
+                return getAvailableStock(item) <= 0;
+            };
+            const isComboEffectivelyOutOfStock = (combo) => {
+                if (!combo || !combo.products) return true;
+                const totalAvailableStock = combo.products.reduce((sum, product) => sum + getAvailableStock(allProductsFlat.find(p => p.id === product.id)), 0);
+                return totalAvailableStock < combo.total_items_limit;
+            };
+            const renderItems = () => {
+                dom.productsGrid.innerHTML = '';
+                dom.combosGrid.innerHTML = '';
+                const activeProducts = allItems.filter(item => !item.is_combo && item.is_main_product);
+                const activeCombos = allItems.filter(item => item.is_combo);
+                document.getElementById('products-section').style.display = activeProducts.length > 0 ? 'block' : 'none';
+                document.getElementById('combos-section').style.display = activeCombos.length > 0 ? 'block' : 'none';
+                document.getElementById('section-divider').style.display = activeProducts.length > 0 && activeCombos.length > 0 ? 'block' : 'none';
+                allItems.forEach(item => {
+                    if (!item.status) return;
+                    const grid = item.is_combo ? dom.combosGrid : dom.productsGrid;
+                    if (!grid || (!item.is_main_product && !item.is_combo)) return;
+                    let priceText;
+                    if (item.is_combo) { priceText = `A partir de R$ ${parseFloat(item.price).toFixed(2).replace('.',',')}`; }
+                    else if (item.children && item.children.length > 0 && !item.sell_parent_product) {
+                        const availableChildren = item.children.filter(c => !isItemEffectivelyOutOfStock(allProductsFlat.find(p => p.id === c.id)));
+                        if (availableChildren.length > 0) {
+                            const minPrice = Math.min(...availableChildren.map(c => c.price));
+                            priceText = `A partir de R$ ${parseFloat(minPrice).toFixed(2).replace('.',',')}`;
+                        } else { priceText = 'Opções esgotadas'; }
+                    } else { priceText = `R$ ${parseFloat(item.price).toFixed(2).replace('.',',')}`; }
+                    const hasOptions = (item.children && item.children.length > 0) || (item.is_combo);
+                    const isOutOfStock = item.is_combo ? isComboEffectivelyOutOfStock(item) : isItemEffectivelyOutOfStock(item);
+                    const onClickAction = item.is_combo ? `openComboModal(${item.id})` : (hasOptions ? `openProductWithOptionsModal(${item.id})` : `addToCartSimple(${item.id})`);
+                    grid.innerHTML += `<div class="item-card ${isOutOfStock ? 'out-of-stock' : ''}" data-id="${item.id}"><div class="stock-overlay">${isOutOfStock ? 'Esgotado' : ''}</div><img src="${item.image_url || 'https://placehold.co/400x250/f59e0b/FFF?text=Pamonha'}" alt="${item.name}" class="item-image"><div class="item-info"><h3>${item.name}</h3><p class="description">${item.description || ''}</p><div class="item-price">${priceText}</div><button class="action-button" onclick="${onClickAction}" ${!storeSettings.is_open || isOutOfStock ? 'disabled' : ''}>${hasOptions ? 'Montar' : 'Adicionar'}</button></div></div>`;
+                });
+            };
             const calculateTotals = () => {
                 const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
                 const isDelivery = document.querySelector('input[name="delivery-type"]:checked').value === 'delivery';
@@ -375,50 +464,35 @@
                 dom.deliveryFeeEl.textContent = `R$ ${deliveryFee.toFixed(2).replace('.',',')}`;
                 dom.grandTotalEl.textContent = `R$ ${grandTotal.toFixed(2).replace('.',',')}`;
             };
-            
             const updateStoreStatus = () => {
                 const now = new Date();
                 const dayOfWeek = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'][now.getDay()];
                 const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
                 let isOpen = false;
-                if (storeSettings.is_open_manual_override !== null) {
-                    isOpen = storeSettings.is_open_manual_override;
-                } else {
+                if (storeSettings.is_open_manual_override !== null) { isOpen = storeSettings.is_open_manual_override; }
+                else {
                     const schedule = storeSettings.operating_hours?.[dayOfWeek];
-                    if (schedule && schedule.enabled) {
-                        isOpen = currentTime >= schedule.open && currentTime <= schedule.close;
-                    }
+                    if (schedule && schedule.enabled) { isOpen = currentTime >= schedule.open && currentTime <= schedule.close; }
                 }
                 storeSettings.is_open = isOpen;
                 dom.storeStatusBanner.style.display = 'block';
-                if (isOpen) {
-                    dom.storeStatusBanner.textContent = 'Loja Aberta! Faça seu pedido.';
-                    dom.storeStatusBanner.className = 'open';
-                } else {
-                    dom.storeStatusBanner.textContent = 'Loja Fechada. Não estamos a aceitar pedidos no momento.';
-                    dom.storeStatusBanner.className = 'closed';
-                }
+                if (isOpen) { dom.storeStatusBanner.textContent = 'Loja Aberta! Faça seu pedido.'; dom.storeStatusBanner.className = 'open'; }
+                else { dom.storeStatusBanner.textContent = 'Loja Fechada. Não estamos a aceitar pedidos no momento.'; dom.storeStatusBanner.className = 'closed'; }
                 if(storeSettings.store_name) dom.storeNameHeader.textContent = storeSettings.store_name;
             };
-
             const handleQuantityChange = (target, state, validator, item, options = {}) => {
                 const itemId = parseInt(target.dataset.itemId);
                 const isIncrement = target.textContent === '+';
-                
                 let currentTotalQuantityInModalForSyncGroup = 0;
                 let stockHoldingProduct = item;
-                
                 const parentId = productParentMap[item.id];
                 if (parentId) {
                     const parent = allProductsFlat.find(p => p.id === parentId);
                     if (parent && parent.stock_sync_enabled) {
                         stockHoldingProduct = parent;
-                        currentTotalQuantityInModalForSyncGroup = Object.entries(state)
-                            .filter(([key, _]) => productParentMap[key] === parentId)
-                            .reduce((sum, [_, qty]) => sum + qty, 0);
+                        currentTotalQuantityInModalForSyncGroup = Object.entries(state).filter(([key, _]) => productParentMap[key] === parentId).reduce((sum, [_, qty]) => sum + qty, 0);
                     }
                 }
-                
                 if (isIncrement && options.isComplement && options.oneToOneRuleActive) {
                     const parentQty = options.getParentQty();
                     const totalComplements = options.getTotalComplementsQty();
@@ -429,7 +503,6 @@
                         return;
                     }
                 }
-
                 if (isIncrement) {
                     const availableStock = getAvailableStock(item);
                     const currentQuantity = stockHoldingProduct.id === item.id ? (state[itemId] || 0) : currentTotalQuantityInModalForSyncGroup;
@@ -440,26 +513,15 @@
                         return;
                     }
                     state[itemId] = (state[itemId] || 0) + 1;
-                } else {
-                    state[itemId] = Math.max(0, (state[itemId] || 0) - 1);
-                }
-                
+                } else { state[itemId] = Math.max(0, (state[itemId] || 0) - 1); }
                 document.getElementById(`quantity-${itemId}`).textContent = state[itemId];
                 if (validator) validator();
             };
-
             const addToCartAndReserve = (itemData, itemsToReserve) => {
                 socket.emit('reserve_stock', itemsToReserve);
-                socket.once('reservation_success', () => {
-                    cart.push({ ...itemData, cart_id: `cart_${Date.now()}` });
-                    renderCart();
-                    dom.modal.style.display = 'none';
-                });
-                socket.once('reservation_failure', ({ message }) => {
-                    dom.modalFeedback.textContent = `Erro: ${message}`;
-                });
+                socket.once('reservation_success', () => { cart.push({ ...itemData, cart_id: `cart_${Date.now()}` }); renderCart(); dom.modal.style.display = 'none'; });
+                socket.once('reservation_failure', ({ message }) => { dom.modalFeedback.textContent = `Erro: ${message}`; });
             };
-
             window.addToCartSimple = (itemId) => {
                 const item = allProductsFlat.find(p => p.id === itemId);
                 if (!item || isItemEffectivelyOutOfStock(item)) return;
@@ -467,53 +529,6 @@
                 const itemData = { original_id: item.id, name: item.name, price: item.price, image_url: item.image_url, quantity: 1 };
                 addToCartAndReserve(itemData, itemsToReserve);
             };
-            
-            window.removeFromCart = (cartIndex) => {
-                const itemToRemove = cart[cartIndex];
-                if (!itemToRemove) return;
-                let itemsToRelease = [];
-                if (itemToRemove.is_combo || itemToRemove.has_addons) {
-                    const parentData = allProductsFlat.find(p => p.id === itemToRemove.original_id);
-                    const isStockSynced = parentData && parentData.stock_sync_enabled;
-                    if (isStockSynced) {
-                        itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
-                    } else {
-                        itemToRemove.selected_items.forEach(si => itemsToRelease.push({ id: si.id, quantity: si.quantity }));
-                        if(itemToRemove.has_addons && itemToRemove.sell_parent_product) {
-                            itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
-                        }
-                    }
-                } else {
-                    itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
-                }
-                socket.emit('release_stock', itemsToRelease.filter(i => i && i.id));
-                cart.splice(cartIndex, 1);
-                renderCart();
-            };
-
-            dom.clearCartBtn.addEventListener('click', () => {
-                if (cart.length === 0) return;
-                const allItemsToRelease = cart.flatMap(item => {
-                    if (item.is_combo || item.has_addons) {
-                         const parentData = allProductsFlat.find(p => p.id === item.original_id);
-                         const isStockSynced = parentData && parentData.stock_sync_enabled;
-                         if (isStockSynced) {
-                            return [{ id: item.original_id, quantity: item.quantity }];
-                         } else {
-                             const children = item.selected_items.map(si => ({ id: si.id, quantity: si.quantity }));
-                             if(item.has_addons && item.sell_parent_product) {
-                                children.push({ id: item.original_id, quantity: item.quantity });
-                             }
-                             return children;
-                         }
-                    }
-                    return [{ id: item.original_id, quantity: item.quantity }];
-                }).filter(i => i && i.id);
-                socket.emit('release_stock', allItemsToRelease);
-                cart = [];
-                renderCart();
-            });
-            
             const setupModal = (config) => {
                 dom.modalHeader.innerHTML = `<h3>${config.title}</h3><p>${config.description}</p>`;
                 dom.modalBody.innerHTML = config.body || '';
@@ -524,7 +539,6 @@
                 dom.modal.style.display = 'flex';
                 if(config.onOpen) config.onOpen();
             };
-            
             window.openProductWithOptionsModal = (productId) => {
                 const product = allItems.find(item => item.id === productId);
                 if (!product) return;
@@ -567,7 +581,8 @@
                             if (product.sell_parent_product && selectedItem.id === product.id) finalPrice += parseFloat(selectedItem.price) * quantity;
                             if (selectedItem.id !== product.id) {
                                 finalPrice += parseFloat(selectedItem.price) * quantity;
-                                selected_items_details.push({ id: selectedItem.id, name: `${quantity}x ${selectedItem.name}`, quantity: quantity });
+                                // CORREÇÃO DO BUG DE QUANTIDADE DUPLICADA
+                                selected_items_details.push({ id: selectedItem.id, name: selectedItem.name, quantity: quantity, base_quantity: quantity });
                             }
                         }
                     }
@@ -608,7 +623,6 @@
                     });
                 });
             };
-
             window.openComboModal = (comboId) => {
                 const combo = allItems.find(item => item.id === comboId);
                 if (!combo) return;
@@ -624,6 +638,10 @@
                     const totalLimit = combo.total_items_limit;
                     dom.addToCartBtn.disabled = totalSelected !== totalLimit;
                     dom.modalFeedback.textContent = '';
+                    if (totalSelected > totalLimit) {
+                        dom.modalFeedback.textContent = `Limite de ${totalLimit} itens excedido.`;
+                        dom.addToCartBtn.disabled = true;
+                    }
                     dom.addToCartBtn.textContent = `Adicionar (${totalSelected}/${totalLimit}) ao Carrinho`;
                 };
                 const onSave = () => {
@@ -633,7 +651,8 @@
                             const product = allProductsFlat.find(p => p.id == id);
                             const comboProductInfo = combo.products.find(p => p.id == id);
                             finalPrice += parseFloat(comboProductInfo.price_modifier || 0) * quantity;
-                            selected_items.push({ id: product.id, name: `${quantity}x ${product.name}`, quantity: quantity });
+                            // CORREÇÃO DO BUG DE QUANTIDADE DUPLICADA
+                            selected_items.push({ id: product.id, name: product.name, quantity: quantity, base_quantity: quantity });
                             itemsToReserve.push({ id: product.id, quantity });
                         }
                     }
@@ -656,7 +675,6 @@
                     });
                 });
             };
-            
             const fetchAndRenderAll = async () => {
                 try {
                     const [productsResponse, combosResponse, settingsResponse] = await Promise.all([ apiFetch('/public/products'), apiFetch('/public/combos'), apiFetch('/public/settings') ]);
@@ -683,10 +701,7 @@
             socket.on('connect', () => console.log('[Cardapio] ✅ Socket.IO conectado ao servidor.'));
             socket.on('stock_update', (inventory) => { liveStockState = inventory; renderItems(); });
             socket.on('data_updated', fetchAndRenderAll);
-            dom.themeSwitcher.addEventListener('click', () => {
-                const currentTheme = document.body.getAttribute('data-theme');
-                applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
-            });
+            dom.themeSwitcher.addEventListener('click', () => { const currentTheme = document.body.getAttribute('data-theme'); applyTheme(currentTheme === 'dark' ? 'light' : 'dark'); });
             document.querySelectorAll('input[name="delivery-type"]').forEach(radio => {
                 radio.addEventListener('change', (e) => {
                     const isDelivery = e.target.value === 'delivery';
