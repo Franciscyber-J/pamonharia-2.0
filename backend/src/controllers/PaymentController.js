@@ -16,6 +16,7 @@ module.exports = {
     try {
       const { order_id } = request.params;
       const order = await connection('orders').where('id', order_id).first();
+      // O driver do pg já converte o JSONB para um objeto JS, então o JSON.parse é desnecessário
       const orderItems = await connection('order_items').where('order_id', order_id);
 
       if (!order || !orderItems || orderItems.length === 0) {
@@ -25,7 +26,10 @@ module.exports = {
       // Mapeia os itens do pedido para o formato exigido pelo Mercado Pago
       const items = orderItems.map(item => ({
         title: item.item_name,
-        description: item.item_details ? JSON.parse(item.item_details).map(d => d.name).join(', ') : 'Item do pedido',
+        // #################### INÍCIO DA CORREÇÃO (REMOVER JSON.PARSE) ####################
+        // item.item_details já é um objeto, não uma string JSON.
+        description: Array.isArray(item.item_details) ? item.item_details.map(d => d.name).join(', ') : 'Item do pedido',
+        // ##################### FIM DA CORREÇÃO (REMOVER JSON.PARSE) #####################
         unit_price: Number(parseFloat(item.unit_price).toFixed(2)),
         quantity: item.quantity,
         currency_id: 'BRL',
@@ -59,15 +63,21 @@ module.exports = {
       return response.json({ checkout_url: result.init_point });
 
     } catch (error) {
-      // SOLUÇÃO DEFINITIVA PARA O ERRO DE PAGAMENTO
       console.error('[PaymentController] Erro detalhado ao criar preferência:', error);
+      
       let details = 'Erro desconhecido ao comunicar com o gateway de pagamento.';
       
-      // O SDK do Mercado Pago geralmente aninha o erro real dentro de `error.cause`
       if (error.cause) {
-          // Garante que a causa seja um objeto antes de tentar acessá-la
-          const cause = Array.isArray(error.cause) ? error.cause[0] : (typeof error.cause === 'object' ? error.cause : {});
-          details = `MercadoPago: ${cause.description || error.message || JSON.stringify(cause)}`;
+          try {
+            const cause = JSON.parse(error.cause);
+            details = `MercadoPago: ${cause.message || 'Causa de erro não especificada.'}`;
+            if (cause.cause) {
+              const nestedCause = Array.isArray(cause.cause) ? cause.cause[0] : cause.cause;
+              details += ` Detalhe: ${nestedCause.description || JSON.stringify(nestedCause)}`;
+            }
+          } catch(e) {
+            details = error.message;
+          }
       } else {
           details = error.message;
       }
@@ -90,7 +100,7 @@ module.exports = {
     
     console.log(`[Webhook] Notificação recebida. Tópico: ${topic}, ID do Evento: ${query.id}`);
     if (topic !== 'payment') {
-      return response.status(200).send(); // Responde OK para notificações que não são de pagamento
+      return response.status(200).send();
     }
 
     try {
@@ -106,7 +116,6 @@ module.exports = {
           payment_status: paymentDetails.status 
         };
         
-        // Se o pagamento for aprovado, o status do pedido muda para 'Pago'
         if (paymentDetails.status === 'approved') {
           orderToUpdate.status = 'Pago';
         }
@@ -115,11 +124,9 @@ module.exports = {
         
         const updatedOrder = await connection('orders').where('id', order_id).first();
         if (updatedOrder) {
-            // Notifica o dashboard para atualizar o card do pedido
             request.io.emit('order_status_updated', { id: updatedOrder.id, status: updatedOrder.status });
             console.log(`[Webhook] Pedido ${order_id} atualizado para status '${updatedOrder.status}'. Evento emitido.`);
             
-            // Se o pedido foi aprovado, emite um evento de "nova ordem" para tocar o som de notificação
             if (paymentDetails.status === 'approved') {
                 request.io.emit('new_order', updatedOrder);
             }

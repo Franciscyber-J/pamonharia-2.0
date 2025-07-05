@@ -118,7 +118,12 @@ input:checked + .slider:before { transform: translateX(20px); }
 .action-buttons button { margin-right: 10px; background: none; border: none; cursor: pointer; color: var(--text-color); opacity: 0.7; transition: opacity 0.2s; font-size: 1rem; }
 .action-buttons button:hover { opacity: 1; color: var(--secondary-color); }
 
-.product-row.is-child { background-color: rgba(0,0,0,0.15); }
+/* #################### INÍCIO DA CORREÇÃO (OCULTAR FILHOS) #################### */
+.product-row.is-child {
+    background-color: rgba(0,0,0,0.15);
+    display: none; /* Garante que os filhos comecem ocultos */
+}
+/* ##################### FIM DA CORREÇÃO (OCULTAR FILHOS) ##################### */
 .product-row.is-child td:nth-child(2) { padding-left: 40px; }
 .product-name-cell { display: flex; align-items: center; gap: 10px; }
 .toggle-children-btn { cursor: pointer; transition: transform 0.2s ease; user-select: none; width: 14px; display: inline-block; text-align: center; }
@@ -175,7 +180,7 @@ input:checked + .slider:before { transform: translateX(20px); }
 #combo-quantity-validator.valid { color: var(--success-color); background-color: rgba(56, 161, 105, 0.1); }
 #combo-quantity-validator.invalid { color: var(--danger-color); background-color: rgba(229, 62, 62, 0.1); }
 
-.confirm-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.8); backdrop-filter: blur(8px); display: flex; justify-content: center; align-items: center; z-index: 2000; }
+.confirm-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.8); backdrop-filter: blur(8px); display: none; justify-content: center; align-items: center; z-index: 2000; }
 .confirm-modal-content { background: var(--card-bg); padding: 30px; border-radius: 12px; border: 1px solid var(--border-color); text-align: center; max-width: 400px; }
 .confirm-modal-content p { margin-bottom: 25px; font-size: 1.1rem; }
 .confirm-modal-buttons { display: flex; justify-content: center; gap: 15px; }

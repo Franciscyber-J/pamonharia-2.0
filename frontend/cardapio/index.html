@@ -79,8 +79,22 @@
         </div>
     </div>
 
-    <!-- Modal de Seleção -->
     <div id="selection-modal" class="modal-overlay"><div class="modal-content"><button class="modal-close-btn">&times;</button><div id="modal-header" class="modal-header"></div><div id="modal-body" class="modal-body"></div><div class="modal-footer"><div id="modal-feedback" class="modal-feedback"></div><button id="add-to-cart-btn" class="action-button">Adicionar ao Carrinho</button></div></div></div>
+    
+    <div id="error-modal" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close-btn" onclick="document.getElementById('error-modal').style.display='none'">&times;</button>
+            <div id="error-modal-header" class="modal-header" style="color: var(--danger-color);">
+                <h3 id="error-modal-title">Ocorreu um Erro</h3>
+            </div>
+            <div id="error-modal-body" class="modal-body" style="text-align: center;">
+                <p id="error-modal-message"></p>
+            </div>
+            <div class="modal-footer">
+                <button onclick="document.getElementById('error-modal').style.display='none'" class="action-button" style="background-color: var(--danger-color);">Fechar</button>
+            </div>
+        </div>
+    </div>
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
@@ -113,6 +127,9 @@
                 deliveryFeeRow: document.getElementById('delivery-fee-row'),
                 storeNameHeader: document.getElementById('store-name-header'),
                 themeSwitcher: document.getElementById('theme-switcher'),
+                errorModal: document.getElementById('error-modal'),
+                errorModalTitle: document.getElementById('error-modal-title'),
+                errorModalMessage: document.getElementById('error-modal-message'),
             };
 
             let cart = [];
@@ -121,20 +138,21 @@
             let productParentMap = {};
             let storeSettings = {};
             let liveStockState = {};
+            
+            const showErrorModal = (title, message) => {
+                dom.errorModalTitle.textContent = title;
+                dom.errorModalMessage.textContent = message;
+                dom.errorModal.style.display = 'flex';
+            };
 
             const apiFetch = async (endpoint, options = {}) => {
                 try {
                     options.headers = { ...options.headers, 'Content-Type': 'application/json' };
                     const response = await fetch(`${API_BASE_URL}/api${endpoint}`, options);
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({ error: `Erro HTTP: ${response.status}` }));
-                        console.error(`Falha na API para ${endpoint}:`, errorData);
-                        throw new Error(errorData.error || `Erro: ${response.status}`);
-                    }
-                    return response.status === 204 ? null : response.json();
+                    return response;
                 } catch (error) {
                     console.error(`Erro de rede ou fetch para ${endpoint}:`, error);
-                    throw error;
+                    throw new Error("Erro de conexão. Verifique sua rede e tente novamente.");
                 }
             };
             
@@ -167,8 +185,13 @@
                 const paymentMethod = document.querySelector('input[name="payment-method"]:checked').value;
                 const address = deliveryType === 'delivery' ? dom.clientAddressInput.value : 'Retirada no local';
                 
-                const itemsForBackend = cart.map(item => ({
-                    id: item.original_id, name: item.name, price: item.price, quantity: item.quantity, is_combo: !!item.is_combo, selected_items: item.selected_items || []
+                const itemsForBackend = cart.map(itemGroup => ({
+                    id: itemGroup.original_id,
+                    name: itemGroup.name,
+                    price: itemGroup.price,
+                    quantity: itemGroup.quantity,
+                    is_combo: !!itemGroup.is_combo,
+                    item_details: itemGroup.selected_items || []
                 }));
 
                 const orderData = {
@@ -181,87 +204,138 @@
                 };
                 
                 try {
-                    const createdOrder = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(orderData) });
+                    const orderResponse = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(orderData) });
+                    const createdOrder = await orderResponse.json();
+                    
+                    if (!orderResponse.ok) {
+                        throw new Error(createdOrder.error || 'Erro desconhecido ao criar pedido.');
+                    }
                     
                     if (paymentMethod === 'online') {
                         dom.submitOrderBtn.textContent = 'A redirecionar para o pagamento...';
-                        const preference = await apiFetch(`/payments/create-preference/${createdOrder.id}`, { method: 'POST' });
-                        window.location.href = preference.checkout_url;
+                        
+                        const preferenceResponse = await apiFetch(`/payments/create-preference/${createdOrder.id}`, { method: 'POST' });
+                        const preferenceResult = await preferenceResponse.json();
+                        
+                        if (!preferenceResponse.ok) {
+                           throw new Error(preferenceResult.details || preferenceResult.error || 'Erro desconhecido ao iniciar pagamento.');
+                        }
+
+                        window.location.href = preferenceResult.checkout_url;
+
                     } else {
                         dom.cartWrapper.style.display = 'none';
                         dom.successMessage.style.display = 'block';
                         cart = [];
+                        localStorage.removeItem('pamonharia-cart');
                     }
                 } catch (error) {
-                    alert(`Desculpe, não foi possível processar seu pedido. Erro: ${error.message}`);
+                    showErrorModal('Falha no Pedido', `Não foi possível processar seu pedido. Por favor, tente novamente. Detalhe: ${error.message}`);
                     dom.submitOrderBtn.disabled = false;
                     dom.submitOrderBtn.textContent = 'Finalizar Pedido';
                 }
             });
 
-            // #################### INÍCIO DAS MUDANÇAS NO CARRINHO ####################
+            const calculateTotals = () => {
+                let subtotal = 0;
+                cart.forEach(itemGroup => {
+                    const originalProduct = allItems.find(p => p.id === itemGroup.original_id);
+                    let groupTotalValue = 0;
+                    let groupTotalQuantity = 0;
+
+                    if (itemGroup.is_combo || (originalProduct && originalProduct.force_one_to_one_complement)) {
+                        groupTotalValue = itemGroup.price * itemGroup.quantity;
+                        groupTotalQuantity = itemGroup.quantity;
+                    } else { 
+                        if (originalProduct && originalProduct.sell_parent_product) {
+                            groupTotalValue += parseFloat(originalProduct.price);
+                        }
+                        if (itemGroup.selected_items) {
+                            itemGroup.selected_items.forEach(subItem => {
+                                const subProduct = allProductsFlat.find(p => p.id === subItem.id);
+                                if (subProduct) {
+                                    groupTotalValue += parseFloat(subProduct.price) * subItem.quantity;
+                                    groupTotalQuantity += subItem.quantity;
+                                }
+                            });
+                        }
+                    }
+                    
+                    itemGroup.total_value = groupTotalValue;
+                    itemGroup.quantity = groupTotalQuantity;
+                    subtotal += groupTotalValue;
+                });
+
+                const isDelivery = document.querySelector('input[name="delivery-type"]:checked').value === 'delivery';
+                const deliveryFee = isDelivery && subtotal > 0 ? parseFloat(storeSettings.delivery_fee || 0) : 0;
+                dom.deliveryFeeRow.style.display = isDelivery ? 'flex' : 'none';
+                const grandTotal = subtotal + deliveryFee;
+
+                dom.subtotalEl.textContent = `R$ ${subtotal.toFixed(2).replace('.',',')}`;
+                dom.deliveryFeeEl.textContent = `R$ ${deliveryFee.toFixed(2).replace('.',',')}`;
+                dom.grandTotalEl.textContent = `R$ ${grandTotal.toFixed(2).replace('.',',')}`;
+            };
 
             const renderCart = () => {
+                localStorage.setItem('pamonharia-cart', JSON.stringify(cart));
+                calculateTotals();
+
                 dom.clearCartBtn.style.display = cart.length > 0 ? 'inline-block' : 'none';
                 if (cart.length === 0) {
                     dom.cartItemsContainer.innerHTML = '<p id="empty-cart-msg">Seu carrinho está vazio.</p>';
                     dom.submitOrderBtn.disabled = true;
-                } else {
-                    dom.cartItemsContainer.innerHTML = '';
-                    cart.forEach((itemGroup, cartIndex) => {
-                        const originalProduct = allProductsFlat.find(p => p.id === itemGroup.original_id) || {};
-                        const isLockedGroup = itemGroup.is_combo || originalProduct.force_one_to_one_complement;
-
-                        let subItemsHtml = '';
-                        if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
-                            subItemsHtml = '<div class="cart-sub-items">';
-                            itemGroup.selected_items.forEach((subItem, subItemIndex) => {
-                                // Para grupos bloqueados, apenas mostramos o texto. Para os flexíveis, mostramos os controlos.
-                                if (isLockedGroup) {
-                                    subItemsHtml += `<div class="cart-sub-item"><span>${subItem.quantity}x ${subItem.name}</span></div>`;
-                                } else {
-                                    subItemsHtml += `
-                                        <div class="cart-sub-item">
-                                            <span>${subItem.name}</span>
-                                            <div class="quantity-control-cart">
-                                                <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, -1)">-</button>
-                                                <span>${subItem.quantity}</span>
-                                                <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, 1)">+</button>
-                                            </div>
-                                        </div>
-                                    `;
-                                }
-                            });
-                            subItemsHtml += '</div>';
-                        }
-
-                        dom.cartItemsContainer.innerHTML += `
-                            <div class="cart-item-group" data-cart-id="${itemGroup.cart_id}">
-                                <div class="cart-main-item">
-                                    <img src="${itemGroup.image_url || 'https://placehold.co/60x60/f59e0b/FFF?text=Item'}" alt="${itemGroup.name}" class="cart-item-image">
-                                    <div class="cart-item-info">
-                                        <strong>${itemGroup.name}</strong>
-                                        <span class="cart-item-price">R$ ${(itemGroup.price * itemGroup.quantity).toFixed(2).replace('.',',')}</span>
-                                    </div>
-                                    <div class="cart-main-controls">
-                                        <div class="quantity-control-cart">
-                                            <button onclick="adjustCartItemGroupQuantity(${cartIndex}, -1)" ${!isLockedGroup ? 'disabled' : ''}>-</button>
-                                            <span>${itemGroup.quantity}</span>
-                                            <button onclick="adjustCartItemGroupQuantity(${cartIndex}, 1)" ${!isLockedGroup ? 'disabled' : ''}>+</button>
-                                        </div>
-                                        <button class="remove-item-btn" onclick="removeCartItemGroup(${cartIndex})">&times;</button>
-                                    </div>
-                                </div>
-                                ${subItemsHtml}
-                            </div>
-                        `;
-                    });
-                    dom.submitOrderBtn.disabled = !storeSettings.is_open;
+                    return;
                 }
-                calculateTotals();
+
+                dom.cartItemsContainer.innerHTML = '';
+                cart.forEach((itemGroup, cartIndex) => {
+                    const originalProduct = allItems.find(p => p.id === itemGroup.original_id);
+                    const isLockedGroup = itemGroup.is_combo || (originalProduct && originalProduct.force_one_to_one_complement);
+                    
+                    let subItemsHtml = '';
+                    if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
+                        subItemsHtml = '<div class="cart-sub-items">';
+                        itemGroup.selected_items.forEach((subItem, subItemIndex) => {
+                            subItemsHtml += `
+                                <div class="cart-sub-item">
+                                    <span>${subItem.name}</span>
+                                    <div class="quantity-control-cart">
+                                        <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, -1)">-</button>
+                                        <span>${subItem.quantity}</span>
+                                        <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, 1)">+</button>
+                                    </div>
+                                </div>`;
+                        });
+                        subItemsHtml += '</div>';
+                    }
+                    
+                    let mainControlsHtml = '';
+                    if (isLockedGroup) {
+                         mainControlsHtml = `<div class="quantity-control-cart"><button onclick="adjustCartItemGroupQuantity(${cartIndex}, -1)">-</button><span>${itemGroup.quantity}</span><button onclick="adjustCartItemGroupQuantity(${cartIndex}, 1)">+</button></div>`;
+                    } else {
+                        mainControlsHtml = `<div class="quantity-control-cart" style="border:none; background:transparent; padding-right: 15px;"><span>${itemGroup.quantity}</span></div>`;
+                    }
+
+                    dom.cartItemsContainer.innerHTML += `
+                        <div class="cart-item-group" data-cart-id="${itemGroup.cart_id}">
+                            <div class="cart-main-item">
+                                <img src="${itemGroup.image_url || 'https://placehold.co/60x60/f59e0b/FFF?text=Item'}" alt="${itemGroup.name}" class="cart-item-image">
+                                <div class="cart-item-info">
+                                    <strong>${itemGroup.name}</strong>
+                                    <span class="cart-item-price">R$ ${itemGroup.total_value.toFixed(2).replace('.',',')}</span>
+                                </div>
+                                <div class="cart-main-controls">
+                                    ${mainControlsHtml}
+                                    <button class="remove-item-btn" onclick="removeCartItemGroup(${cartIndex})">&times;</button>
+                                </div>
+                            </div>
+                            ${subItemsHtml}
+                        </div>
+                    `;
+                });
+                dom.submitOrderBtn.disabled = !storeSettings.is_open;
             };
             
-            // Função para ajustar a quantidade de um sub-item INDIVIDUAL (para produtos não-obrigatórios)
             window.adjustCartItemQuantity = (cartIndex, subItemIndex, amount) => {
                 const itemGroup = cart[cartIndex];
                 if (!itemGroup || !itemGroup.selected_items) return;
@@ -274,7 +348,7 @@
 
                 if (amount > 0) {
                     if (getAvailableStock(stockCheckItem) < 1) {
-                        alert(`Desculpe, ${stockCheckItem.name} está esgotado.`);
+                        showErrorModal('Item Esgotado', `Desculpe, ${stockCheckItem.name} está esgotado.`);
                         return;
                     }
                     socket.emit('reserve_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
@@ -284,8 +358,7 @@
 
                 if (newQuantity <= 0) {
                     itemGroup.selected_items.splice(subItemIndex, 1);
-                    // Se era o último complemento e o produto pai não é vendável, remove o grupo todo
-                    const parentProduct = allProductsFlat.find(p => p.id === itemGroup.original_id);
+                    const parentProduct = allItems.find(p => p.id === itemGroup.original_id);
                     if (itemGroup.selected_items.length === 0 && !parentProduct.sell_parent_product) {
                         cart.splice(cartIndex, 1);
                     }
@@ -293,12 +366,9 @@
                     subItem.quantity = newQuantity;
                 }
                 
-                // Recalcula o preço total do grupo
-                itemGroup.price = calculateGroupPrice(itemGroup);
                 renderCart();
             };
-
-            // Função para ajustar a quantidade do GRUPO INTEIRO (para combos e itens obrigatórios)
+            
             window.adjustCartItemGroupQuantity = (cartIndex, amount) => {
                 const itemGroup = cart[cartIndex];
                 if (!itemGroup) return;
@@ -311,17 +381,16 @@
                 
                 let itemsToUpdate = [];
                 if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
-                    itemGroup.selected_items.forEach(sub => itemsToUpdate.push({ id: sub.id, quantity: sub.quantity / itemGroup.quantity }));
+                    itemGroup.selected_items.forEach(sub => itemsToUpdate.push({ id: sub.id, quantity: sub.base_quantity }));
                 } else {
                     itemsToUpdate.push({ id: itemGroup.original_id, quantity: 1 });
                 }
 
                 if (amount > 0) {
-                    // Valida o estoque de todos os componentes antes de reservar
                     for (const item of itemsToUpdate) {
                         const stockCheckItem = allProductsFlat.find(p => p.id === item.id);
                         if (getAvailableStock(stockCheckItem) < item.quantity) {
-                            alert(`Não há estoque suficiente para adicionar mais um "${itemGroup.name}".`);
+                            showErrorModal('Estoque Insuficiente', `Não há estoque suficiente para adicionar mais um "${itemGroup.name}".`);
                             return;
                         }
                     }
@@ -330,17 +399,16 @@
                     socket.emit('release_stock', itemsToUpdate);
                 }
 
-                const ratio = newQuantity / itemGroup.quantity;
                 itemGroup.quantity = newQuantity;
                 if (itemGroup.selected_items) {
                     itemGroup.selected_items.forEach(sub => {
-                        sub.quantity = Math.round(sub.base_quantity * newQuantity);
+                        sub.quantity = sub.base_quantity * newQuantity;
                     });
                 }
                 
                 renderCart();
             };
-
+            
             window.removeCartItemGroup = (cartIndex) => {
                 const itemToRemove = cart[cartIndex];
                 if (!itemToRemove) return;
@@ -354,8 +422,9 @@
                     itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
                 }
 
-                if (itemToRemove.has_addons && itemToRemove.sell_parent_product) {
-                    itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
+                const parentProduct = allItems.find(p => p.id === itemToRemove.original_id);
+                if (parentProduct && parentProduct.sell_parent_product) {
+                    itemsToRelease.push({ id: itemToRemove.original_id, quantity: 1 });
                 }
 
                 socket.emit('release_stock', itemsToRelease.filter(i => i.id && i.quantity > 0));
@@ -363,6 +432,7 @@
                 renderCart();
             };
 
+            // #################### INÍCIO DA CORREÇÃO (SINTAXE DO EVENT LISTENER) ####################
             dom.clearCartBtn.addEventListener('click', () => {
                 if (cart.length === 0) return;
                 const allItemsToRelease = cart.flatMap(itemGroup => {
@@ -372,8 +442,9 @@
                     } else {
                         items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
                     }
-                    if (itemGroup.has_addons && itemGroup.sell_parent_product) {
-                         items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
+                    const parentProduct = allItems.find(p => p.id === itemGroup.original_id);
+                    if (parentProduct && parentProduct.sell_parent_product) {
+                         items.push({ id: itemGroup.original_id, quantity: 1 });
                     }
                     return items;
                 }).filter(i => i && i.id && i.quantity > 0);
@@ -382,28 +453,8 @@
                 cart = [];
                 renderCart();
             });
-
-            const calculateGroupPrice = (itemGroup) => {
-                const parentProduct = allProductsFlat.find(p => p.id === itemGroup.original_id);
-                let totalPrice = 0;
-                if(parentProduct.sell_parent_product) {
-                    totalPrice += parseFloat(parentProduct.price) * itemGroup.quantity;
-                }
-                if (itemGroup.selected_items) {
-                    itemGroup.selected_items.forEach(subItem => {
-                        const subProduct = allProductsFlat.find(p => p.id === subItem.id);
-                        if(subProduct) {
-                            totalPrice += parseFloat(subProduct.price) * subItem.quantity;
-                        }
-                    });
-                }
-                return totalPrice / itemGroup.quantity;
-            };
-
-            // #################### FIM DAS MUDANÇAS NO CARRINHO ####################
-
-
-            // O resto do script (funções de tema, status da loja, modais, etc.) permanece o mesmo.
+            // ##################### FIM DA CORREÇÃO (SINTAXE DO EVENT LISTENER) #####################
+            
             const applyTheme = (theme) => { document.body.setAttribute('data-theme', theme); localStorage.setItem('pamonharia-theme', theme); };
             const getAvailableStock = (item) => {
                 if (!item) return 0;
@@ -427,6 +478,38 @@
                 const totalAvailableStock = combo.products.reduce((sum, product) => sum + getAvailableStock(allProductsFlat.find(p => p.id === product.id)), 0);
                 return totalAvailableStock < combo.total_items_limit;
             };
+
+            const fetchAndRenderAll = async () => {
+                try {
+                    const [productsResponse, combosResponse, settingsResponse] = await Promise.all([ 
+                        apiFetch('/public/products').then(res => res.json()),
+                        apiFetch('/public/combos').then(res => res.json()),
+                        apiFetch('/public/settings').then(res => res.json()) 
+                    ]);
+                    storeSettings = settingsResponse;
+                    allProductsFlat = [];
+                    productParentMap = {};
+                    const recursiveFlattenAndMap = (products, parent = null) => {
+                        if (!products) return;
+                        products.forEach(p => {
+                            allProductsFlat.push(p);
+                            if (parent) productParentMap[p.id] = parent.id;
+                            if (p.children && p.children.length > 0) recursiveFlattenAndMap(p.children, p);
+                        });
+                    };
+                    recursiveFlattenAndMap(productsResponse);
+                    combosResponse.forEach(c => { if (c.products) c.products = c.products.map(p => allProductsFlat.find(i => i.id === p.id) || p); });
+                    allItems = [...combosResponse.map(c => ({...c, is_combo: true})), ...productsResponse];
+                    
+                    const savedCart = localStorage.getItem('pamonharia-cart');
+                    if(savedCart) cart = JSON.parse(savedCart);
+
+                    updateStoreStatus();
+                    renderItems();
+                    renderCart();
+                } catch (error) { document.body.innerHTML = '<h1>Erro ao carregar o cardápio. Tente novamente mais tarde.</h1>'; }
+            };
+
             const renderItems = () => {
                 dom.productsGrid.innerHTML = '';
                 dom.combosGrid.innerHTML = '';
@@ -454,16 +537,7 @@
                     grid.innerHTML += `<div class="item-card ${isOutOfStock ? 'out-of-stock' : ''}" data-id="${item.id}"><div class="stock-overlay">${isOutOfStock ? 'Esgotado' : ''}</div><img src="${item.image_url || 'https://placehold.co/400x250/f59e0b/FFF?text=Pamonha'}" alt="${item.name}" class="item-image"><div class="item-info"><h3>${item.name}</h3><p class="description">${item.description || ''}</p><div class="item-price">${priceText}</div><button class="action-button" onclick="${onClickAction}" ${!storeSettings.is_open || isOutOfStock ? 'disabled' : ''}>${hasOptions ? 'Montar' : 'Adicionar'}</button></div></div>`;
                 });
             };
-            const calculateTotals = () => {
-                const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-                const isDelivery = document.querySelector('input[name="delivery-type"]:checked').value === 'delivery';
-                const deliveryFee = isDelivery ? parseFloat(storeSettings.delivery_fee || 0) : 0;
-                dom.deliveryFeeRow.style.display = isDelivery ? 'flex' : 'none';
-                const grandTotal = subtotal + deliveryFee;
-                dom.subtotalEl.textContent = `R$ ${subtotal.toFixed(2).replace('.',',')}`;
-                dom.deliveryFeeEl.textContent = `R$ ${deliveryFee.toFixed(2).replace('.',',')}`;
-                dom.grandTotalEl.textContent = `R$ ${grandTotal.toFixed(2).replace('.',',')}`;
-            };
+
             const updateStoreStatus = () => {
                 const now = new Date();
                 const dayOfWeek = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'][now.getDay()];
@@ -480,6 +554,7 @@
                 else { dom.storeStatusBanner.textContent = 'Loja Fechada. Não estamos a aceitar pedidos no momento.'; dom.storeStatusBanner.className = 'closed'; }
                 if(storeSettings.store_name) dom.storeNameHeader.textContent = storeSettings.store_name;
             };
+
             const handleQuantityChange = (target, state, validator, item, options = {}) => {
                 const itemId = parseInt(target.dataset.itemId);
                 const isIncrement = target.textContent === '+';
@@ -490,7 +565,7 @@
                     const parent = allProductsFlat.find(p => p.id === parentId);
                     if (parent && parent.stock_sync_enabled) {
                         stockHoldingProduct = parent;
-                        currentTotalQuantityInModalForSyncGroup = Object.entries(state).filter(([key, _]) => productParentMap[key] === parentId).reduce((sum, [_, qty]) => sum + qty, 0);
+                        currentTotalQuantityInModalForSyncGroup = Object.entries(state).filter(entry => productParentMap[entry[0]] === parentId).reduce((sum, entry) => sum + entry[1], 0);
                     }
                 }
                 if (isIncrement && options.isComplement && options.oneToOneRuleActive) {
@@ -517,6 +592,7 @@
                 document.getElementById(`quantity-${itemId}`).textContent = state[itemId];
                 if (validator) validator();
             };
+
             const addToCartAndReserve = (itemData, itemsToReserve) => {
                 socket.emit('reserve_stock', itemsToReserve);
                 socket.once('reservation_success', () => { cart.push({ ...itemData, cart_id: `cart_${Date.now()}` }); renderCart(); dom.modal.style.display = 'none'; });
@@ -526,9 +602,10 @@
                 const item = allProductsFlat.find(p => p.id === itemId);
                 if (!item || isItemEffectivelyOutOfStock(item)) return;
                 const itemsToReserve = [{ id: item.id, quantity: 1 }];
-                const itemData = { original_id: item.id, name: item.name, price: item.price, image_url: item.image_url, quantity: 1 };
+                const itemData = { original_id: item.id, name: item.name, price: item.price, image_url: item.image_url, quantity: 1, is_combo: false, selected_items: [] };
                 addToCartAndReserve(itemData, itemsToReserve);
             };
+
             const setupModal = (config) => {
                 dom.modalHeader.innerHTML = `<h3>${config.title}</h3><p>${config.description}</p>`;
                 dom.modalBody.innerHTML = config.body || '';
@@ -539,6 +616,7 @@
                 dom.modal.style.display = 'flex';
                 if(config.onOpen) config.onOpen();
             };
+
             window.openProductWithOptionsModal = (productId) => {
                 const product = allItems.find(item => item.id === productId);
                 if (!product) return;
@@ -559,35 +637,33 @@
                     });
                 }
                 const onSave = () => {
-                    let finalPrice = 0, finalQuantity, selected_items_details = [], itemsToReserve = [];
+                    let selected_items_details = [], itemsToReserve = [];
                     const parentData = allProductsFlat.find(p => p.id === product.id);
                     const isStockSynced = parentData && parentData.stock_sync_enabled;
-                    if (isStockSynced) {
-                        let totalQuantityToReserve = product.sell_parent_product ? (selectedItemsInModal[product.id] || 0) : Object.entries(selectedItemsInModal).filter(([id, _]) => parseInt(id) !== product.id).reduce((sum, [_, qty]) => sum + qty, 0);
-                        if (totalQuantityToReserve > 0) itemsToReserve.push({ id: product.id, quantity: totalQuantityToReserve });
-                    } else {
-                        for (const [id, quantity] of Object.entries(selectedItemsInModal)) {
-                            if (quantity > 0) {
-                                const selectedItem = allProductsFlat.find(i => i.id == id);
-                                if (selectedItem) itemsToReserve.push({ id: selectedItem.id, quantity: quantity });
-                            }
-                        }
-                    }
-                    finalQuantity = !product.sell_parent_product ? Object.entries(selectedItemsInModal).filter(([id, _]) => id != product.id).reduce((sum, [_, qty]) => sum + qty, 0) : (selectedItemsInModal[product.id] || 1);
+
                     for (const [id, quantity] of Object.entries(selectedItemsInModal)) {
                         if (quantity > 0) {
                             const selectedItem = allProductsFlat.find(i => i.id == id);
                             if (!selectedItem) continue;
-                            if (product.sell_parent_product && selectedItem.id === product.id) finalPrice += parseFloat(selectedItem.price) * quantity;
+
+                            if (!isStockSynced) {
+                                itemsToReserve.push({ id: selectedItem.id, quantity });
+                            }
+                            
                             if (selectedItem.id !== product.id) {
-                                finalPrice += parseFloat(selectedItem.price) * quantity;
-                                // CORREÇÃO DO BUG DE QUANTIDADE DUPLICADA
-                                selected_items_details.push({ id: selectedItem.id, name: selectedItem.name, quantity: quantity, base_quantity: quantity });
+                                selected_items_details.push({ id: selectedItem.id, name: selectedItem.name, quantity: quantity, base_quantity: quantity, price: selectedItem.price });
                             }
                         }
                     }
-                    const finalItemPrice = finalQuantity > 0 ? finalPrice / finalQuantity : 0;
-                    const itemData = { original_id: product.id, name: product.name, price: finalItemPrice, quantity: finalQuantity, has_addons: true, sell_parent_product: product.sell_parent_product, selected_items: selected_items_details, image_url: product.image_url };
+
+                    if (isStockSynced) {
+                        const totalQuantityToReserve = selected_items_details.reduce((sum, item) => sum + item.quantity, 0) + (selectedItemsInModal[product.id] || 0);
+                        if(totalQuantityToReserve > 0) itemsToReserve.push({ id: product.id, quantity: totalQuantityToReserve });
+                    }
+                    
+                    const finalQuantity = selected_items_details.reduce((sum, item) => sum + item.quantity, 0) || (product.sell_parent_product ? selectedItemsInModal[product.id] : 0) || 1;
+                    
+                    const itemData = { original_id: product.id, name: product.name, price: 0, quantity: finalQuantity, is_combo: false, selected_items: selected_items_details, image_url: product.image_url };
                     addToCartAndReserve(itemData, itemsToReserve);
                 };
                 const validator = () => {
@@ -596,12 +672,12 @@
                     if (product.force_one_to_one_complement) {
                         const parentQty = selectedItemsInModal[product.id] || 0;
                         totalQuantityForButton = parentQty;
-                        const totalComplementsQty = Object.entries(selectedItemsInModal).filter(([id, _]) => id != product.id).reduce((sum, [_, qty]) => sum + qty, 0);
+                        const totalComplementsQty = Object.entries(selectedItemsInModal).filter(entry => entry[0] != product.id).reduce((sum, entry) => sum + entry[1], 0);
                         const diff = parentQty - totalComplementsQty;
                         dom.modalFeedback.textContent = diff > 0 ? `Selecione mais ${diff} complemento(s).` : (diff < 0 ? `Remova ${-diff} complemento(s).` : '');
                         isValid = (parentQty === totalComplementsQty) && parentQty > 0;
                     } else if (!product.sell_parent_product) {
-                        totalQuantityForButton = Object.entries(selectedItemsInModal).filter(([id, _]) => id != product.id).reduce((sum, [_, qty]) => sum + qty, 0);
+                        totalQuantityForButton = Object.entries(selectedItemsInModal).filter(entry => entry[0] != product.id).reduce((sum, entry) => sum + entry[1], 0);
                         isValid = totalQuantityForButton > 0;
                     } else {
                         totalQuantityForButton = selectedItemsInModal[product.id] || 0;
@@ -611,13 +687,19 @@
                     dom.addToCartBtn.textContent = (isValid && totalQuantityForButton > 0) ? `Adicionar (${totalQuantityForButton}) ao Carrinho` : 'Adicionar ao Carrinho';
                     dom.addToCartBtn.disabled = !isValid;
                 };
+
                 setupModal({ title: `Adicionar ${product.name}`, description: product.force_one_to_one_complement ? 'Escolha a mesma quantidade de complementos que a do item principal.' : 'Selecione as opções.', body: bodyHtml, onSave, onOpen: validator });
                 dom.modalBody.querySelectorAll('.quantity-control button[data-item-id]').forEach(button => {
                     button.addEventListener('click', (e) => {
                         const optionId = e.target.dataset.itemId;
                         const option = allProductsFlat.find(i => i.id == optionId);
                         if (option) {
-                            const changeOptions = { isComplement: e.target.dataset.isComplement === 'true', oneToOneRuleActive: product.force_one_to_one_complement, getParentQty: () => selectedItemsInModal[product.id] || 0, getTotalComplementsQty: () => Object.entries(selectedItemsInModal).filter(([id, _]) => id != product.id).reduce((sum, [_, qty]) => sum + qty, 0) };
+                            const changeOptions = { 
+                                isComplement: e.target.dataset.isComplement === 'true', 
+                                oneToOneRuleActive: product.force_one_to_one_complement, 
+                                getParentQty: () => selectedItemsInModal[product.id] || 0, 
+                                getTotalComplementsQty: () => Object.entries(selectedItemsInModal).filter(entry => entry[0] != product.id).reduce((sum, entry) => sum + entry[1], 0)
+                            };
                             handleQuantityChange(e.target, selectedItemsInModal, validator, option, changeOptions);
                         }
                     });
@@ -651,8 +733,7 @@
                             const product = allProductsFlat.find(p => p.id == id);
                             const comboProductInfo = combo.products.find(p => p.id == id);
                             finalPrice += parseFloat(comboProductInfo.price_modifier || 0) * quantity;
-                            // CORREÇÃO DO BUG DE QUANTIDADE DUPLICADA
-                            selected_items.push({ id: product.id, name: product.name, quantity: quantity, base_quantity: quantity });
+                            selected_items.push({ id: product.id, name: product.name, quantity: quantity, base_quantity: quantity, price: product.price });
                             itemsToReserve.push({ id: product.id, quantity });
                         }
                     }
@@ -674,28 +755,6 @@
                         if(option) handleQuantityChange(e.target, selectedQuantities, validator, option);
                     });
                 });
-            };
-            const fetchAndRenderAll = async () => {
-                try {
-                    const [productsResponse, combosResponse, settingsResponse] = await Promise.all([ apiFetch('/public/products'), apiFetch('/public/combos'), apiFetch('/public/settings') ]);
-                    storeSettings = settingsResponse;
-                    allProductsFlat = [];
-                    productParentMap = {};
-                    const recursiveFlattenAndMap = (products, parent = null) => {
-                        if (!products) return;
-                        products.forEach(p => {
-                            allProductsFlat.push(p);
-                            if (parent) productParentMap[p.id] = parent.id;
-                            if (p.children && p.children.length > 0) recursiveFlattenAndMap(p.children, p);
-                        });
-                    };
-                    recursiveFlattenAndMap(productsResponse);
-                    combosResponse.forEach(c => { if (c.products) c.products = c.products.map(p => allProductsFlat.find(i => i.id === p.id) || p); });
-                    allItems = [...combosResponse.map(c => ({...c, is_combo: true})), ...productsResponse];
-                    updateStoreStatus();
-                    renderItems();
-                    renderCart();
-                } catch (error) { document.body.innerHTML = '<h1>Erro ao carregar o cardápio. Tente novamente mais tarde.</h1>'; }
             };
             
             socket.on('connect', () => console.log('[Cardapio] ✅ Socket.IO conectado ao servidor.'));
