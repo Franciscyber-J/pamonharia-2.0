@@ -161,6 +161,67 @@
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
+        // #################### INÍCIO DA CORREÇÃO (FUNÇÕES GLOBAIS DE ESTOQUE) ####################
+        const API_BASE_URL_GLOBAL = 'http://localhost:10000';
+        
+        const globalApiFetch = async (endpoint, options = {}) => {
+            options.headers = { ...options.headers, 'Authorization': `Bearer ${localStorage.getItem('authToken')}`, 'Content-Type': 'application/json' };
+            const response = await fetch(`${API_BASE_URL_GLOBAL}/api${endpoint}`, options);
+            if (response.status === 401) {
+                localStorage.removeItem('authToken');
+                window.location.href = 'login.html';
+                throw new Error('Token inválido ou expirado.');
+            }
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            }
+            return response.status === 204 ? null : response.json();
+        };
+
+        window.handleStockAdjust = (button, amount) => {
+            const stockInput = button.parentElement.querySelector('.stock-input');
+            if (stockInput && !stockInput.disabled) {
+                let value = parseInt(stockInput.value) || 0;
+                stockInput.value = Math.max(0, value + amount);
+            }
+        };
+
+        window.handleStockSave = async (button) => {
+            const row = button.closest('.product-row');
+            const stockInput = row.querySelector('.stock-input');
+            const productId = row.dataset.id;
+            const feedbackSpan = row.querySelector('.stock-feedback');
+
+            if (stockInput && !stockInput.disabled) {
+                const quantity = parseInt(stockInput.value);
+                if (feedbackSpan) { feedbackSpan.textContent = 'Salvando...'; feedbackSpan.className = 'stock-feedback show'; }
+                
+                try {
+                    await globalApiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify({ stock_quantity: quantity }) });
+                    if(feedbackSpan) { feedbackSpan.textContent = 'Salvo!'; feedbackSpan.className = 'stock-feedback success show'; setTimeout(() => { if(feedbackSpan) feedbackSpan.className = 'stock-feedback'; }, 2000); }
+                } catch (error) {
+                    if(feedbackSpan) { feedbackSpan.textContent = 'Falhou!'; feedbackSpan.className = 'stock-feedback error show'; setTimeout(() => { if(feedbackSpan) feedbackSpan.className = 'stock-feedback'; }, 3000); }
+                }
+            }
+        };
+
+        window.handleStockEnableToggle = async (checkbox) => {
+            const row = checkbox.closest('.product-row');
+            const productId = row.dataset.id;
+            const isEnabled = checkbox.checked;
+            
+            row.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn').forEach(el => {
+                if (!el.classList.contains('stock-enabled-toggle')) {
+                    el.disabled = !isEnabled;
+                }
+            });
+
+            await globalApiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify({ stock_enabled: isEnabled }) });
+        };
+        // ##################### FIM DA CORREÇÃO (FUNÇÕES GLOBAIS DE ESTOQUE) ######################
+
+
         document.addEventListener('DOMContentLoaded', async () => {
             const API_BASE_URL = 'http://localhost:10000';
             const dashboardContent = document.getElementById('dashboard-content');
@@ -173,22 +234,8 @@
             let allProductsFlat = [];
             let notificationAudio;
             let isSoundEnabled = true;
-            let listenersAttached = { 'products-tbody': false, 'complementos-tbody': false };
 
-            const apiFetch = async (endpoint, options = {}) => {
-                options.headers = { ...options.headers, 'Authorization': `Bearer ${localStorage.getItem('authToken')}`, 'Content-Type': 'application/json' };
-                const response = await fetch(`${API_BASE_URL}/api${endpoint}`, options);
-                if (response.status === 401) {
-                    localStorage.removeItem('authToken');
-                    window.location.href = 'login.html';
-                    throw new Error('Token inválido ou expirado.');
-                }
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}));
-                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
-                }
-                return response.status === 204 ? null : response.json();
-            };
+            const apiFetch = globalApiFetch;
 
             const renderPedidosPage = () => {
                 pageTitle.textContent = 'Painel de Pedidos';
@@ -256,7 +303,7 @@
                     'Pronto para Entrega': `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Finalizado</button>`
                 };
                 const actionsHtml = actionMap[order.status] || '';
-                const displayAddress = order.client_address === 'Retirada no local' ? '<strong>Retirada no Local</strong>' : order.client_address;
+                const displayAddress = order.client_address === 'Retirada no Local' ? '<strong>Retirada no Local</strong>' : order.client_address;
                 
                 const paymentInfo = order.payment_id ? `<p class="order-details">Pgto. Online: ${order.payment_status || 'Pendente'}</p>` : '';
 
@@ -349,21 +396,17 @@
                 renderProdutosPageContent();
             };
 
-            // #################### INÍCIO DA CORREÇÃO (CICLO DE RENDERIZAÇÃO) ####################
             const renderProdutosPageContent = () => {
                 const tbody = document.getElementById('products-tbody');
                 if (!tbody) return;
                 
-                // Salva o estado expandido antes de limpar o HTML
                 const expandedRowIds = new Set();
                 tbody.querySelectorAll('.toggle-children-btn.expanded').forEach(btn => { 
                     const parentRow = btn.closest('.product-row'); 
                     if(parentRow) expandedRowIds.add(parentRow.dataset.id); 
                 });
 
-                // Limpa o conteúdo e reseta o flag do listener
                 tbody.innerHTML = '';
-                listenersAttached['products-tbody'] = false;
 
                 const mainProducts = allProducts.filter(p => p.is_main_product);
                 mainProducts.forEach(product => {
@@ -375,7 +418,6 @@
                     }
                 });
 
-                // Restaura o estado expandido
                 expandedRowIds.forEach(id => {
                     const row = tbody.querySelector(`.product-row[data-id='${id}']`);
                     const btn = row?.querySelector('.toggle-children-btn');
@@ -386,7 +428,6 @@
                     }
                 });
                 
-                attachStockEventListeners('products-tbody');
                 initSortable('products-tbody', '/products/reorder');
             };
 
@@ -395,43 +436,28 @@
                 if (!tbody) return;
                 
                 tbody.innerHTML = '';
-                listenersAttached['complementos-tbody'] = false; // Reseta o flag
                 
                 const complementItems = allProductsFlat.filter(p => !p.is_main_product);
                 complementItems.forEach(item => { tbody.innerHTML += createProductRow(item, false); });
                 
-                attachStockEventListeners('complementos-tbody');
                 initSortable('complementos-tbody', '/products/reorder');
             };
 
-            window.updateStock = async (productId, dataToUpdate) => {
-                const row = document.querySelector(`tr[data-id='${productId}']`);
-                const feedbackSpan = row ? row.querySelector('.stock-feedback') : null;
-                if(feedbackSpan) { feedbackSpan.textContent = 'Salvando...'; feedbackSpan.className = 'stock-feedback show'; }
-                try {
-                    await apiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify(dataToUpdate) });
-                    if(feedbackSpan) { feedbackSpan.textContent = 'Salvo!'; feedbackSpan.className = 'stock-feedback success show'; setTimeout(() => { if(feedbackSpan) feedbackSpan.className = 'stock-feedback'; }, 2000); }
-                    
-                    // Após salvar, busca os dados novos e re-renderiza a tabela
-                    await fetchAllProducts();
-                    const currentPage = document.querySelector('nav a.active')?.id.split('-')[1];
-                    if (currentPage === 'produtos') {
-                        renderProdutosPageContent();
-                    } else if (currentPage === 'complementos') {
-                        renderComplementosPageContent();
-                    }
-
-                } catch (error) { if(feedbackSpan) { feedbackSpan.textContent = 'Falhou!'; feedbackSpan.className = 'stock-feedback error show'; setTimeout(() => { if(feedbackSpan) feedbackSpan.className = 'stock-feedback'; }, 3000); } }
+            const refreshCurrentProductView = async () => {
+                await fetchAllProducts();
+                const currentPage = document.querySelector('nav a.active')?.id.split('-')[1];
+                if (currentPage === 'produtos') {
+                    renderProdutosPageContent();
+                } else if (currentPage === 'complementos') {
+                    renderComplementosPageContent();
+                }
             };
 
             window.deleteProduct = async (id) => {
                 showCustomConfirm('Tem a certeza de que deseja apagar este item? Esta ação não pode ser desfeita.', async () => {
                     try {
                         await apiFetch(`/products/${id}`, { method: 'DELETE' });
-                        await fetchAllProducts(); // Busca dados atualizados
-                        const currentPage = document.querySelector('nav a.active')?.id.split('-')[1];
-                        if (currentPage === 'produtos') renderProdutosPageContent();
-                        else if (currentPage === 'complementos') renderComplementosPageContent();
+                        await refreshCurrentProductView();
                     } catch (error) {
                         alert('Não foi possível apagar o item.');
                     }
@@ -464,14 +490,10 @@
                 try {
                     await apiFetch(id ? `/products/${id}` : '/products', { method: id ? 'PUT' : 'POST', body: JSON.stringify(productData) });
                     closeProductModal();
-                    await fetchAllProducts(); // Busca dados atualizados
-                    const currentPage = document.querySelector('nav a.active')?.id.split('-')[1];
-                    if (currentPage === 'produtos') renderProdutosPageContent();
-                    else if (currentPage === 'complementos') renderComplementosPageContent();
+                    await refreshCurrentProductView();
                 } catch (error) { alert('Falha ao salvar o produto.'); }
                 finally { saveButton.disabled = false; saveButton.textContent = 'Salvar'; }
             };
-            // ##################### FIM DA CORREÇÃO (CICLO DE RENDERIZAÇÃO) ######################
 
             const renderComplementosPage = () => {
                 pageTitle.textContent = 'Itens de Complemento';
@@ -485,71 +507,19 @@
                 const isActuallyDisabled = (isChild && isSynced) || (!product.stock_enabled);
                 const stock_controls_disabled = isActuallyDisabled ? 'disabled' : '';
                 let parentControls = '';
-                if (!isChild && product.is_main_product) { parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="apiFetch('/products/${product.id}', { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: this.checked }) }).then(() => fetchAllProducts().then(renderProdutosPageContent))" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`; }
+                if (!isChild && product.is_main_product) { parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="apiFetch('/products/${product.id}', { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: this.checked }) }).then(refreshCurrentProductView)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`; }
                 const hasChildren = !isChild && product.children && product.children.length > 0;
                 const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
                 const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
                 let stockControlsCell = '';
                 const isParentContainerOnly = !isChild && hasChildren && !product.sell_parent_product;
                 if (isParentContainerOnly) { stockControlsCell = `<td style="font-size: 0.8rem; color: var(--text-secondary); font-style: italic; text-align: center; vertical-align: middle;">Gerenciado pelos<br>complementos</td>`; }
-                else { stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" ${stock_controls_disabled}><button class="stock-btn stock-increase" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span></div></td>`; }
+                else { stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" onchange="handleStockEnableToggle(this)" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" onclick="handleStockAdjust(this, -1)" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" onkeydown="if(event.key==='Enter'){ event.preventDefault(); handleStockSave(this); this.blur(); }" ${stock_controls_disabled}><button class="stock-btn stock-increase" onclick="handleStockAdjust(this, 1)" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" onclick="handleStockSave(this)" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span></div></td>`; }
                 return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">${dragHandle}<td><div class="product-name-cell">${toggleButton} ${isChild ? '<span class="child-indicator">↳</span>' : ''} <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail"><span>${product.name}</span></div>${parentControls}</td><td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td><td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>${stockControlsCell}<td class="action-buttons"><button onclick="openProductModal(${product.id})">Editar</button><button onclick="deleteProduct(${product.id})">Apagar</button></td></tr>`;
             };
             
             window.toggleChildren = (btn, parentId) => { btn.classList.toggle('expanded'); document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`).forEach(row => { row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row'; }); };
             
-            const attachStockEventListeners = (tbodyId) => {
-                const tbody = document.getElementById(tbodyId);
-                if (!tbody || listenersAttached[tbodyId]) return;
-
-                tbody.addEventListener('click', (e) => {
-                    const target = e.target;
-                    const row = target.closest('.product-row');
-                    if (!row) return;
-
-                    const stockInput = row.querySelector('.stock-input');
-                    if (!stockInput || stockInput.disabled) return;
-
-                    let value = parseInt(stockInput.value) || 0;
-
-                    if (target.classList.contains('stock-decrease')) {
-                        stockInput.value = Math.max(0, value - 1);
-                    } else if (target.classList.contains('stock-increase')) {
-                        stockInput.value = value + 1;
-                    } else if (target.classList.contains('stock-save-btn')) {
-                        updateStock(row.dataset.id, { stock_quantity: parseInt(stockInput.value) });
-                    }
-                });
-
-                tbody.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' && e.target.classList.contains('stock-input')) {
-                        e.preventDefault();
-                        const row = e.target.closest('.product-row');
-                        if (row && !e.target.disabled) {
-                            updateStock(row.dataset.id, { stock_quantity: parseInt(e.target.value) });
-                            e.target.blur();
-                        }
-                    }
-                });
-
-                tbody.addEventListener('change', (e) => {
-                    const target = e.target;
-                    if (!target.classList.contains('stock-enabled-toggle')) return;
-
-                    const row = target.closest('.product-row');
-                    if (!row) return;
-
-                    const productId = row.dataset.id;
-                    const isEnabled = target.checked;
-
-                    row.querySelector('.stock-controls').querySelectorAll('.stock-input, .stock-btn, .stock-save-btn').forEach(el => el.disabled = !isEnabled);
-
-                    updateStock(productId, { stock_enabled: isEnabled });
-                });
-                
-                listenersAttached[tbodyId] = true;
-            };
-
             window.openProductModal = async (id = null, isMainProduct = true) => {
                 const modal = document.getElementById('product-modal-overlay');
                 const form = document.getElementById('product-form');

@@ -239,31 +239,7 @@
             const calculateTotals = () => {
                 let subtotal = 0;
                 cart.forEach(itemGroup => {
-                    const originalProduct = allItems.find(p => p.id === itemGroup.original_id);
-                    let groupTotalValue = 0;
-                    let groupTotalQuantity = 0;
-
-                    if (itemGroup.is_combo || (originalProduct && originalProduct.force_one_to_one_complement)) {
-                        groupTotalValue = itemGroup.price * itemGroup.quantity;
-                        groupTotalQuantity = itemGroup.quantity;
-                    } else { 
-                        if (originalProduct && originalProduct.sell_parent_product) {
-                            groupTotalValue += parseFloat(originalProduct.price);
-                        }
-                        if (itemGroup.selected_items) {
-                            itemGroup.selected_items.forEach(subItem => {
-                                const subProduct = allProductsFlat.find(p => p.id === subItem.id);
-                                if (subProduct) {
-                                    groupTotalValue += parseFloat(subProduct.price) * subItem.quantity;
-                                    groupTotalQuantity += subItem.quantity;
-                                }
-                            });
-                        }
-                    }
-                    
-                    itemGroup.total_value = groupTotalValue;
-                    itemGroup.quantity = groupTotalQuantity;
-                    subtotal += groupTotalValue;
+                    subtotal += (itemGroup.total_value || 0);
                 });
 
                 const isDelivery = document.querySelector('input[name="delivery-type"]:checked').value === 'delivery';
@@ -295,17 +271,30 @@
                     let subItemsHtml = '';
                     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
                         subItemsHtml = '<div class="cart-sub-items">';
-                        itemGroup.selected_items.forEach((subItem, subItemIndex) => {
-                            subItemsHtml += `
-                                <div class="cart-sub-item">
-                                    <span>${subItem.name}</span>
-                                    <div class="quantity-control-cart">
-                                        <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, -1)">-</button>
-                                        <span>${subItem.quantity}</span>
-                                        <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, 1)">+</button>
-                                    </div>
-                                </div>`;
+                        
+                        const complementCounts = {};
+                        itemGroup.selected_items.forEach(sub => {
+                            complementCounts[sub.name] = (complementCounts[sub.name] || 0) + sub.quantity;
                         });
+
+                        subItemsHtml += Object.entries(complementCounts).map(([name, count]) => {
+                            // Para itens com complementos opcionais, adicionamos controles
+                            if (!isLockedGroup) {
+                                const subItem = itemGroup.selected_items.find(si => si.name === name);
+                                const subItemIndex = itemGroup.selected_items.indexOf(subItem);
+                                return `<div class="cart-sub-item">
+                                            <span>${name}</span>
+                                            <div class="quantity-control-cart">
+                                                <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, -1)">-</button>
+                                                <span>${count}</span>
+                                                <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, 1)">+</button>
+                                            </div>
+                                        </div>`;
+                            }
+                            // Para itens com complementos obrigatórios, apenas exibimos a contagem
+                            return `<div class="cart-sub-item"><span>${count}x ${name}</span></div>`;
+                        }).join('');
+
                         subItemsHtml += '</div>';
                     }
                     
@@ -313,7 +302,8 @@
                     if (isLockedGroup) {
                          mainControlsHtml = `<div class="quantity-control-cart"><button onclick="adjustCartItemGroupQuantity(${cartIndex}, -1)">-</button><span>${itemGroup.quantity}</span><button onclick="adjustCartItemGroupQuantity(${cartIndex}, 1)">+</button></div>`;
                     } else {
-                        mainControlsHtml = `<div class="quantity-control-cart" style="border:none; background:transparent; padding-right: 15px;"><span>${itemGroup.quantity}</span></div>`;
+                        // Para itens com complementos opcionais, os controles estão nos sub-itens
+                        mainControlsHtml = `<div class="quantity-control-cart" style="visibility: hidden;"></div>`;
                     }
 
                     dom.cartItemsContainer.innerHTML += `
@@ -322,7 +312,7 @@
                                 <img src="${itemGroup.image_url || 'https://placehold.co/60x60/f59e0b/FFF?text=Item'}" alt="${itemGroup.name}" class="cart-item-image">
                                 <div class="cart-item-info">
                                     <strong>${itemGroup.name}</strong>
-                                    <span class="cart-item-price">R$ ${itemGroup.total_value.toFixed(2).replace('.',',')}</span>
+                                    <span class="cart-item-price">R$ ${(itemGroup.total_value || 0).toFixed(2).replace('.',',')}</span>
                                 </div>
                                 <div class="cart-main-controls">
                                     ${mainControlsHtml}
@@ -336,102 +326,104 @@
                 dom.submitOrderBtn.disabled = !storeSettings.is_open;
             };
             
-            
-window.adjustCartItemQuantity = (cartIndex, subItemIndex, amount) => {
-    const itemGroup = cart[cartIndex];
-    if (!itemGroup || !itemGroup.selected_items) return;
+            window.adjustCartItemQuantity = (cartIndex, subItemIndex, amount) => {
+                const itemGroup = cart[cartIndex];
+                if (!itemGroup || !itemGroup.selected_items) return;
 
-    const subItem = itemGroup.selected_items[subItemIndex];
-    const stockCheckItem = allProductsFlat.find(p => p.id === subItem.id);
-    if (!subItem || !stockCheckItem) return;
+                const subItem = itemGroup.selected_items[subItemIndex];
+                const stockCheckItem = allProductsFlat.find(p => p.id === subItem.id);
+                if (!subItem || !stockCheckItem) return;
 
-    const newQuantity = subItem.quantity + amount;
+                const newQuantity = subItem.quantity + amount;
 
-    // Verificação de estoque
-    if (amount > 0) {
-        if (getAvailableStock(stockCheckItem) < 1) {
-            showErrorModal('Item Esgotado', `Desculpe, ${stockCheckItem.name} está esgotado.`);
-            return;
-        }
+                if (amount > 0) {
+                    if (getAvailableStock(stockCheckItem) < 1) {
+                        showErrorModal('Item Esgotado', `Desculpe, ${stockCheckItem.name} está esgotado.`);
+                        return;
+                    }
+                    socket.emit('reserve_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
+                } else if (amount < 0 && subItem.quantity > 0) {
+                    socket.emit('release_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
+                }
 
-        // ✅ Verificação de limite do combo
-        if (itemGroup.is_combo && itemGroup.selected_items) {
-            const totalComboItems = itemGroup.selected_items.reduce((sum, i) => sum + i.quantity, 0);
-            const comboOriginal = allItems.find(p => p.id === itemGroup.original_id);
-            const comboLimit = comboOriginal?.total_items_limit || Infinity;
+                if (newQuantity <= 0) {
+                    itemGroup.selected_items.splice(subItemIndex, 1);
+                } else {
+                    subItem.quantity = newQuantity;
+                }
+                
+                // Recalcula o valor total do grupo
+                let newTotalValue = 0;
+                const parentProduct = allItems.find(p => p.id === itemGroup.original_id);
+                if (parentProduct && parentProduct.sell_parent_product) {
+                    newTotalValue += parseFloat(parentProduct.price);
+                }
+                itemGroup.selected_items.forEach(si => {
+                    newTotalValue += parseFloat(si.price) * si.quantity;
+                });
+                itemGroup.total_value = newTotalValue;
 
-            if (totalComboItems >= comboLimit) {
-                showErrorModal('Limite Atingido', `Esse combo permite até ${comboLimit} itens no total.`);
-                return;
-            }
-        }
+                if (itemGroup.selected_items.length === 0 && !parentProduct.sell_parent_product) {
+                    removeCartItemGroup(cartIndex);
+                } else {
+                    renderCart();
+                }
+            };
 
-        socket.emit('reserve_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
-    } else if (amount < 0 && subItem.quantity > 0) {
-        socket.emit('release_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
-    }
+            window.adjustCartItemGroupQuantity = (cartIndex, amount) => {
+                const itemGroup = cart[cartIndex];
+                if (!itemGroup) return;
 
-    if (newQuantity <= 0) {
-        itemGroup.selected_items.splice(subItemIndex, 1);
-        const parentProduct = allItems.find(p => p.id === itemGroup.original_id);
-        if (itemGroup.selected_items.length === 0 && !parentProduct.sell_parent_product) {
-            cart.splice(cartIndex, 1);
-        }
-    } else {
-        subItem.quantity = newQuantity;
-    }
+                const originalProduct = allItems.find(p => p.id === itemGroup.original_id);
+                const newQuantity = itemGroup.quantity + amount;
 
-    renderCart();
-};
+                if (newQuantity <= 0) {
+                    removeCartItemGroup(cartIndex);
+                    return;
+                }
 
-            
-            
-window.adjustCartItemGroupQuantity = (cartIndex, amount) => {
-    const itemGroup = cart[cartIndex];
-    if (!itemGroup) return;
-
-    const newQuantity = itemGroup.quantity + amount;
-    if (newQuantity <= 0) {
-        removeCartItemGroup(cartIndex);
-        return;
-    }
-
-    let itemsToUpdate = [];
-    if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
-        itemGroup.selected_items.forEach(sub => {
-            if (!sub.base_quantity || sub.base_quantity === 0) {
-                sub.base_quantity = Math.max(1, Math.floor(sub.quantity / itemGroup.quantity));
-            }
-            itemsToUpdate.push({ id: sub.id, quantity: sub.base_quantity });
-        });
-    } else {
-        itemsToUpdate.push({ id: itemGroup.original_id, quantity: 1 });
-    }
-
-    if (amount > 0) {
-        for (const item of itemsToUpdate) {
-            const stockCheckItem = allProductsFlat.find(p => p.id === item.id);
-            if (getAvailableStock(stockCheckItem) < item.quantity) {
-                showErrorModal('Estoque Insuficiente', `Não há estoque suficiente para adicionar mais um "${itemGroup.name}".`);
-                return;
-            }
-        }
-        socket.emit('reserve_stock', itemsToUpdate);
-    } else {
-        socket.emit('release_stock', itemsToUpdate);
-    }
-
-    itemGroup.quantity = newQuantity;
-
-    if (itemGroup.selected_items) {
-        itemGroup.selected_items.forEach(sub => {
-            sub.quantity = sub.base_quantity * newQuantity;
-        });
-    }
-
-    renderCart();
-};
-
+                if (originalProduct && originalProduct.force_one_to_one_complement) {
+                    if (amount < 0) {
+                        if (itemGroup.selected_items.length > 0) {
+                            const complementToRemove = itemGroup.selected_items.pop();
+                            if (complementToRemove) {
+                                socket.emit('release_stock', [{ id: complementToRemove.id, quantity: 1 }]);
+                            }
+                            itemGroup.quantity = newQuantity;
+                            itemGroup.total_value = itemGroup.price * newQuantity;
+                        }
+                    } else { 
+                        showErrorModal('Ação Indisponível', 'Para adicionar mais itens com complementos obrigatórios, por favor, use o botão "Montar" no cardápio.');
+                        return;
+                    }
+                } else { // Lógica para combos
+                    let itemsToUpdate = [];
+                    if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
+                        itemGroup.selected_items.forEach(sub => {
+                            const baseQuantity = sub.quantity / itemGroup.quantity;
+                            itemsToUpdate.push({ id: sub.id, quantity: baseQuantity });
+                        });
+                    } else {
+                        itemsToUpdate.push({ id: itemGroup.original_id, quantity: 1 });
+                    }
+                    
+                    if (amount > 0) {
+                        for (const item of itemsToUpdate) {
+                            const stockCheckItem = allProductsFlat.find(p => p.id === item.id);
+                            if (getAvailableStock(stockCheckItem) < item.quantity) {
+                                showErrorModal('Estoque Insuficiente', `Não há estoque suficiente para adicionar mais um "${itemGroup.name}".`);
+                                return;
+                            }
+                        }
+                        socket.emit('reserve_stock', itemsToUpdate);
+                    } else {
+                        socket.emit('release_stock', itemsToUpdate);
+                    }
+                    itemGroup.quantity = newQuantity;
+                    itemGroup.total_value = itemGroup.price * newQuantity;
+                }
+                renderCart();
+            };
             
             window.removeCartItemGroup = (cartIndex) => {
                 const itemToRemove = cart[cartIndex];
@@ -442,13 +434,11 @@ window.adjustCartItemGroupQuantity = (cartIndex, amount) => {
                     itemToRemove.selected_items.forEach(sub => {
                         itemsToRelease.push({ id: sub.id, quantity: sub.quantity });
                     });
-                } else {
-                    itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
                 }
-
+                
                 const parentProduct = allItems.find(p => p.id === itemToRemove.original_id);
-                if (parentProduct && parentProduct.sell_parent_product) {
-                    itemsToRelease.push({ id: itemToRemove.original_id, quantity: 1 });
+                if (parentProduct.sell_parent_product || itemToRemove.selected_items.length === 0) {
+                     itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
                 }
 
                 socket.emit('release_stock', itemsToRelease.filter(i => i.id && i.quantity > 0));
@@ -456,19 +446,16 @@ window.adjustCartItemGroupQuantity = (cartIndex, amount) => {
                 renderCart();
             };
 
-            // #################### INÍCIO DA CORREÇÃO (SINTAXE DO EVENT LISTENER) ####################
             dom.clearCartBtn.addEventListener('click', () => {
                 if (cart.length === 0) return;
                 const allItemsToRelease = cart.flatMap(itemGroup => {
                     let items = [];
                     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
                         items = itemGroup.selected_items.map(sub => ({ id: sub.id, quantity: sub.quantity }));
-                    } else {
-                        items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
                     }
                     const parentProduct = allItems.find(p => p.id === itemGroup.original_id);
-                    if (parentProduct && parentProduct.sell_parent_product) {
-                         items.push({ id: itemGroup.original_id, quantity: 1 });
+                     if (parentProduct.sell_parent_product || itemGroup.selected_items.length === 0) {
+                        items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
                     }
                     return items;
                 }).filter(i => i && i.id && i.quantity > 0);
@@ -477,9 +464,9 @@ window.adjustCartItemGroupQuantity = (cartIndex, amount) => {
                 cart = [];
                 renderCart();
             });
-            // ##################### FIM DA CORREÇÃO (SINTAXE DO EVENT LISTENER) #####################
             
             const applyTheme = (theme) => { document.body.setAttribute('data-theme', theme); localStorage.setItem('pamonharia-theme', theme); };
+            
             const getAvailableStock = (item) => {
                 if (!item) return 0;
                 const parentId = productParentMap[item.id];
@@ -491,32 +478,22 @@ window.adjustCartItemGroupQuantity = (cartIndex, amount) => {
                 return Infinity;
             };
             
-
-const isItemEffectivelyOutOfStock = (item) => {
-    if (!item) return true;
-
-    const parentStock = getAvailableStock(item);
-
-    // ✅ Quando é obrigatório 1 complemento por item (estoque só no pai)
-    if (item.force_one_to_one_complement) {
-        return parentStock <= 0;
-    }
-
-    const hasChildren = item.children && item.children.length > 0;
-    const childrenOutOfStock = hasChildren && item.children.every(child => {
-        const childData = allProductsFlat.find(p => p.id === child.id);
-        return getAvailableStock(childData) <= 0;
-    });
-
-    // Caso venda apenas filhos
-    if (hasChildren && !item.sell_parent_product) {
-        return childrenOutOfStock;
-    }
-
-    // Caso venda só o pai
-    return parentStock <= 0;
-};
-
+            const isItemEffectivelyOutOfStock = (item) => {
+                if (!item) return true;
+                const parentStock = getAvailableStock(item);
+                if (item.force_one_to_one_complement) {
+                    return parentStock <= 0;
+                }
+                const hasChildren = item.children && item.children.length > 0;
+                const childrenOutOfStock = hasChildren && item.children.every(child => {
+                    const childData = allProductsFlat.find(p => p.id === child.id);
+                    return getAvailableStock(childData) <= 0;
+                });
+                if (hasChildren && !item.sell_parent_product) {
+                    return childrenOutOfStock;
+                }
+                return parentStock <= 0;
+            };
 
             const isComboEffectivelyOutOfStock = (combo) => {
                 if (!combo || !combo.products) return true;
@@ -603,51 +580,74 @@ const isItemEffectivelyOutOfStock = (item) => {
             const handleQuantityChange = (target, state, validator, item, options = {}) => {
                 const itemId = parseInt(target.dataset.itemId);
                 const isIncrement = target.textContent === '+';
-                let currentTotalQuantityInModalForSyncGroup = 0;
-                let stockHoldingProduct = item;
-                const parentId = productParentMap[item.id];
-                if (parentId) {
-                    const parent = allProductsFlat.find(p => p.id === parentId);
-                    if (parent && parent.stock_sync_enabled) {
-                        stockHoldingProduct = parent;
-                        currentTotalQuantityInModalForSyncGroup = Object.entries(state).filter(entry => productParentMap[entry[0]] === parentId).reduce((sum, entry) => sum + entry[1], 0);
-                    }
-                }
+                
                 if (isIncrement && options.isComplement && options.oneToOneRuleActive) {
                     const parentQty = options.getParentQty();
                     const totalComplements = options.getTotalComplementsQty();
                     if (totalComplements >= parentQty) {
-                        const feedbackMsg = `Limite de complementos atingido (${parentQty}).`;
-                        dom.modalFeedback.textContent = feedbackMsg;
+                        dom.modalFeedback.textContent = `Limite de complementos atingido (${parentQty}).`;
                         setTimeout(() => dom.modalFeedback.textContent = '', 3000);
                         return;
                     }
                 }
+
                 if (isIncrement) {
                     const availableStock = getAvailableStock(item);
-                    const currentQuantity = stockHoldingProduct.id === item.id ? (state[itemId] || 0) : currentTotalQuantityInModalForSyncGroup;
-                    if (availableStock !== Infinity && currentQuantity >= availableStock) {
-                         const feedbackMsg = `Limite de estoque para "${stockHoldingProduct.name}" atingido: ${availableStock} unid.`;
-                        dom.modalFeedback.textContent = feedbackMsg;
+                    if (availableStock !== Infinity && (state[itemId] || 0) >= availableStock) {
+                        dom.modalFeedback.textContent = `Limite de estoque para "${item.name}" atingido.`;
                         setTimeout(() => dom.modalFeedback.textContent = '', 3000);
                         return;
                     }
                     state[itemId] = (state[itemId] || 0) + 1;
-                } else { state[itemId] = Math.max(0, (state[itemId] || 0) - 1); }
+                } else {
+                    state[itemId] = Math.max(0, (state[itemId] || 0) - 1);
+                }
                 document.getElementById(`quantity-${itemId}`).textContent = state[itemId];
                 if (validator) validator();
             };
-
+            
             const addToCartAndReserve = (itemData, itemsToReserve) => {
+                dom.addToCartBtn.disabled = true;
+                dom.addToCartBtn.textContent = 'Reservando...';
+                dom.modalFeedback.textContent = '';
+
+                const successHandler = () => {
+                    socket.off('reservation_failure', failureHandler); 
+                    console.log('[Cart] Reserva confirmada pelo servidor. Adicionando ao carrinho.');
+                    cart.push({ ...itemData, cart_id: `cart_${Date.now()}` });
+                    renderCart();
+                    dom.modal.style.display = 'none';
+                    dom.addToCartBtn.disabled = false;
+                    dom.addToCartBtn.textContent = 'Adicionar ao Carrinho';
+                };
+
+                const failureHandler = ({ message }) => {
+                    socket.off('reservation_success', successHandler); 
+                    console.error('[Cart] Falha na reserva:', message);
+                    dom.modalFeedback.textContent = `Erro: ${message}`;
+                    dom.addToCartBtn.disabled = false;
+                    dom.addToCartBtn.textContent = 'Adicionar ao Carrinho';
+                };
+
+                socket.once('reservation_success', successHandler);
+                socket.once('reservation_failure', failureHandler);
                 socket.emit('reserve_stock', itemsToReserve);
-                socket.once('reservation_success', () => { cart.push({ ...itemData, cart_id: `cart_${Date.now()}` }); renderCart(); dom.modal.style.display = 'none'; });
-                socket.once('reservation_failure', ({ message }) => { dom.modalFeedback.textContent = `Erro: ${message}`; });
             };
+
             window.addToCartSimple = (itemId) => {
                 const item = allProductsFlat.find(p => p.id === itemId);
                 if (!item || isItemEffectivelyOutOfStock(item)) return;
                 const itemsToReserve = [{ id: item.id, quantity: 1 }];
-                const itemData = { original_id: item.id, name: item.name, price: item.price, image_url: item.image_url, quantity: 1, is_combo: false, selected_items: [] };
+                const itemData = { 
+                    original_id: item.id, 
+                    name: item.name, 
+                    price: parseFloat(item.price), 
+                    total_value: parseFloat(item.price),
+                    image_url: item.image_url, 
+                    quantity: 1, 
+                    is_combo: false, 
+                    selected_items: [] 
+                };
                 addToCartAndReserve(itemData, itemsToReserve);
             };
 
@@ -656,6 +656,7 @@ const isItemEffectivelyOutOfStock = (item) => {
                 dom.modalBody.innerHTML = config.body || '';
                 dom.modalFeedback.textContent = '';
                 dom.addToCartBtn.textContent = 'Adicionar ao Carrinho';
+                dom.addToCartBtn.disabled = false;
                 dom.addToCartBtn.onclick = config.onSave;
                 dom.modal.querySelector('.modal-close-btn').onclick = () => dom.modal.style.display = 'none';
                 dom.modal.style.display = 'flex';
@@ -667,73 +668,83 @@ const isItemEffectivelyOutOfStock = (item) => {
                 if (!product) return;
                 let selectedItemsInModal = {};
                 let bodyHtml = '';
-                const initialParentQty = (product.sell_parent_product || !product.children || product.children.length === 0) ? 1 : 0;
+                
                 if (product.sell_parent_product) {
                     const isParentOutOfStock = isItemEffectivelyOutOfStock(product);
-                    bodyHtml += `<div class="modal-parent-item"><span>${product.name} (Base)</span><div class="quantity-control"><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${product.id}">${initialParentQty}</span><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
-                    if (initialParentQty > 0) selectedItemsInModal[product.id] = initialParentQty;
+                    bodyHtml += `<div class="modal-parent-item"><span>${product.name} (Base)</span><div class="quantity-control"><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${product.id}">0</span><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
                 }
+
                 if (product.children && product.children.length > 0) {
                     bodyHtml += `<h4>${product.sell_parent_product ? 'Adicione complementos:' : 'Escolha os sabores:'}</h4>`;
                     product.children.forEach(option => {
                         const fullOptionData = allProductsFlat.find(p => p.id === option.id);
                         const isOptionOutOfStock = isItemEffectivelyOutOfStock(fullOptionData);
-                        bodyHtml += `<div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}"><label>${option.name} (R$ ${parseFloat(option.price).toFixed(2).replace('.',',')})</label><div class="quantity-control"><button data-item-id="${option.id}" data-is-complement="true" ${isOptionOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${option.id}">0</span><button data-item-id="${option.id}" data-is-complement="true" ${isOptionOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
+                        bodyHtml += `<div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}"><label>${option.name} (+ R$ ${parseFloat(option.price).toFixed(2).replace('.',',')})</label><div class="quantity-control"><button data-item-id="${option.id}" data-is-complement="true" ${isOptionOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${option.id}">0</span><button data-item-id="${option.id}" data-is-complement="true" ${isOptionOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
                     });
                 }
+                
                 const onSave = () => {
                     let selected_items_details = [], itemsToReserve = [];
-                    const parentData = allProductsFlat.find(p => p.id === product.id);
-                    const isStockSynced = parentData && parentData.stock_sync_enabled;
+                    let finalPrice = 0;
+                    let finalQuantity = 0;
+                    
+                    const parentQty = selectedItemsInModal[product.id] || 0;
+                    if (product.sell_parent_product && parentQty > 0) {
+                        finalPrice += parseFloat(product.price || 0) * parentQty;
+                        itemsToReserve.push({ id: product.id, quantity: parentQty });
+                        finalQuantity = parentQty;
+                    }
 
                     for (const [id, quantity] of Object.entries(selectedItemsInModal)) {
-                        if (quantity > 0) {
+                        if (quantity > 0 && id != product.id) {
                             const selectedItem = allProductsFlat.find(i => i.id == id);
-                            if (!selectedItem) continue;
-
-                            if (!isStockSynced) {
-                                itemsToReserve.push({ id: selectedItem.id, quantity });
-                            }
-                            
-                            if (selectedItem.id !== product.id) {
-                                selected_items_details.push({ id: selectedItem.id, name: selectedItem.name, quantity: quantity, base_quantity: quantity, price: selectedItem.price });
+                            if (selectedItem) {
+                                selected_items_details.push({ id: selectedItem.id, name: selectedItem.name, quantity: quantity, price: selectedItem.price });
+                                finalPrice += parseFloat(selectedItem.price || 0) * quantity;
+                                itemsToReserve.push({ id: selectedItem.id, quantity: quantity });
                             }
                         }
                     }
 
-                    if (isStockSynced) {
-                        const totalQuantityToReserve = selected_items_details.reduce((sum, item) => sum + item.quantity, 0) + (selectedItemsInModal[product.id] || 0);
-                        if(totalQuantityToReserve > 0) itemsToReserve.push({ id: product.id, quantity: totalQuantityToReserve });
+                    if (product.force_one_to_one_complement) {
+                        finalQuantity = parentQty;
+                    } else if (!product.sell_parent_product) {
+                        finalQuantity = selected_items_details.reduce((sum, item) => sum + item.quantity, 0);
                     }
                     
-                    const finalQuantity = selected_items_details.reduce((sum, item) => sum + item.quantity, 0) || (product.sell_parent_product ? selectedItemsInModal[product.id] : 0) || 1;
-                    
-                    const itemData = { original_id: product.id, name: product.name, price: 0, quantity: finalQuantity, is_combo: false, selected_items: selected_items_details, image_url: product.image_url };
+                    const itemData = { 
+                        original_id: product.id, 
+                        name: product.name, 
+                        price: finalPrice / finalQuantity || 0,
+                        total_value: finalPrice,
+                        quantity: finalQuantity, 
+                        is_combo: false, 
+                        selected_items: selected_items_details, 
+                        image_url: product.image_url 
+                    };
                     addToCartAndReserve(itemData, itemsToReserve);
                 };
+
                 const validator = () => {
                     const totalSelected = Object.values(selectedItemsInModal).reduce((sum, qty) => sum + qty, 0);
-                    let isValid = totalSelected > 0, totalQuantityForButton = 0;
+                    let isValid = totalSelected > 0;
+                    let buttonText = 'Adicionar ao Carrinho';
+
                     if (product.force_one_to_one_complement) {
                         const parentQty = selectedItemsInModal[product.id] || 0;
-                        totalQuantityForButton = parentQty;
                         const totalComplementsQty = Object.entries(selectedItemsInModal).filter(entry => entry[0] != product.id).reduce((sum, entry) => sum + entry[1], 0);
                         const diff = parentQty - totalComplementsQty;
-                        dom.modalFeedback.textContent = diff > 0 ? `Selecione mais ${diff} complemento(s).` : (diff < 0 ? `Remova ${-diff} complemento(s).` : '');
+                        
+                        dom.modalFeedback.textContent = diff !== 0 ? `A seleção de complementos (${totalComplementsQty}) deve ser igual à do item principal (${parentQty}).` : '';
                         isValid = (parentQty === totalComplementsQty) && parentQty > 0;
-                    } else if (!product.sell_parent_product) {
-                        totalQuantityForButton = Object.entries(selectedItemsInModal).filter(entry => entry[0] != product.id).reduce((sum, entry) => sum + entry[1], 0);
-                        isValid = totalQuantityForButton > 0;
-                    } else {
-                        totalQuantityForButton = selectedItemsInModal[product.id] || 0;
-                        isValid = totalQuantityForButton > 0;
-                        dom.modalFeedback.textContent = '';
+                        if (isValid) buttonText = `Adicionar ${parentQty} item(ns)`;
                     }
-                    dom.addToCartBtn.textContent = (isValid && totalQuantityForButton > 0) ? `Adicionar (${totalQuantityForButton}) ao Carrinho` : 'Adicionar ao Carrinho';
+                    
+                    dom.addToCartBtn.textContent = buttonText;
                     dom.addToCartBtn.disabled = !isValid;
                 };
 
-                setupModal({ title: `Adicionar ${product.name}`, description: product.force_one_to_one_complement ? 'Escolha a mesma quantidade de complementos que a do item principal.' : 'Selecione as opções.', body: bodyHtml, onSave, onOpen: validator });
+                setupModal({ title: `Montar ${product.name}`, description: 'Selecione os itens e quantidades desejadas.', body: bodyHtml, onSave, onOpen: validator });
                 dom.modalBody.querySelectorAll('.quantity-control button[data-item-id]').forEach(button => {
                     button.addEventListener('click', (e) => {
                         const optionId = e.target.dataset.itemId;
@@ -778,11 +789,11 @@ const isItemEffectivelyOutOfStock = (item) => {
                             const product = allProductsFlat.find(p => p.id == id);
                             const comboProductInfo = combo.products.find(p => p.id == id);
                             finalPrice += parseFloat(comboProductInfo.price_modifier || 0) * quantity;
-                            selected_items.push({ id: product.id, name: product.name, quantity: quantity, base_quantity: quantity, price: product.price });
-                            itemsToReserve.push({ id: product.id, quantity });
+                            selected_items.push({ id: product.id, name: product.name, quantity: quantity, price: product.price });
+                            itemsToReserve.push({ id: product.id, quantity: quantity });
                         }
                     }
-                    const itemData = { original_id: combo.id, name: combo.name, price: finalPrice, is_combo: true, quantity: 1, selected_items, image_url: combo.image_url };
+                    const itemData = { original_id: combo.id, name: combo.name, price: finalPrice, total_value: finalPrice, is_combo: true, quantity: 1, selected_items, image_url: combo.image_url };
                     addToCartAndReserve(itemData, itemsToReserve);
                 };
                 setupModal({ title: `Montar ${combo.name}`, description: `Selecione exatamente ${combo.total_items_limit} itens.`, body: comboBodyHtml, onSave, onOpen: validator });

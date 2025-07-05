@@ -62,47 +62,43 @@ io.on('connection', (socket) => {
     console.log(`[SocketIO-Server] 📦 Enviando estado inicial do estoque para o cliente ${socket.id}.`);
     socket.emit('stock_update', liveInventory);
 
-    // ######################## INÍCIO DA CORREÇÃO (SINCRONIZAÇÃO ATÔMICA) ########################
+    // #################### INÍCIO DA CORREÇÃO (AGREGAÇÃO DE ESTOQUE) ####################
     const handleStockChange = async (items, operation) => {
         const trx = await connection.transaction();
         try {
+            const stockChanges = new Map();
+
+            // 1. AGREGAR MUDANÇAS: Agrupa todas as requisições pelo produto que realmente controla o estoque.
             for (const item of items) {
                 if (!item.id || !item.quantity) continue;
 
-                // Encontra o produto que efetivamente controla o estoque (pode ser ele mesmo ou o pai)
                 const product = await trx('products').where('id', item.id).first();
-                if (!product) continue;
+                if (!product || !product.stock_enabled) continue;
 
-                let stockHoldingProduct = product;
+                let stockHoldingProductId = product.id;
                 if (product.parent_product_id) {
                     const parent = await trx('products').where('id', product.parent_product_id).first();
                     if (parent && parent.stock_sync_enabled) {
-                        stockHoldingProduct = parent;
+                        stockHoldingProductId = parent.id;
                     }
                 }
                 
-                if (stockHoldingProduct.stock_enabled) {
-                    const currentStock = liveInventory[stockHoldingProduct.id] ?? stockHoldingProduct.stock_quantity;
-                    const quantityChange = operation === 'decrement' ? item.quantity : -item.quantity;
-
-                    if (operation === 'decrement' && currentStock < item.quantity) {
-                        throw new Error(`Estoque insuficiente para ${stockHoldingProduct.name}. Disponível: ${currentStock}.`);
-                    }
-
-                    // 1. Atualiza o estoque do produto que detém o controle
-                    await trx('products').where('id', stockHoldingProduct.id)[operation]('stock_quantity', item.quantity);
-                    liveInventory[stockHoldingProduct.id] = (liveInventory[stockHoldingProduct.id] || 0) - quantityChange;
-
-                    // 2. Se o produto que detém o estoque tem sincronização ativa, propaga a alteração para os filhos
-                    if (stockHoldingProduct.stock_sync_enabled) {
-                        console.log(`[SocketIO-Server] Sincronização ativa para ${stockHoldingProduct.name}. Propagando estoque para os filhos.`);
-                        const newStockValue = await trx('products').where('id', stockHoldingProduct.id).select('stock_quantity').first();
-                        await trx('products')
-                            .where('parent_product_id', stockHoldingProduct.id)
-                            .update({ stock_quantity: newStockValue.stock_quantity });
-                    }
-                }
+                const currentChange = stockChanges.get(stockHoldingProductId) || 0;
+                stockChanges.set(stockHoldingProductId, currentChange + item.quantity);
             }
+
+            // 2. VALIDAR E APLICAR: Itera sobre as mudanças agregadas e aplica ao banco de dados.
+            for (const [productId, totalQuantityChange] of stockChanges.entries()) {
+                const product = await trx('products').where('id', productId).first();
+                const currentStock = liveInventory[productId] ?? product.stock_quantity;
+
+                if (operation === 'decrement' && currentStock < totalQuantityChange) {
+                    throw new Error(`Estoque insuficiente para ${product.name}. Disponível: ${currentStock}, Solicitado: ${totalQuantityChange}.`);
+                }
+
+                await trx('products').where('id', productId)[operation]('stock_quantity', totalQuantityChange);
+            }
+
             await trx.commit();
             return { success: true };
         } catch (error) {
@@ -111,13 +107,14 @@ io.on('connection', (socket) => {
             return { success: false, message: error.message };
         }
     };
+    // ##################### FIM DA CORREÇÃO (AGREGAÇÃO DE ESTOQUE) ######################
 
     socket.on('reserve_stock', async (itemsToReserve) => {
         console.log(`[SocketIO-Server] 📥 Recebido "reserve_stock" de ${socket.id} para os itens:`, itemsToReserve);
         const result = await handleStockChange(itemsToReserve, 'decrement');
         if (result.success) {
             socket.emit('reservation_success');
-            await initializeInventory(); // Recarrega o inventário do DB e transmite para todos
+            await initializeInventory(); 
         } else {
             socket.emit('reservation_failure', { message: result.message });
         }
@@ -125,10 +122,10 @@ io.on('connection', (socket) => {
 
     socket.on('release_stock', async (itemsToRelease) => {
         console.log(`[SocketIO-Server] 📤 Recebido "release_stock" de ${socket.id} para os itens:`, itemsToRelease);
+        // Para 'release', a operação no banco de dados é de incremento.
         await handleStockChange(itemsToRelease, 'increment');
-        await initializeInventory(); // Recarrega o inventário do DB e transmite para todos
+        await initializeInventory();
     });
-    // ######################### FIM DA CORREÇÃO (SINCRONIZAÇÃO ATÔMICA) ##########################
     
     socket.on('force_inventory_reload', () => {
         console.log(`[SocketIO-Server] 🔄 Recebido "force_inventory_reload" de ${socket.id}. Recarregando...`);
