@@ -8,6 +8,93 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <script src="https://sdk.mercadopago.com/js/v2">
+async function initializePaymentBrick() {
+  if (!mp) {
+    showErrorModal('Erro de Configuração', 'Não foi possível carregar as configurações de pagamento.');
+    return;
+  }
+
+  if (window.paymentBrickController) {
+    window.paymentBrickController.unmount();
+  }
+
+  const settings = {
+    initialization: {
+      amount: currentOrder.total_price,
+      purpose: 'wallet_purchase'
+    },
+    customization: {
+      paymentMethods: {
+        paymentMethods: {
+          credit_card: true,
+          pix: true,
+          ticket: false,
+          bank_transfer: false,
+          debit_card: false
+        },
+        maxInstallments: 1
+      },
+      visual: {
+        style: {
+          theme: document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+        }
+      }
+    },
+    callbacks: {
+      onReady: () => {
+        console.log('✅ Payment Brick está pronto.');
+        dom.paymentProcessingOverlay.style.display = 'none';
+        dom.paymentBrickContainer.style.display = 'block';
+      },
+      onError: (error) => {
+        console.error('❌ Erro no Payment Brick:', error);
+        showErrorModal('Erro de Pagamento', 'Erro ao carregar opções de pagamento. Tente novamente.');
+        dom.paymentProcessingOverlay.style.display = 'none';
+        dom.orderForm.style.display = 'block';
+      },
+      onSubmit: async ({ selectedPaymentMethod, formData }) => {
+        dom.paymentBrickContainer.style.display = 'none';
+        dom.paymentProcessingOverlay.style.display = 'flex';
+
+        try {
+          const paymentResponse = await apiFetch('/payments/process', {
+            method: 'POST',
+            body: JSON.stringify({
+              order_id: currentOrder.id,
+              payment_method_id: selectedPaymentMethod,
+              ...formData
+            })
+          });
+
+          dom.paymentProcessingOverlay.style.display = 'none';
+
+          if (selectedPaymentMethod === 'pix') {
+            dom.pixQrCode.src = `data:image/jpeg;base64,${paymentResponse.qr_code_base64}`;
+            dom.pixCopyPaste.value = paymentResponse.qr_code;
+            dom.pixPaymentContainer.style.display = 'block';
+          } else {
+            dom.cartWrapper.style.display = 'none';
+            dom.successMessage.style.display = 'block';
+            dom.successMessage.innerHTML = `<h3>Pagamento Aprovado!</h3><p>Pedido #${currentOrder.id} confirmado e em preparo.</p>`;
+          }
+
+          cart = [];
+          localStorage.removeItem('pamonharia-cart');
+
+        } catch (error) {
+          dom.paymentProcessingOverlay.style.display = 'none';
+          showErrorModal('Pagamento Falhou', `Erro ao processar o pagamento. Detalhe: ${error.message}`);
+          dom.paymentBrickContainer.style.display = 'block';
+        }
+      }
+    }
+  };
+
+  window.paymentBrickController = await mp.bricks().create('payment', 'payment-brick-container', settings);
+}
+
+</script>
 </head>
 <body>
     <div class="container">
@@ -50,9 +137,10 @@
                         <div class="total-row" id="delivery-fee-row"><span>Taxa de Entrega</span><span id="delivery-fee">R$ 0,00</span></div>
                         <div class="total-row grand-total"><span>Total</span><span id="grand-total">R$ 0,00</span></div>
                     </div>
-                    <div class="checkout-form">
-                        <h3>Finalizar Pedido</h3>
+                    
+                    <div class="checkout-container">
                         <form id="order-form">
+                            <h3>Finalizar Pedido</h3>
                             <div class="form-group"><label for="client-name">Nome</label><input type="text" id="client-name" required></div>
                             <div class="form-group"><label for="client-phone">Contacto (WhatsApp)</label><input type="tel" id="client-phone" required></div>
                             <div class="delivery-options"><label><input type="radio" name="delivery-type" value="delivery" checked> Entrega</label><label><input type="radio" name="delivery-type" value="pickup"> Retirada</label></div>
@@ -60,17 +148,25 @@
                             <div class="payment-options">
                                 <p>Forma de Pagamento:</p>
                                 <label><input type="radio" name="payment-method" value="on_delivery" checked> Pagar na Entrega/Retirada</label>
-                                <label>
-                                    <input type="radio" name="payment-method" value="online"> Pagar Online
-                                    <span class="payment-icons">
-                                        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12.0002 2.66602L15.3335 5.99935L12.0002 9.33268L8.66683 5.99935L12.0002 2.66602Z" fill="#32BCAD"></path><path d="M5.99984 8.66602L2.6665 11.9993L5.99984 15.3327L9.33317 11.9993L5.99984 8.66602Z" fill="#32BCAD"></path><path d="M18.0002 8.66602L14.6668 11.9993L18.0002 15.3327L21.3335 11.9993L18.0002 8.66602Z" fill="#32BCAD"></path><path d="M12.0002 14.666L15.3335 17.9994L12.0002 21.3327L8.66683 17.9994L12.0002 14.666Z" fill="#32BCAD"></path></svg>
-                                        <svg viewBox="0 0 38 24" xmlns="http://www.w3.org/2000/svg"><path d="M35 0H3C1.3 0 0 1.3 0 3v18c0 1.7 1.4 3 3 3h32c1.7 0 3-1.3 3-3V3c0-1.7-1.4-3-3-3z" fill="#1A1F71"/><path d="M15.2 14.5l-2.3-8.8H9.4l-1.3 6.2c-.3-1.2-1.3-3.1-2.2-4.1-.9-1-2.1-1.8-3.1-2.1L2.6 14.5h3.2l.9-4.1c.2-.9.4-1.7.5-2.1.2.9.4 1.7.6 2.5l.6 3.7h3.1zM28.9 5.7c-1.3 0-2.4.6-2.9 1.5-.5-.8-1.5-1.5-2.8-1.5-1.5 0-2.7 1-2.7 2.5 0 1.3.8 2 1.4 2.4.6.4 1.1.7 1.1.9 0 .3-.3.5-.8.5-.7 0-1.1-.2-1.6-.5l-.3-.1-.3 2.5c.5.2 1.3.4 2.1.4 1.6 0 2.8-1 2.8-2.6 0-1.1-.7-1.8-1.4-2.3-.5-.4-1-.6-1-.9 0-.3.3-.5.7-.5.5 0 .9.2 1.2.4l.2.1.3-2.3c-.4-.2-1-.3-1.6-.3zm-8.2 0l-1.4 8.8h3l1.4-8.8h-3zM34.6 9.1l-1.2-3.4H31l-2.4 8.8h3.1l.4-1.5h2.4l.3 1.5h2.9L34.6 9.1zm-2.8 3.8l.7-2.4.4 2.4h-1.1z" fill="#fff"/></svg>
-                                        <svg viewBox="0 0 38 24" xmlns="http://www.w3.org/2000/svg"><path d="M35 0H3C1.3 0 0 1.3 0 3v18c0 1.7 1.4 3 3 3h32c1.7 0 3-1.3 3-3V3c0-1.7-1.4-3-3-3z" fill="#222"/><path d="M15 12a7 7 0 100-14 7 7 0 000 14z" fill="#EB001B"/><path d="M23 12a7 7 0 110-14 7 7 0 010 14z" fill="#F79E1B"/><path d="M19 12a7 7 0 01-8-7 7 7 0 000 14 7 7 0 008-7z" fill="#FF5F00"/></svg>
-                                    </span>
-                                </label>
+                                <label><input type="radio" name="payment-method" value="online"> Pagar Online (Pix ou Cartão)</label>
                             </div>
                             <button type="submit" class="action-button" id="submit-order" disabled>Finalizar Pedido</button>
                         </form>
+
+                        <div id="payment-brick-container" style="display: none;"></div>
+                        <div id="pix-payment-container" style="display: none;">
+                            <h4>Pague com Pix para confirmar seu pedido</h4>
+                            <p>Abra o app do seu banco e escaneie o código abaixo:</p>
+                            <img id="pix-qr-code" src="" alt="Código QR do Pix">
+                            <input type="text" id="pix-copy-paste" readonly>
+                            <button id="pix-copy-btn">Copiar Código</button>
+                            <p class="pix-expiration">Este código expira em 30 minutos.</p>
+                        </div>
+                        
+                        <div id="payment-processing-overlay" style="display: none;">
+                            <div class="spinner"></div>
+                            <p>A processar pagamento...</p>
+                        </div>
                     </div>
                 </div>
                 <div id="order-success-message" style="display: none;"><h3>Obrigado pelo seu pedido!</h3><p>Ele já foi enviado para a nossa cozinha e em breve chegará até você.</p></div>
@@ -96,11 +192,99 @@
         </div>
     </div>
 
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js">
+async function initializePaymentBrick() {
+  if (!mp) {
+    showErrorModal('Erro de Configuração', 'Não foi possível carregar as configurações de pagamento.');
+    return;
+  }
+
+  if (window.paymentBrickController) {
+    window.paymentBrickController.unmount();
+  }
+
+  const settings = {
+    initialization: {
+      amount: currentOrder.total_price,
+      purpose: 'wallet_purchase'
+    },
+    customization: {
+      paymentMethods: {
+        paymentMethods: {
+          credit_card: true,
+          pix: true,
+          ticket: false,
+          bank_transfer: false,
+          debit_card: false
+        },
+        maxInstallments: 1
+      },
+      visual: {
+        style: {
+          theme: document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+        }
+      }
+    },
+    callbacks: {
+      onReady: () => {
+        console.log('✅ Payment Brick está pronto.');
+        dom.paymentProcessingOverlay.style.display = 'none';
+        dom.paymentBrickContainer.style.display = 'block';
+      },
+      onError: (error) => {
+        console.error('❌ Erro no Payment Brick:', error);
+        showErrorModal('Erro de Pagamento', 'Erro ao carregar opções de pagamento. Tente novamente.');
+        dom.paymentProcessingOverlay.style.display = 'none';
+        dom.orderForm.style.display = 'block';
+      },
+      onSubmit: async ({ selectedPaymentMethod, formData }) => {
+        dom.paymentBrickContainer.style.display = 'none';
+        dom.paymentProcessingOverlay.style.display = 'flex';
+
+        try {
+          const paymentResponse = await apiFetch('/payments/process', {
+            method: 'POST',
+            body: JSON.stringify({
+              order_id: currentOrder.id,
+              payment_method_id: selectedPaymentMethod,
+              ...formData
+            })
+          });
+
+          dom.paymentProcessingOverlay.style.display = 'none';
+
+          if (selectedPaymentMethod === 'pix') {
+            dom.pixQrCode.src = `data:image/jpeg;base64,${paymentResponse.qr_code_base64}`;
+            dom.pixCopyPaste.value = paymentResponse.qr_code;
+            dom.pixPaymentContainer.style.display = 'block';
+          } else {
+            dom.cartWrapper.style.display = 'none';
+            dom.successMessage.style.display = 'block';
+            dom.successMessage.innerHTML = `<h3>Pagamento Aprovado!</h3><p>Pedido #${currentOrder.id} confirmado e em preparo.</p>`;
+          }
+
+          cart = [];
+          localStorage.removeItem('pamonharia-cart');
+
+        } catch (error) {
+          dom.paymentProcessingOverlay.style.display = 'none';
+          showErrorModal('Pagamento Falhou', `Erro ao processar o pagamento. Detalhe: ${error.message}`);
+          dom.paymentBrickContainer.style.display = 'block';
+        }
+      }
+    }
+  };
+
+  window.paymentBrickController = await mp.bricks().create('payment', 'payment-brick-container', settings);
+}
+
+</script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const API_BASE_URL = 'http://localhost:10000';
             const socket = io(API_BASE_URL);
+
+            let mp;
 
             const dom = {
                 productsGrid: document.getElementById('products-grid'),
@@ -130,6 +314,12 @@
                 errorModal: document.getElementById('error-modal'),
                 errorModalTitle: document.getElementById('error-modal-title'),
                 errorModalMessage: document.getElementById('error-modal-message'),
+                paymentBrickContainer: document.getElementById('payment-brick-container'),
+                pixPaymentContainer: document.getElementById('pix-payment-container'),
+                pixQrCode: document.getElementById('pix-qr-code'),
+                pixCopyPaste: document.getElementById('pix-copy-paste'),
+                pixCopyBtn: document.getElementById('pix-copy-btn'),
+                paymentProcessingOverlay: document.getElementById('payment-processing-overlay'),
             };
 
             let cart = [];
@@ -138,7 +328,8 @@
             let productParentMap = {};
             let storeSettings = {};
             let liveStockState = {};
-            
+            let currentOrder = null;
+
             const showErrorModal = (title, message) => {
                 dom.errorModalTitle.textContent = title;
                 dom.errorModalMessage.textContent = message;
@@ -149,13 +340,26 @@
                 try {
                     options.headers = { ...options.headers, 'Content-Type': 'application/json' };
                     const response = await fetch(`${API_BASE_URL}/api${endpoint}`, options);
-                    return response;
+                    
+                    const responseBodyText = await response.text();
+
+                    if (!response.ok) {
+                        let errorJson = {};
+                        try {
+                            errorJson = JSON.parse(responseBodyText);
+                        } catch (e) {
+                            throw new Error(responseBodyText || `HTTP error! status: ${response.status}`);
+                        }
+                        throw new Error(errorJson.error || `HTTP error! status: ${response.status}`);
+                    }
+
+                    return responseBodyText ? JSON.parse(responseBodyText) : null;
                 } catch (error) {
-                    console.error(`Erro de rede ou fetch para ${endpoint}:`, error);
-                    throw new Error("Erro de conexão. Verifique sua rede e tente novamente.");
+                    console.error(`Erro de API para ${endpoint}:`, error);
+                    throw error;
                 }
             };
-            
+
             const checkPaymentStatusFromURL = () => {
                 const urlParams = new URLSearchParams(window.location.search);
                 const status = urlParams.get('status');
@@ -178,11 +382,12 @@
 
             dom.orderForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
+                const paymentMethod = document.querySelector('input[name="payment-method"]:checked').value;
+                
                 dom.submitOrderBtn.disabled = true;
                 dom.submitOrderBtn.textContent = 'A processar...';
-                
+
                 const deliveryType = document.querySelector('input[name="delivery-type"]:checked').value;
-                const paymentMethod = document.querySelector('input[name="payment-method"]:checked').value;
                 const address = deliveryType === 'delivery' ? dom.clientAddressInput.value : 'Retirada no local';
                 
                 const itemsForBackend = cart.map(itemGroup => ({
@@ -202,27 +407,14 @@
                     total_price: parseFloat(dom.grandTotalEl.textContent.replace('R$ ', '').replace(',', '.')),
                     payment_method: paymentMethod
                 };
-                
+
                 try {
-                    const orderResponse = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(orderData) });
-                    const createdOrder = await orderResponse.json();
-                    
-                    if (!orderResponse.ok) {
-                        throw new Error(createdOrder.error || 'Erro desconhecido ao criar pedido.');
-                    }
+                    currentOrder = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(orderData) });
                     
                     if (paymentMethod === 'online') {
-                        dom.submitOrderBtn.textContent = 'A redirecionar para o pagamento...';
-                        
-                        const preferenceResponse = await apiFetch(`/payments/create-preference/${createdOrder.id}`, { method: 'POST' });
-                        const preferenceResult = await preferenceResponse.json();
-                        
-                        if (!preferenceResponse.ok) {
-                           throw new Error(preferenceResult.details || preferenceResult.error || 'Erro desconhecido ao iniciar pagamento.');
-                        }
-
-                        window.location.href = preferenceResult.checkout_url;
-
+                        dom.orderForm.style.display = 'none';
+                        dom.paymentBrickContainer.style.display = 'block';
+                        await initializePaymentBrick();
                     } else {
                         dom.cartWrapper.style.display = 'none';
                         dom.successMessage.style.display = 'block';
@@ -230,10 +422,22 @@
                         localStorage.removeItem('pamonharia-cart');
                     }
                 } catch (error) {
-                    showErrorModal('Falha no Pedido', `Não foi possível processar seu pedido. Por favor, tente novamente. Detalhe: ${error.message}`);
+                    showErrorModal('Falha no Pedido', `Não foi possível criar seu pedido. Detalhe: ${error.message}`);
                     dom.submitOrderBtn.disabled = false;
                     dom.submitOrderBtn.textContent = 'Finalizar Pedido';
                 }
+            });
+
+
+                
+                window.paymentBrickController = await mp.bricks().create('payment', 'payment-brick-container', settings);
+            }
+
+            dom.pixCopyBtn.addEventListener('click', () => {
+                dom.pixCopyPaste.select();
+                document.execCommand('copy');
+                dom.pixCopyBtn.textContent = 'Copiado!';
+                setTimeout(() => { dom.pixCopyBtn.textContent = 'Copiar Código'; }, 2000);
             });
 
             const calculateTotals = () => {
@@ -272,9 +476,7 @@
                     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
                         subItemsHtml = '<div class="cart-sub-items">';
                         
-                        // #################### INÍCIO DA CORREÇÃO ####################
                         if (!isLockedGroup) {
-                            // Para itens com complementos opcionais, renderiza cada um numa linha separada.
                             subItemsHtml += itemGroup.selected_items.map((subItem, subItemIndex) => {
                                 return `<div class="cart-sub-item">
                                             <span>${subItem.name}</span>
@@ -286,7 +488,6 @@
                                         </div>`;
                             }).join('');
                         } else {
-                            // Para combos e itens com complementos obrigatórios (grupos bloqueados), agrega as quantidades.
                             const complementCounts = {};
                             itemGroup.selected_items.forEach(sub => {
                                 complementCounts[sub.name] = (complementCounts[sub.name] || 0) + sub.quantity;
@@ -295,7 +496,6 @@
                                 return `<div class="cart-sub-item"><span>${count * itemGroup.quantity}x ${name}</span></div>`;
                             }).join('');
                         }
-                        // ##################### FIM DA CORREÇÃO ######################
 
                         subItemsHtml += '</div>';
                     }
@@ -304,7 +504,6 @@
                     if (isLockedGroup) {
                          mainControlsHtml = `<div class="quantity-control-cart"><button onclick="adjustCartItemGroupQuantity(${cartIndex}, -1)">-</button><span>${itemGroup.quantity}</span><button onclick="adjustCartItemGroupQuantity(${cartIndex}, 1)">+</button></div>`;
                     } else {
-                        // Para itens com complementos opcionais, os controles estão nos sub-itens.
                         mainControlsHtml = `<div class="quantity-control-cart" style="visibility: hidden;"></div>`;
                     }
 
@@ -349,19 +548,14 @@
                 }
 
                 if (newQuantity <= 0) {
-                    // Se a quantidade do sub-item chega a zero, remove-o da lista
                     itemGroup.selected_items.splice(subItemIndex, 1);
                 } else {
                     subItem.quantity = newQuantity;
                 }
                 
-                // Recalcula o valor total do grupo
                 let newTotalValue = 0;
                 const parentProduct = allItems.find(p => p.id === itemGroup.original_id);
-                // O preço do "Pai" só é contado se ele for vendável E se a quantidade de complementos for forçada 1 a 1.
-                // Nos outros casos, o preço do pai é 0, e o valor vem só dos complementos.
                 if (parentProduct && parentProduct.sell_parent_product) {
-                    // A quantidade do pai é a soma das quantidades dos filhos
                     const parentQuantity = itemGroup.selected_items.reduce((sum, si) => sum + si.quantity, 0);
                     newTotalValue += parseFloat(parentProduct.price) * parentQuantity;
                 }
@@ -370,7 +564,6 @@
                 });
                 itemGroup.total_value = newTotalValue;
 
-                // Se não há mais complementos e o produto pai não é vendável por si só, remove o grupo inteiro.
                 if (itemGroup.selected_items.length === 0 && !(parentProduct && parentProduct.sell_parent_product)) {
                     removeCartItemGroup(cartIndex);
                 } else {
@@ -390,7 +583,6 @@
                     return;
                 }
 
-                // Lógica para grupos "bloqueados" (combos, etc.)
                 if (originalProduct && originalProduct.force_one_to_one_complement) {
                     if (amount < 0) {
                         if (itemGroup.selected_items.length > 0) {
@@ -405,16 +597,14 @@
                         showErrorModal('Ação Indisponível', 'Para adicionar mais itens com complementos obrigatórios, por favor, use o botão "Montar" no cardápio.');
                         return;
                     }
-                } else { // Lógica para combos
+                } else { 
                     let itemsToUpdate = [];
                     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
                         itemGroup.selected_items.forEach(sub => {
-                            // A quantidade base é a quantidade por unidade do combo.
                             const baseQuantity = sub.quantity;
                             itemsToUpdate.push({ id: sub.id, quantity: baseQuantity });
                         });
                     } else if (!itemGroup.is_combo) {
-                        // Se não for combo e não tiver filhos, opera no próprio item.
                         itemsToUpdate.push({ id: itemGroup.original_id, quantity: 1 });
                     }
                     
@@ -441,21 +631,19 @@
                 if (!itemToRemove) return;
 
                 let itemsToRelease = [];
-                // Para grupos bloqueados (combos), a quantidade de sub-itens é multiplicada pela quantidade do grupo.
                 if (itemToRemove.is_combo || (allItems.find(p => p.id === itemToRemove.original_id) && allItems.find(p => p.id === itemToRemove.original_id).force_one_to_one_complement)) {
                     if (itemToRemove.selected_items && itemToRemove.selected_items.length > 0) {
                          itemToRemove.selected_items.forEach(sub => {
                             itemsToRelease.push({ id: sub.id, quantity: sub.quantity * itemToRemove.quantity });
                         });
                     }
-                } else { // Para grupos não bloqueados, a quantidade já é a correta no sub-item.
+                } else { 
                      if (itemToRemove.selected_items && itemToRemove.selected_items.length > 0) {
                         itemsToRelease.push(...itemToRemove.selected_items.map(sub => ({ id: sub.id, quantity: sub.quantity })));
                     }
                 }
                 
                 const parentProduct = allItems.find(p => p.id === itemToRemove.original_id);
-                // Libera o estoque do item principal se ele for vendido sozinho ou se não houver complementos
                 if (parentProduct && (parentProduct.sell_parent_product || (itemToRemove.selected_items && itemToRemove.selected_items.length === 0))) {
                      itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
                 }
@@ -470,7 +658,6 @@
                 const allItemsToRelease = cart.flatMap(itemGroup => {
                     let items = [];
                     const parentProduct = allItems.find(p => p.id === itemGroup.original_id);
-                    // Lógica de liberação de estoque unificada
                     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
                         const multiplier = (itemGroup.is_combo || (parentProduct && parentProduct.force_one_to_one_complement)) ? itemGroup.quantity : 1;
                         items = itemGroup.selected_items.map(sub => ({ id: sub.id, quantity: sub.quantity * multiplier }));
@@ -486,7 +673,13 @@
                 renderCart();
             });
             
-            const applyTheme = (theme) => { document.body.setAttribute('data-theme', theme); localStorage.setItem('pamonharia-theme', theme); };
+            const applyTheme = (theme) => { 
+                document.body.setAttribute('data-theme', theme); 
+                localStorage.setItem('pamonharia-theme', theme); 
+                if (window.paymentBrickController) {
+                    window.paymentBrickController.update({ customization: { visual: { style: { theme: theme === 'dark' ? 'dark' : 'default' } } } });
+                }
+            };
             
             const getAvailableStock = (item) => {
                 if (!item) return 0;
@@ -524,10 +717,13 @@
 
             const fetchAndRenderAll = async () => {
                 try {
+                    const paymentSettings = await apiFetch('/public/payment-settings');
+                    mp = new MercadoPago(paymentSettings.mercadoPagoPublicKey);
+
                     const [productsResponse, combosResponse, settingsResponse] = await Promise.all([ 
-                        apiFetch('/public/products').then(res => res.json()),
-                        apiFetch('/public/combos').then(res => res.json()),
-                        apiFetch('/public/settings').then(res => res.json()) 
+                        apiFetch('/public/products'),
+                        apiFetch('/public/combos'),
+                        apiFetch('/public/settings') 
                     ]);
                     storeSettings = settingsResponse;
                     allProductsFlat = [];
@@ -550,7 +746,10 @@
                     updateStoreStatus();
                     renderItems();
                     renderCart();
-                } catch (error) { document.body.innerHTML = '<h1>Erro ao carregar o cardápio. Tente novamente mais tarde.</h1>'; }
+                } catch (error) { 
+                    console.error("Erro fatal ao carregar dados:", error);
+                    document.body.innerHTML = `<h1>Erro ao carregar o cardápio. Verifique a configuração do servidor.</h1><p><small>${error.message}</small></p>`; 
+                }
             };
 
             const renderItems = () => {
@@ -690,8 +889,6 @@
                 let selectedItemsInModal = {};
                 let bodyHtml = '';
                 
-                // Representa o item principal que pode ser vendido independentemente (se sell_parent_product for true)
-                // ou apenas como base para os complementos. A quantidade inicial é 1 para facilitar.
                 if (product.sell_parent_product) {
                     const isParentOutOfStock = isItemEffectivelyOutOfStock(product);
                     const initialQty = product.force_one_to_one_complement ? 1 : 0;
@@ -711,9 +908,8 @@
                 const onSave = () => {
                     let selected_items_details = [], itemsToReserve = [];
                     let finalPrice = 0;
-                    let finalQuantity = 1; // A quantidade do grupo é sempre 1 neste caso
+                    let finalQuantity = 1; 
                     
-                    // Adiciona o item pai se ele foi selecionado
                     const parentQty = selectedItemsInModal[product.id] || 0;
                     if (product.sell_parent_product && parentQty > 0) {
                         const parentAsItem = { id: product.id, name: product.name, quantity: parentQty, price: product.price };
@@ -722,7 +918,6 @@
                         finalPrice += parseFloat(product.price || 0) * parentQty;
                     }
 
-                    // Adiciona os complementos
                     for (const [id, quantity] of Object.entries(selectedItemsInModal)) {
                         if (quantity > 0 && id != product.id) {
                             const selectedItem = allProductsFlat.find(i => i.id == id);
@@ -734,18 +929,15 @@
                         }
                     }
 
-                    // Se for obrigatório 1-para-1, o preço do pai é 0, e o total é só dos complementos.
                     if (product.force_one_to_one_complement) {
                         finalPrice = selected_items_details.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0);
-                        // A quantidade do "pai" (item do carrinho) é a quantidade de itens principais selecionados.
                         finalQuantity = parentQty; 
                     }
                     
                     const itemData = { 
                         original_id: product.id, 
                         name: product.name, 
-                        // O preço unitário do grupo é o total dividido pela quantidade de itens principais
-                        price: finalQuantity > 0 ? finalPrice / finalQuantity : 0,
+                        price: finalQuantity > 0 ? (finalPrice / finalQuantity) : 0,
                         total_value: finalPrice,
                         quantity: finalQuantity, 
                         is_combo: false, 
@@ -791,6 +983,7 @@
                     });
                 });
             };
+
             window.openComboModal = (comboId) => {
                 const combo = allItems.find(item => item.id === comboId);
                 if (!combo) return;
@@ -861,6 +1054,92 @@
             fetchAndRenderAll();
             checkPaymentStatusFromURL();
         });
-    </script>
+    
+async function initializePaymentBrick() {
+  if (!mp) {
+    showErrorModal('Erro de Configuração', 'Não foi possível carregar as configurações de pagamento.');
+    return;
+  }
+
+  if (window.paymentBrickController) {
+    window.paymentBrickController.unmount();
+  }
+
+  const settings = {
+    initialization: {
+      amount: currentOrder.total_price,
+      purpose: 'wallet_purchase'
+    },
+    customization: {
+      paymentMethods: {
+        paymentMethods: {
+          credit_card: true,
+          pix: true,
+          ticket: false,
+          bank_transfer: false,
+          debit_card: false
+        },
+        maxInstallments: 1
+      },
+      visual: {
+        style: {
+          theme: document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+        }
+      }
+    },
+    callbacks: {
+      onReady: () => {
+        console.log('✅ Payment Brick está pronto.');
+        dom.paymentProcessingOverlay.style.display = 'none';
+        dom.paymentBrickContainer.style.display = 'block';
+      },
+      onError: (error) => {
+        console.error('❌ Erro no Payment Brick:', error);
+        showErrorModal('Erro de Pagamento', 'Erro ao carregar opções de pagamento. Tente novamente.');
+        dom.paymentProcessingOverlay.style.display = 'none';
+        dom.orderForm.style.display = 'block';
+      },
+      onSubmit: async ({ selectedPaymentMethod, formData }) => {
+        dom.paymentBrickContainer.style.display = 'none';
+        dom.paymentProcessingOverlay.style.display = 'flex';
+
+        try {
+          const paymentResponse = await apiFetch('/payments/process', {
+            method: 'POST',
+            body: JSON.stringify({
+              order_id: currentOrder.id,
+              payment_method_id: selectedPaymentMethod,
+              ...formData
+            })
+          });
+
+          dom.paymentProcessingOverlay.style.display = 'none';
+
+          if (selectedPaymentMethod === 'pix') {
+            dom.pixQrCode.src = `data:image/jpeg;base64,${paymentResponse.qr_code_base64}`;
+            dom.pixCopyPaste.value = paymentResponse.qr_code;
+            dom.pixPaymentContainer.style.display = 'block';
+          } else {
+            dom.cartWrapper.style.display = 'none';
+            dom.successMessage.style.display = 'block';
+            dom.successMessage.innerHTML = `<h3>Pagamento Aprovado!</h3><p>Pedido #${currentOrder.id} confirmado e em preparo.</p>`;
+          }
+
+          cart = [];
+          localStorage.removeItem('pamonharia-cart');
+
+        } catch (error) {
+          dom.paymentProcessingOverlay.style.display = 'none';
+          showErrorModal('Pagamento Falhou', `Erro ao processar o pagamento. Detalhe: ${error.message}`);
+          dom.paymentBrickContainer.style.display = 'block';
+        }
+      }
+    }
+  };
+
+  window.paymentBrickController = await mp.bricks().create('payment', 'payment-brick-container', settings);
+}
+
+</script>
 </body>
 </html>

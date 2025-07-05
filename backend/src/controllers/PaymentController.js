@@ -1,93 +1,105 @@
 // backend/src/controllers/PaymentController.js
 
-const { MercadoPagoConfig, Preference, Payment } = require('mercadopago');
+const { MercadoPagoConfig, Payment } = require('mercadopago');
 const connection = require('../database/connection');
 
 // Inicializa o cliente do Mercado Pago com o Access Token do ambiente
 const client = new MercadoPagoConfig({ 
   accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN 
 });
+const payment = new Payment(client);
 
 module.exports = {
   /**
-   * Cria uma preferência de pagamento no Mercado Pago para um pedido específico.
+   * Processa um pagamento vindo do Checkout Brick.
    */
-  async createPreference(request, response) {
+  async processPayment(request, response) {
+    const { order_id, token, payment_method_id, issuer_id, installments, payer } = request.body;
+
     try {
-      const { order_id } = request.params;
-      const order = await connection('orders').where('id', order_id).first();
-      // O driver do pg já converte o JSONB para um objeto JS, então o JSON.parse é desnecessário
-      const orderItems = await connection('order_items').where('order_id', order_id);
+        const order = await connection('orders').where('id', order_id).first();
+        if (!order) {
+            return response.status(404).json({ error: 'Pedido não encontrado.' });
+        }
 
-      if (!order || !orderItems || orderItems.length === 0) {
-        return response.status(404).json({ error: 'Pedido não encontrado ou vazio.' });
-      }
+        if (order.payment_id && order.status === 'Pago') {
+            return response.status(409).json({ error: 'Este pedido já foi pago.' });
+        }
+        
+        const idempotencyKey = `pamonharia-${order_id}-${Date.now()}`;
 
-      // Mapeia os itens do pedido para o formato exigido pelo Mercado Pago
-      const items = orderItems.map(item => ({
-        title: item.item_name,
-        // #################### INÍCIO DA CORREÇÃO (REMOVER JSON.PARSE) ####################
-        // item.item_details já é um objeto, não uma string JSON.
-        description: Array.isArray(item.item_details) ? item.item_details.map(d => d.name).join(', ') : 'Item do pedido',
-        // ##################### FIM DA CORREÇÃO (REMOVER JSON.PARSE) #####################
-        unit_price: Number(parseFloat(item.unit_price).toFixed(2)),
-        quantity: item.quantity,
-        currency_id: 'BRL',
-      }));
-      
-      const preferenceData = {
-        items,
-        external_reference: String(order_id), // Referência externa para associar ao nosso pedido
-        back_urls: {
-          success: `${process.env.FRONTEND_URL}/cardapio?status=success&order_id=${order_id}`,
-          failure: `${process.env.FRONTEND_URL}/cardapio?status=failure&order_id=${order_id}`,
-          pending: `${process.env.FRONTEND_URL}/cardapio?status=pending&order_id=${order_id}`,
-        },
-        notification_url: `${process.env.BACKEND_URL}/api/payments/webhook`,
-        payment_methods: {
-          excluded_payment_types: [{ id: 'ticket' }], // Exclui boleto
-          installments: 1, // Apenas pagamento à vista
-        },
-      };
+        // Monta o corpo base da requisição com os dados comuns.
+        const baseBody = {
+            transaction_amount: Number(order.total_price),
+            description: `Pedido para ${order.client_name} - Pamonharia 2.0`,
+            payment_method_id,
+            payer: {
+                email: payer.email,
+                first_name: payer.firstName,
+                last_name: payer.lastName,
+                identification: {
+                    type: payer.identification.type,
+                    number: payer.identification.number,
+                },
+            },
+            external_reference: String(order_id),
+        };
 
-      const preference = new Preference(client);
-      const result = await preference.create({ body: preferenceData });
-      
-      // Atualiza o nosso pedido com o ID da preferência e a URL de checkout
-      await connection('orders').where('id', order_id).update({
-        preference_id: result.id,
-        checkout_url: result.init_point,
-      });
+        // Adiciona os campos específicos de cartão de crédito apenas se o método não for Pix.
+        if (payment_method_id !== 'pix') {
+            baseBody.token = token;
+            baseBody.installments = installments;
+            baseBody.issuer_id = issuer_id;
+        }
 
-      console.log(`[PaymentController] Preferência ${result.id} criada para o pedido ${order_id}.`);
-      return response.json({ checkout_url: result.init_point });
+        const paymentData = { body: baseBody };
+
+        console.log(`[PaymentController] Processando pagamento para o pedido ${order_id} com idempotency key: ${idempotencyKey}`);
+        const paymentResult = await payment.create(paymentData, {
+            idempotencyKey: idempotencyKey
+        });
+        
+        console.log(`[PaymentController] Resposta do Mercado Pago:`, paymentResult);
+
+        const orderUpdateData = {
+            payment_id: String(paymentResult.id),
+            payment_status: paymentResult.status,
+        };
+
+        if (paymentResult.status === 'approved') {
+            orderUpdateData.status = 'Pago';
+        } else if (paymentResult.status === 'in_process' || paymentResult.status === 'pending') {
+            orderUpdateData.status = 'Aguardando Pagamento';
+        }
+
+        await connection('orders').where('id', order_id).update(orderUpdateData);
+        
+        const updatedOrder = await connection('orders').where('id', order_id).first();
+        request.io.emit('order_status_updated', { id: updatedOrder.id, status: updatedOrder.status });
+        if (orderUpdateData.status === 'Pago') {
+            request.io.emit('new_order', updatedOrder);
+        }
+
+        if (payment_method_id === 'pix') {
+            return response.json({
+                status: paymentResult.status,
+                qr_code: paymentResult.point_of_interaction.transaction_data.qr_code,
+                qr_code_base64: paymentResult.point_of_interaction.transaction_data.qr_code_base64,
+            });
+        } else {
+            return response.json({
+                status: paymentResult.status,
+                payment_id: paymentResult.id,
+            });
+        }
 
     } catch (error) {
-      console.error('[PaymentController] Erro detalhado ao criar preferência:', error);
-      
-      let details = 'Erro desconhecido ao comunicar com o gateway de pagamento.';
-      
-      if (error.cause) {
-          try {
-            const cause = JSON.parse(error.cause);
-            details = `MercadoPago: ${cause.message || 'Causa de erro não especificada.'}`;
-            if (cause.cause) {
-              const nestedCause = Array.isArray(cause.cause) ? cause.cause[0] : cause.cause;
-              details += ` Detalhe: ${nestedCause.description || JSON.stringify(nestedCause)}`;
-            }
-          } catch(e) {
-            details = error.message;
-          }
-      } else {
-          details = error.message;
-      }
-      
-      console.error(`[PaymentController] Erro formatado para resposta: ${details}`);
-      
-      return response.status(500).json({ 
-        error: 'Falha ao criar a preferência de pagamento.', 
-        details: details 
-      });
+        console.error(`[PaymentController] Erro detalhado ao processar pagamento para o pedido ${order_id}:`, error);
+        const errorMessage = error.cause?.message || error.message || 'Erro desconhecido ao processar o pagamento.';
+        return response.status(500).json({ 
+            error: 'Falha ao processar o pagamento.', 
+            details: errorMessage
+        });
     }
   },
 
@@ -104,7 +116,6 @@ module.exports = {
     }
 
     try {
-      const payment = new Payment(client);
       const paymentDetails = await payment.get({ id: query.id });
       const order_id = paymentDetails.external_reference;
 

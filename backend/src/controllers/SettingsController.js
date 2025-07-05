@@ -9,7 +9,6 @@ cloudinary.config({
   secure: true,
 });
 
-// NOVA FUNÇÃO AUXILIAR PARA EMITIR ATUALIZAÇÕES
 const emitDataUpdated = (request) => {
   console.log('[Socket.IO] Emitindo evento "data_updated" para todos os clientes do cardápio.');
   request.io.emit('data_updated');
@@ -40,9 +39,8 @@ module.exports = {
     
     console.log('[SettingsController] Configurações atualizadas no banco de dados.');
 
-    emitDataUpdated(request); // EMITE O EVENTO
+    emitDataUpdated(request);
     
-    // A resposta agora é mais simples, não precisa reenviar os dados.
     return response.status(200).json({ message: 'Settings updated successfully.' });
   },
 
@@ -54,5 +52,22 @@ module.exports = {
       process.env.CLOUDINARY_API_SECRET
     );
     return response.json({ timestamp, signature });
+  },
+
+  // #################### INÍCIO DA CORREÇÃO ####################
+  // Nova função para fornecer as chaves públicas necessárias para o frontend.
+  getPaymentSettings(request, response) {
+    console.log('[SettingsController] Fornecendo chave pública do Mercado Pago para o frontend.');
+    const publicKey = process.env.MERCADO_PAGO_PUBLIC_KEY;
+
+    if (!publicKey) {
+      console.error('[SettingsController] ❌ ERRO: A variável de ambiente MERCADO_PAGO_PUBLIC_KEY não está definida!');
+      return response.status(500).json({ error: 'A configuração de pagamento do servidor está incompleta.' });
+    }
+
+    return response.json({
+      mercadoPagoPublicKey: publicKey,
+    });
   }
+  // ##################### FIM DA CORREÇÃO ######################
 };

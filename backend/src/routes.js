@@ -8,32 +8,42 @@ const ProductController = require('./controllers/ProductController');
 const SettingsController = require('./controllers/SettingsController');
 const OrderController = require('./controllers/OrderController');
 const ComboController = require('./controllers/ComboController');
-const PaymentController = require('./controllers/PaymentController'); // Importa o novo controller
+const PaymentController = require('./controllers/PaymentController');
 const authMiddleware = require('./middlewares/auth');
 
 const routes = express.Router();
 
-// --- ROTAS DO FRONTEND ---
+// --- ROTAS PÚBLICAS ---
+// Todas as rotas que não exigem autenticação devem ser definidas ANTES do `routes.use(authMiddleware)`.
+
+// Rotas para servir os ficheiros do frontend
 routes.get('/', (req, res) => res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'dashboard', 'login.html')));
 routes.get('/dashboard', (req, res) => res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'dashboard', 'dashboard.html')));
 routes.get('/cardapio', (req, res) => res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'cardapio', 'index.html')));
 
-// --- ROTAS PÚBLICAS DA API ---
+// Rotas da API pública para o cardápio
 routes.get('/api/public/products', ProductController.indexPublic);
 routes.get('/api/public/combos', ComboController.indexPublic);
 routes.get('/api/public/settings', SettingsController.show);
 routes.post('/api/public/orders', OrderController.create);
 
-// ROTAS DE PAGAMENTO (PÚBLICAS)
-routes.post('/api/payments/create-preference/:order_id', PaymentController.createPreference);
+// #################### INÍCIO DA CORREÇÃO ####################
+// Rotas públicas para o sistema de pagamento
+routes.get('/api/public/payment-settings', SettingsController.getPaymentSettings);
+routes.post('/api/payments/process', PaymentController.processPayment);
 routes.post('/api/payments/webhook', PaymentController.receiveWebhook);
+// ##################### FIM DA CORREÇÃO ######################
 
-// --- ROTAS DE AUTENTICAÇÃO ---
+// Rota de autenticação para login
 routes.post('/api/sessions', SessionController.create);
 
-// --- ROTAS PRIVADAS DA API (Protegidas por autenticação - Dashboard) ---
+
+// --- APLICAÇÃO DO MIDDLEWARE DE AUTENTICAÇÃO ---
+// A partir desta linha, todas as rotas definidas abaixo exigirão um token JWT válido.
 routes.use(authMiddleware);
 
+
+// --- ROTAS PRIVADAS DA API (DASHBOARD) ---
 // Produtos e Estoque
 routes.get('/api/products', ProductController.index);
 routes.post('/api/products', ProductController.create);
