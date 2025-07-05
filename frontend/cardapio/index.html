@@ -272,28 +272,30 @@
                     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
                         subItemsHtml = '<div class="cart-sub-items">';
                         
-                        const complementCounts = {};
-                        itemGroup.selected_items.forEach(sub => {
-                            complementCounts[sub.name] = (complementCounts[sub.name] || 0) + sub.quantity;
-                        });
-
-                        subItemsHtml += Object.entries(complementCounts).map(([name, count]) => {
-                            // Para itens com complementos opcionais, adicionamos controles
-                            if (!isLockedGroup) {
-                                const subItem = itemGroup.selected_items.find(si => si.name === name);
-                                const subItemIndex = itemGroup.selected_items.indexOf(subItem);
+                        // #################### INÍCIO DA CORREÇÃO ####################
+                        if (!isLockedGroup) {
+                            // Para itens com complementos opcionais, renderiza cada um numa linha separada.
+                            subItemsHtml += itemGroup.selected_items.map((subItem, subItemIndex) => {
                                 return `<div class="cart-sub-item">
-                                            <span>${name}</span>
+                                            <span>${subItem.name}</span>
                                             <div class="quantity-control-cart">
                                                 <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, -1)">-</button>
-                                                <span>${count}</span>
+                                                <span>${subItem.quantity}</span>
                                                 <button onclick="adjustCartItemQuantity(${cartIndex}, ${subItemIndex}, 1)">+</button>
                                             </div>
                                         </div>`;
-                            }
-                            // Para itens com complementos obrigatórios, apenas exibimos a contagem
-                            return `<div class="cart-sub-item"><span>${count}x ${name}</span></div>`;
-                        }).join('');
+                            }).join('');
+                        } else {
+                            // Para combos e itens com complementos obrigatórios (grupos bloqueados), agrega as quantidades.
+                            const complementCounts = {};
+                            itemGroup.selected_items.forEach(sub => {
+                                complementCounts[sub.name] = (complementCounts[sub.name] || 0) + sub.quantity;
+                            });
+                             subItemsHtml += Object.entries(complementCounts).map(([name, count]) => {
+                                return `<div class="cart-sub-item"><span>${count * itemGroup.quantity}x ${name}</span></div>`;
+                            }).join('');
+                        }
+                        // ##################### FIM DA CORREÇÃO ######################
 
                         subItemsHtml += '</div>';
                     }
@@ -302,7 +304,7 @@
                     if (isLockedGroup) {
                          mainControlsHtml = `<div class="quantity-control-cart"><button onclick="adjustCartItemGroupQuantity(${cartIndex}, -1)">-</button><span>${itemGroup.quantity}</span><button onclick="adjustCartItemGroupQuantity(${cartIndex}, 1)">+</button></div>`;
                     } else {
-                        // Para itens com complementos opcionais, os controles estão nos sub-itens
+                        // Para itens com complementos opcionais, os controles estão nos sub-itens.
                         mainControlsHtml = `<div class="quantity-control-cart" style="visibility: hidden;"></div>`;
                     }
 
@@ -347,6 +349,7 @@
                 }
 
                 if (newQuantity <= 0) {
+                    // Se a quantidade do sub-item chega a zero, remove-o da lista
                     itemGroup.selected_items.splice(subItemIndex, 1);
                 } else {
                     subItem.quantity = newQuantity;
@@ -355,15 +358,20 @@
                 // Recalcula o valor total do grupo
                 let newTotalValue = 0;
                 const parentProduct = allItems.find(p => p.id === itemGroup.original_id);
+                // O preço do "Pai" só é contado se ele for vendável E se a quantidade de complementos for forçada 1 a 1.
+                // Nos outros casos, o preço do pai é 0, e o valor vem só dos complementos.
                 if (parentProduct && parentProduct.sell_parent_product) {
-                    newTotalValue += parseFloat(parentProduct.price);
+                    // A quantidade do pai é a soma das quantidades dos filhos
+                    const parentQuantity = itemGroup.selected_items.reduce((sum, si) => sum + si.quantity, 0);
+                    newTotalValue += parseFloat(parentProduct.price) * parentQuantity;
                 }
                 itemGroup.selected_items.forEach(si => {
                     newTotalValue += parseFloat(si.price) * si.quantity;
                 });
                 itemGroup.total_value = newTotalValue;
 
-                if (itemGroup.selected_items.length === 0 && !parentProduct.sell_parent_product) {
+                // Se não há mais complementos e o produto pai não é vendável por si só, remove o grupo inteiro.
+                if (itemGroup.selected_items.length === 0 && !(parentProduct && parentProduct.sell_parent_product)) {
                     removeCartItemGroup(cartIndex);
                 } else {
                     renderCart();
@@ -382,6 +390,7 @@
                     return;
                 }
 
+                // Lógica para grupos "bloqueados" (combos, etc.)
                 if (originalProduct && originalProduct.force_one_to_one_complement) {
                     if (amount < 0) {
                         if (itemGroup.selected_items.length > 0) {
@@ -400,10 +409,12 @@
                     let itemsToUpdate = [];
                     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
                         itemGroup.selected_items.forEach(sub => {
-                            const baseQuantity = sub.quantity / itemGroup.quantity;
+                            // A quantidade base é a quantidade por unidade do combo.
+                            const baseQuantity = sub.quantity;
                             itemsToUpdate.push({ id: sub.id, quantity: baseQuantity });
                         });
-                    } else {
+                    } else if (!itemGroup.is_combo) {
+                        // Se não for combo e não tiver filhos, opera no próprio item.
                         itemsToUpdate.push({ id: itemGroup.original_id, quantity: 1 });
                     }
                     
@@ -430,14 +441,22 @@
                 if (!itemToRemove) return;
 
                 let itemsToRelease = [];
-                if (itemToRemove.selected_items && itemToRemove.selected_items.length > 0) {
-                    itemToRemove.selected_items.forEach(sub => {
-                        itemsToRelease.push({ id: sub.id, quantity: sub.quantity });
-                    });
+                // Para grupos bloqueados (combos), a quantidade de sub-itens é multiplicada pela quantidade do grupo.
+                if (itemToRemove.is_combo || (allItems.find(p => p.id === itemToRemove.original_id) && allItems.find(p => p.id === itemToRemove.original_id).force_one_to_one_complement)) {
+                    if (itemToRemove.selected_items && itemToRemove.selected_items.length > 0) {
+                         itemToRemove.selected_items.forEach(sub => {
+                            itemsToRelease.push({ id: sub.id, quantity: sub.quantity * itemToRemove.quantity });
+                        });
+                    }
+                } else { // Para grupos não bloqueados, a quantidade já é a correta no sub-item.
+                     if (itemToRemove.selected_items && itemToRemove.selected_items.length > 0) {
+                        itemsToRelease.push(...itemToRemove.selected_items.map(sub => ({ id: sub.id, quantity: sub.quantity })));
+                    }
                 }
                 
                 const parentProduct = allItems.find(p => p.id === itemToRemove.original_id);
-                if (parentProduct.sell_parent_product || itemToRemove.selected_items.length === 0) {
+                // Libera o estoque do item principal se ele for vendido sozinho ou se não houver complementos
+                if (parentProduct && (parentProduct.sell_parent_product || (itemToRemove.selected_items && itemToRemove.selected_items.length === 0))) {
                      itemsToRelease.push({ id: itemToRemove.original_id, quantity: itemToRemove.quantity });
                 }
 
@@ -450,11 +469,13 @@
                 if (cart.length === 0) return;
                 const allItemsToRelease = cart.flatMap(itemGroup => {
                     let items = [];
-                    if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
-                        items = itemGroup.selected_items.map(sub => ({ id: sub.id, quantity: sub.quantity }));
-                    }
                     const parentProduct = allItems.find(p => p.id === itemGroup.original_id);
-                     if (parentProduct.sell_parent_product || itemGroup.selected_items.length === 0) {
+                    // Lógica de liberação de estoque unificada
+                    if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
+                        const multiplier = (itemGroup.is_combo || (parentProduct && parentProduct.force_one_to_one_complement)) ? itemGroup.quantity : 1;
+                        items = itemGroup.selected_items.map(sub => ({ id: sub.id, quantity: sub.quantity * multiplier }));
+                    }
+                     if (parentProduct && (parentProduct.sell_parent_product || (itemGroup.selected_items && itemGroup.selected_items.length === 0))) {
                         items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
                     }
                     return items;
@@ -669,9 +690,13 @@
                 let selectedItemsInModal = {};
                 let bodyHtml = '';
                 
+                // Representa o item principal que pode ser vendido independentemente (se sell_parent_product for true)
+                // ou apenas como base para os complementos. A quantidade inicial é 1 para facilitar.
                 if (product.sell_parent_product) {
                     const isParentOutOfStock = isItemEffectivelyOutOfStock(product);
-                    bodyHtml += `<div class="modal-parent-item"><span>${product.name} (Base)</span><div class="quantity-control"><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${product.id}">0</span><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
+                    const initialQty = product.force_one_to_one_complement ? 1 : 0;
+                    selectedItemsInModal[product.id] = initialQty;
+                    bodyHtml += `<div class="modal-parent-item"><span>${product.name} (Base)</span><div class="quantity-control"><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${product.id}">${initialQty}</span><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
                 }
 
                 if (product.children && product.children.length > 0) {
@@ -686,15 +711,18 @@
                 const onSave = () => {
                     let selected_items_details = [], itemsToReserve = [];
                     let finalPrice = 0;
-                    let finalQuantity = 0;
+                    let finalQuantity = 1; // A quantidade do grupo é sempre 1 neste caso
                     
+                    // Adiciona o item pai se ele foi selecionado
                     const parentQty = selectedItemsInModal[product.id] || 0;
                     if (product.sell_parent_product && parentQty > 0) {
-                        finalPrice += parseFloat(product.price || 0) * parentQty;
+                        const parentAsItem = { id: product.id, name: product.name, quantity: parentQty, price: product.price };
+                        selected_items_details.push(parentAsItem);
                         itemsToReserve.push({ id: product.id, quantity: parentQty });
-                        finalQuantity = parentQty;
+                        finalPrice += parseFloat(product.price || 0) * parentQty;
                     }
 
+                    // Adiciona os complementos
                     for (const [id, quantity] of Object.entries(selectedItemsInModal)) {
                         if (quantity > 0 && id != product.id) {
                             const selectedItem = allProductsFlat.find(i => i.id == id);
@@ -706,16 +734,18 @@
                         }
                     }
 
+                    // Se for obrigatório 1-para-1, o preço do pai é 0, e o total é só dos complementos.
                     if (product.force_one_to_one_complement) {
-                        finalQuantity = parentQty;
-                    } else if (!product.sell_parent_product) {
-                        finalQuantity = selected_items_details.reduce((sum, item) => sum + item.quantity, 0);
+                        finalPrice = selected_items_details.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0);
+                        // A quantidade do "pai" (item do carrinho) é a quantidade de itens principais selecionados.
+                        finalQuantity = parentQty; 
                     }
                     
                     const itemData = { 
                         original_id: product.id, 
                         name: product.name, 
-                        price: finalPrice / finalQuantity || 0,
+                        // O preço unitário do grupo é o total dividido pela quantidade de itens principais
+                        price: finalQuantity > 0 ? finalPrice / finalQuantity : 0,
                         total_value: finalPrice,
                         quantity: finalQuantity, 
                         is_combo: false, 
