@@ -8,93 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <script src="https://sdk.mercadopago.com/js/v2">
-async function initializePaymentBrick() {
-  if (!mp) {
-    showErrorModal('Erro de Configuração', 'Não foi possível carregar as configurações de pagamento.');
-    return;
-  }
-
-  if (window.paymentBrickController) {
-    window.paymentBrickController.unmount();
-  }
-
-  const settings = {
-    initialization: {
-      amount: currentOrder.total_price,
-      purpose: 'wallet_purchase'
-    },
-    customization: {
-      paymentMethods: {
-        paymentMethods: {
-          credit_card: true,
-          pix: true,
-          ticket: false,
-          bank_transfer: false,
-          debit_card: false
-        },
-        maxInstallments: 1
-      },
-      visual: {
-        style: {
-          theme: document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
-        }
-      }
-    },
-    callbacks: {
-      onReady: () => {
-        console.log('✅ Payment Brick está pronto.');
-        dom.paymentProcessingOverlay.style.display = 'none';
-        dom.paymentBrickContainer.style.display = 'block';
-      },
-      onError: (error) => {
-        console.error('❌ Erro no Payment Brick:', error);
-        showErrorModal('Erro de Pagamento', 'Erro ao carregar opções de pagamento. Tente novamente.');
-        dom.paymentProcessingOverlay.style.display = 'none';
-        dom.orderForm.style.display = 'block';
-      },
-      onSubmit: async ({ selectedPaymentMethod, formData }) => {
-        dom.paymentBrickContainer.style.display = 'none';
-        dom.paymentProcessingOverlay.style.display = 'flex';
-
-        try {
-          const paymentResponse = await apiFetch('/payments/process', {
-            method: 'POST',
-            body: JSON.stringify({
-              order_id: currentOrder.id,
-              payment_method_id: selectedPaymentMethod,
-              ...formData
-            })
-          });
-
-          dom.paymentProcessingOverlay.style.display = 'none';
-
-          if (selectedPaymentMethod === 'pix') {
-            dom.pixQrCode.src = `data:image/jpeg;base64,${paymentResponse.qr_code_base64}`;
-            dom.pixCopyPaste.value = paymentResponse.qr_code;
-            dom.pixPaymentContainer.style.display = 'block';
-          } else {
-            dom.cartWrapper.style.display = 'none';
-            dom.successMessage.style.display = 'block';
-            dom.successMessage.innerHTML = `<h3>Pagamento Aprovado!</h3><p>Pedido #${currentOrder.id} confirmado e em preparo.</p>`;
-          }
-
-          cart = [];
-          localStorage.removeItem('pamonharia-cart');
-
-        } catch (error) {
-          dom.paymentProcessingOverlay.style.display = 'none';
-          showErrorModal('Pagamento Falhou', `Erro ao processar o pagamento. Detalhe: ${error.message}`);
-          dom.paymentBrickContainer.style.display = 'block';
-        }
-      }
-    }
-  };
-
-  window.paymentBrickController = await mp.bricks().create('payment', 'payment-brick-container', settings);
-}
-
-</script>
+    <script src="https://sdk.mercadopago.com/js/v2"></script>
 </head>
 <body>
     <div class="container">
@@ -159,7 +73,7 @@ async function initializePaymentBrick() {
                             <p>Abra o app do seu banco e escaneie o código abaixo:</p>
                             <img id="pix-qr-code" src="" alt="Código QR do Pix">
                             <input type="text" id="pix-copy-paste" readonly>
-                            <button id="pix-copy-btn">Copiar Código</button>
+                            <button id="pix-copy-btn" class="action-button">Copiar Código</button>
                             <p class="pix-expiration">Este código expira em 30 minutos.</p>
                         </div>
                         
@@ -192,93 +106,7 @@ async function initializePaymentBrick() {
         </div>
     </div>
 
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js">
-async function initializePaymentBrick() {
-  if (!mp) {
-    showErrorModal('Erro de Configuração', 'Não foi possível carregar as configurações de pagamento.');
-    return;
-  }
-
-  if (window.paymentBrickController) {
-    window.paymentBrickController.unmount();
-  }
-
-  const settings = {
-    initialization: {
-      amount: currentOrder.total_price,
-      purpose: 'wallet_purchase'
-    },
-    customization: {
-      paymentMethods: {
-        paymentMethods: {
-          credit_card: true,
-          pix: true,
-          ticket: false,
-          bank_transfer: false,
-          debit_card: false
-        },
-        maxInstallments: 1
-      },
-      visual: {
-        style: {
-          theme: document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
-        }
-      }
-    },
-    callbacks: {
-      onReady: () => {
-        console.log('✅ Payment Brick está pronto.');
-        dom.paymentProcessingOverlay.style.display = 'none';
-        dom.paymentBrickContainer.style.display = 'block';
-      },
-      onError: (error) => {
-        console.error('❌ Erro no Payment Brick:', error);
-        showErrorModal('Erro de Pagamento', 'Erro ao carregar opções de pagamento. Tente novamente.');
-        dom.paymentProcessingOverlay.style.display = 'none';
-        dom.orderForm.style.display = 'block';
-      },
-      onSubmit: async ({ selectedPaymentMethod, formData }) => {
-        dom.paymentBrickContainer.style.display = 'none';
-        dom.paymentProcessingOverlay.style.display = 'flex';
-
-        try {
-          const paymentResponse = await apiFetch('/payments/process', {
-            method: 'POST',
-            body: JSON.stringify({
-              order_id: currentOrder.id,
-              payment_method_id: selectedPaymentMethod,
-              ...formData
-            })
-          });
-
-          dom.paymentProcessingOverlay.style.display = 'none';
-
-          if (selectedPaymentMethod === 'pix') {
-            dom.pixQrCode.src = `data:image/jpeg;base64,${paymentResponse.qr_code_base64}`;
-            dom.pixCopyPaste.value = paymentResponse.qr_code;
-            dom.pixPaymentContainer.style.display = 'block';
-          } else {
-            dom.cartWrapper.style.display = 'none';
-            dom.successMessage.style.display = 'block';
-            dom.successMessage.innerHTML = `<h3>Pagamento Aprovado!</h3><p>Pedido #${currentOrder.id} confirmado e em preparo.</p>`;
-          }
-
-          cart = [];
-          localStorage.removeItem('pamonharia-cart');
-
-        } catch (error) {
-          dom.paymentProcessingOverlay.style.display = 'none';
-          showErrorModal('Pagamento Falhou', `Erro ao processar o pagamento. Detalhe: ${error.message}`);
-          dom.paymentBrickContainer.style.display = 'block';
-        }
-      }
-    }
-  };
-
-  window.paymentBrickController = await mp.bricks().create('payment', 'payment-brick-container', settings);
-}
-
-</script>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const API_BASE_URL = 'http://localhost:10000';
@@ -413,7 +241,7 @@ async function initializePaymentBrick() {
                     
                     if (paymentMethod === 'online') {
                         dom.orderForm.style.display = 'none';
-                        dom.paymentBrickContainer.style.display = 'block';
+                        dom.paymentProcessingOverlay.style.display = 'flex';
                         await initializePaymentBrick();
                     } else {
                         dom.cartWrapper.style.display = 'none';
@@ -427,11 +255,105 @@ async function initializePaymentBrick() {
                     dom.submitOrderBtn.textContent = 'Finalizar Pedido';
                 }
             });
+            
+            // #################### INÍCIO DA CORREÇÃO ####################
+            async function initializePaymentBrick() {
+                if (!mp) {
+                    showErrorModal('Erro de Configuração', 'Não foi possível carregar as configurações de pagamento.');
+                    return;
+                }
 
+                if (window.paymentBrickController) {
+                    window.paymentBrickController.unmount();
+                }
 
-                
+                const settings = {
+                    initialization: {
+                        amount: currentOrder.total_price,
+                    },
+                    customization: {
+                        paymentMethods: {
+                            // Habilita os métodos de pagamento desejados
+                            creditCard: "all",
+                            debitCard: "all",
+                            pix: "all", // Garante que o Pix seja habilitado
+                            // Removemos 'ticket' para desabilitar o boleto
+                        },
+                        visual: {
+                           style: {
+                                theme: document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+                           },
+                           hideInstallments: true // Oculta a informação de parcelamento
+                        }
+                    },
+                    callbacks: {
+                        onReady: () => {
+                            console.log('✅ Payment Brick está pronto.');
+                            dom.paymentProcessingOverlay.style.display = 'none';
+                            dom.paymentBrickContainer.style.display = 'block';
+                        },
+                        onError: (error) => {
+                            console.error('❌ Erro no Payment Brick:', error);
+                            showErrorModal('Erro de Pagamento', 'Erro ao carregar opções de pagamento. Tente novamente.');
+                            dom.paymentProcessingOverlay.style.display = 'none';
+                            dom.orderForm.style.display = 'block';
+                        },
+                        onSubmit: async ({ selectedPaymentMethod, formData }) => {
+                            dom.paymentBrickContainer.style.display = 'none';
+                            dom.paymentProcessingOverlay.style.display = 'flex';
+
+                            try {
+                                const paymentData = {
+                                    order_id: currentOrder.id,
+                                    payment_method_id: selectedPaymentMethod,
+                                    payer: {
+                                        email: formData.payer.email,
+                                        firstName: formData.payer.firstName,
+                                        lastName: formData.payer.lastName,
+                                        identification: formData.payer.identification,
+                                    }
+                                };
+                                
+                                // Adiciona dados de cartão apenas se o método não for Pix
+                                if (selectedPaymentMethod !== 'pix') {
+                                    paymentData.token = formData.token;
+                                    paymentData.installments = formData.installments;
+                                    paymentData.issuer_id = formData.issuer_id;
+                                }
+
+                                const paymentResponse = await apiFetch('/payments/process', {
+                                    method: 'POST',
+                                    body: JSON.stringify(paymentData)
+                                });
+
+                                dom.paymentProcessingOverlay.style.display = 'none';
+
+                                if (selectedPaymentMethod === 'pix') {
+                                    dom.pixQrCode.src = `data:image/jpeg;base64,${paymentResponse.qr_code_base64}`;
+                                    dom.pixCopyPaste.value = paymentResponse.qr_code;
+                                    dom.pixPaymentContainer.style.display = 'block';
+                                } else {
+                                    dom.cartWrapper.style.display = 'none';
+                                    dom.successMessage.style.display = 'block';
+                                    dom.successMessage.innerHTML = `<h3>Pagamento Aprovado!</h3><p>Pedido #${currentOrder.id} confirmado e em preparo.</p>`;
+                                }
+
+                                cart = [];
+                                localStorage.removeItem('pamonharia-cart');
+
+                            } catch (error) {
+                                dom.paymentProcessingOverlay.style.display = 'none';
+                                showErrorModal('Pagamento Falhou', `Erro ao processar o pagamento. Detalhe: ${error.message}`);
+                                dom.paymentBrickContainer.style.display = 'block';
+                            }
+                        }
+                    }
+                };
+
                 window.paymentBrickController = await mp.bricks().create('payment', 'payment-brick-container', settings);
             }
+            // ##################### FIM DA CORREÇÃO ######################
+
 
             dom.pixCopyBtn.addEventListener('click', () => {
                 dom.pixCopyPaste.select();
@@ -1054,92 +976,6 @@ async function initializePaymentBrick() {
             fetchAndRenderAll();
             checkPaymentStatusFromURL();
         });
-    
-async function initializePaymentBrick() {
-  if (!mp) {
-    showErrorModal('Erro de Configuração', 'Não foi possível carregar as configurações de pagamento.');
-    return;
-  }
-
-  if (window.paymentBrickController) {
-    window.paymentBrickController.unmount();
-  }
-
-  const settings = {
-    initialization: {
-      amount: currentOrder.total_price,
-      purpose: 'wallet_purchase'
-    },
-    customization: {
-      paymentMethods: {
-        paymentMethods: {
-          credit_card: true,
-          pix: true,
-          ticket: false,
-          bank_transfer: false,
-          debit_card: false
-        },
-        maxInstallments: 1
-      },
-      visual: {
-        style: {
-          theme: document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
-        }
-      }
-    },
-    callbacks: {
-      onReady: () => {
-        console.log('✅ Payment Brick está pronto.');
-        dom.paymentProcessingOverlay.style.display = 'none';
-        dom.paymentBrickContainer.style.display = 'block';
-      },
-      onError: (error) => {
-        console.error('❌ Erro no Payment Brick:', error);
-        showErrorModal('Erro de Pagamento', 'Erro ao carregar opções de pagamento. Tente novamente.');
-        dom.paymentProcessingOverlay.style.display = 'none';
-        dom.orderForm.style.display = 'block';
-      },
-      onSubmit: async ({ selectedPaymentMethod, formData }) => {
-        dom.paymentBrickContainer.style.display = 'none';
-        dom.paymentProcessingOverlay.style.display = 'flex';
-
-        try {
-          const paymentResponse = await apiFetch('/payments/process', {
-            method: 'POST',
-            body: JSON.stringify({
-              order_id: currentOrder.id,
-              payment_method_id: selectedPaymentMethod,
-              ...formData
-            })
-          });
-
-          dom.paymentProcessingOverlay.style.display = 'none';
-
-          if (selectedPaymentMethod === 'pix') {
-            dom.pixQrCode.src = `data:image/jpeg;base64,${paymentResponse.qr_code_base64}`;
-            dom.pixCopyPaste.value = paymentResponse.qr_code;
-            dom.pixPaymentContainer.style.display = 'block';
-          } else {
-            dom.cartWrapper.style.display = 'none';
-            dom.successMessage.style.display = 'block';
-            dom.successMessage.innerHTML = `<h3>Pagamento Aprovado!</h3><p>Pedido #${currentOrder.id} confirmado e em preparo.</p>`;
-          }
-
-          cart = [];
-          localStorage.removeItem('pamonharia-cart');
-
-        } catch (error) {
-          dom.paymentProcessingOverlay.style.display = 'none';
-          showErrorModal('Pagamento Falhou', `Erro ao processar o pagamento. Detalhe: ${error.message}`);
-          dom.paymentBrickContainer.style.display = 'block';
-        }
-      }
-    }
-  };
-
-  window.paymentBrickController = await mp.bricks().create('payment', 'payment-brick-container', settings);
-}
-
-</script>
+    </script>
 </body>
 </html>
