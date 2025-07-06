@@ -1,4 +1,4 @@
-import { state, socket } from './main.js';
+import { state, socket, handleOnlinePaymentSelection } from './main.js';
 import { getAvailableStock, isItemEffectivelyOutOfStock, isComboEffectivelyOutOfStock, openProductWithOptionsModal, openComboModal, addToCartSimple, calculateTotals, clearCart, adjustItemGroupQuantity, adjustCartItemQuantity, removeItemGroup } from './cart.js';
 import { apiFetch } from './api.js';
 
@@ -11,7 +11,7 @@ export const dom = {
     deliveryFeeEl: document.getElementById('delivery-fee'),
     grandTotalEl: document.getElementById('grand-total'),
     orderForm: document.getElementById('order-form'),
-    submitOrderBtn: document.getElementById('submit-order'),
+    submitOrderBtn: document.getElementById('submit-order-btn'),
     cartWrapper: document.getElementById('cart-wrapper'),
     successMessage: document.getElementById('order-success-message'),
     paymentStatusMessage: document.getElementById('payment-status-message'),
@@ -31,7 +31,12 @@ export const dom = {
     errorModal: document.getElementById('error-modal'),
     errorModalTitle: document.getElementById('error-modal-title'),
     errorModalMessage: document.getElementById('error-modal-message'),
-    paymentBrickContainer: document.getElementById('payment-brick-container'),
+    onlinePaymentMethodSelection: document.getElementById('online-payment-method-selection'),
+    selectCardBtn: document.getElementById('select-card-btn'),
+    selectPixBtn: document.getElementById('select-pix-btn'),
+    customPaymentContainer: document.getElementById('custom-payment-container'),
+    cardPaymentForm: document.getElementById('card-payment-form'),
+    cardPaymentFeedback: document.getElementById('card-payment-feedback'),
     pixPaymentContainer: document.getElementById('pix-payment-container'),
     pixQrCode: document.getElementById('pix-qr-code'),
     pixCopyPaste: document.getElementById('pix-copy-paste'),
@@ -163,39 +168,18 @@ function renderFooter() {
 
     if (operating_hours) {
         const dayOrder = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'];
-        const dayNames = {
-            segunda: 'Segunda',
-            terca: 'Terça',
-            quarta: 'Quarta',
-            quinta: 'Quinta',
-            sexta: 'Sexta',
-            sabado: 'Sábado',
-            domingo: 'Domingo'
-        };
-
-        // Building the HTML string for the hours list
-        let hoursHtml = '<div style="max-width: 300px; margin: 20px auto 0 auto; text-align: left; border-top: 1px solid var(--border-color); padding-top: 20px;">'; // Container for alignment and separator
-
+        const dayNames = { segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo' };
+        let hoursHtml = '<div style="max-width: 300px; margin: 20px auto 0 auto; text-align: left; border-top: 1px solid var(--border-color); padding-top: 20px;">';
         dayOrder.forEach(dayKey => {
             const dayInfo = operating_hours[dayKey];
-            const dayName = dayNames[dayKey];
-            let scheduleText = '';
-
-            if (dayInfo && dayInfo.enabled) {
-                scheduleText = `${dayInfo.open} às ${dayInfo.close}`;
-            } else {
-                scheduleText = 'Fechado';
-            }
-            // Using divs for structure and spans for styling, with inline styles for simplicity
+            const scheduleText = (dayInfo && dayInfo.enabled) ? `${dayInfo.open} às ${dayInfo.close}` : 'Fechado';
             hoursHtml += `<div style="display: flex; justify-content: space-between; padding: 4px 0;">
-                            <span style="font-weight: 500;">${dayName}:</span> 
+                            <span style="font-weight: 500;">${dayNames[dayKey]}:</span> 
                             <span>${scheduleText}</span>
                           </div>`;
         });
-
         hoursHtml += '</div>';
-        dom.footerHours.innerHTML = hoursHtml; // Injecting the HTML into the <p> tag
-
+        dom.footerHours.innerHTML = hoursHtml;
     } else {
         dom.footerHours.innerHTML = '';
     }
@@ -282,84 +266,128 @@ export function handleQuantityChange(target, selectedState, validator, item, opt
     if (validator) validator();
 }
 
-export async function initializePaymentBrick() {
+/**
+ * Inicializa o formulário de pagamento customizado com a SDK do Mercado Pago.
+ */
+export async function initializeCardPaymentForm() {
     if (!state.mp) {
-        showErrorModal('Erro de Configuração', 'Não foi possível carregar as configurações de pagamento.');
+        showErrorModal('Erro de Configuração', 'Não foi possível carregar o sistema de pagamento.');
         return;
     }
 
-    if (window.paymentBrickController) {
-        window.paymentBrickController.unmount();
+    dom.onlinePaymentMethodSelection.style.display = 'none';
+    dom.customPaymentContainer.style.display = 'block';
+    
+    if (window.cardForm) {
+        try {
+            window.cardForm.unmount();
+        } catch (e) {
+            console.warn("Could not unmount previous card form.", e);
+        }
     }
 
-    const settings = {
-        initialization: {
-            amount: Number(state.currentOrder.total_price),
-        },
-        customization: {
-            paymentMethods: {
-                creditCard: "all",
-                debitCard: "all",
-                pix: "all",
+    try {
+        const cardForm = await state.mp.cardForm({
+            amount: String(state.currentOrder.total_price),
+            iframe: true,
+            form: {
+                id: 'card-payment-form',
+                cardNumber: { id: 'cardNumber', placeholder: '0000 0000 0000 0000' },
+                expirationDate: { id: 'expirationDate', placeholder: 'MM/AA' },
+                securityCode: { id: 'securityCode', placeholder: 'CVC' },
+                cardholderName: { id: 'cardholderName', placeholder: 'Nome como no cartão' },
+                cardholderEmail: { id: 'cardholderEmail', placeholder: 'exemplo@email.com' },
+                docType: { id: 'docType' },
+                docNumber: { id: 'docNumber', placeholder: 'Número do documento' },
             },
-            visual: {
-                style: {
-                    theme: document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'default'
+            callbacks: {
+                onFormMounted: error => {
+                    if (error) {
+                        console.error('Erro ao montar o formulário do cartão:', error);
+                        showErrorModal('Erro de Pagamento', 'Não foi possível exibir o formulário de pagamento. Verifique se sua conta está habilitada para produção.');
+                    }
                 },
-                hideInstallments: true
-            }
-        },
-        callbacks: {
-            onReady: () => {
-                dom.paymentProcessingOverlay.style.display = 'none';
-                dom.paymentBrickContainer.style.display = 'block';
-            },
-            onError: (error) => {
-                showErrorModal('Erro de Pagamento', 'Erro ao carregar opções de pagamento.');
-                dom.paymentProcessingOverlay.style.display = 'none';
-                dom.orderForm.style.display = 'block';
-            },
-            onSubmit: async ({ selectedPaymentMethod, formData }) => {
-                dom.paymentBrickContainer.style.display = 'none';
-                dom.paymentProcessingOverlay.style.display = 'flex';
-
-                try {
-                    const paymentData = {
-                        order_id: state.currentOrder.id,
-                        token: formData.token,
-                        installments: formData.installments,
-                        payment_method_id: selectedPaymentMethod,
-                        issuer_id: formData.issuer_id,
-                        payer: formData.payer,
-                    };
-
-                    const paymentResponse = await apiFetch('/api/payments/process', {
-                        method: 'POST',
-                        body: JSON.stringify(paymentData)
+                onFormUnmounted: error => {
+                    if (error) return console.warn('Form Unmounted callback error: ', error);
+                },
+                onIdentificationTypesReceived: (error, identificationTypes) => {
+                    if (error) return console.warn('Identification types callback error: ', error);
+                    const docTypeElement = document.getElementById('docType');
+                    docTypeElement.innerHTML = '<option value="" disabled selected>Selecione</option>';
+                    identificationTypes.forEach(type => {
+                        const option = document.createElement('option');
+                        option.value = type.id;
+                        option.textContent = type.name;
+                        docTypeElement.appendChild(option);
                     });
+                },
+                onSubmit: async (event) => {
+                    event.preventDefault();
+                    dom.paymentProcessingOverlay.style.display = 'flex';
+                    dom.customPaymentContainer.style.display = 'none';
 
-                    dom.paymentProcessingOverlay.style.display = 'none';
+                    const {
+                        paymentMethodId: payment_method_id,
+                        issuerId: issuer_id,
+                        cardholderEmail: email,
+                        amount,
+                        token,
+                        installments,
+                        docNumber,
+                        docType,
+                    } = cardForm.getCardFormData();
 
-                    if (selectedPaymentMethod === 'pix') {
-                        dom.pixQrCode.src = `data:image/jpeg;base64,${paymentResponse.qr_code_base64}`;
-                        dom.pixCopyPaste.value = paymentResponse.qr_code;
-                        dom.pixPaymentContainer.style.display = 'block';
-                    } else {
+                    try {
+                        const paymentData = {
+                            order_id: state.currentOrder.id,
+                            token,
+                            payment_method_id,
+                            issuer_id,
+                            installments: 1,
+                            payment_type: 'credit_card',
+                            payer: {
+                                email,
+                                identification: {
+                                    type: docType,
+                                    number: docNumber,
+                                },
+                            },
+                        };
+                        
+                        const paymentResponse = await apiFetch('/payments/process', {
+                            method: 'POST',
+                            body: JSON.stringify(paymentData)
+                        });
+
+                        dom.paymentProcessingOverlay.style.display = 'none';
                         dom.cartWrapper.style.display = 'none';
                         dom.successMessage.style.display = 'block';
                         dom.successMessage.innerHTML = `<h3>Pagamento Aprovado!</h3><p>Pedido #${state.currentOrder.id} confirmado.</p>`;
-                    }
-                    clearCart();
-                } catch (error) {
-                    dom.paymentProcessingOverlay.style.display = 'none';
-                    showErrorModal('Pagamento Falhou', `Erro: ${error.message}`);
-                    dom.paymentBrickContainer.style.display = 'block';
-                }
-            }
-        }
-    };
+                        clearCart();
 
-    window.paymentBrickController = await state.mp.bricks().create('payment', 'payment-brick-container', settings);
+                    } catch (error) {
+                        dom.paymentProcessingOverlay.style.display = 'none';
+                        dom.customPaymentContainer.style.display = 'block';
+                        const detail = error.message || 'Não foi possível processar o pagamento.';
+                        dom.cardPaymentFeedback.textContent = `Erro: ${detail}`;
+                    }
+                },
+                onError: (errors, event) => {
+                    let message = 'Verifique os dados do cartão.';
+                    if (errors && errors.length > 0) {
+                        message = errors[0].message;
+                        console.error('Erro da SDK do Mercado Pago:', errors);
+                    }
+                    dom.cardPaymentFeedback.textContent = message;
+                    showErrorModal('Erro no Cartão', message);
+                }
+            },
+        });
+        window.cardForm = cardForm;
+    } catch (e) {
+        console.error('Falha crítica ao inicializar o CardForm:', e);
+        throw e;
+    }
 }
 
 export function initializeUI() {
@@ -423,12 +451,12 @@ export function initializeUI() {
             removeItemGroup(parseInt(cartIndex));
         }
     });
+
+    dom.selectCardBtn.addEventListener('click', () => handleOnlinePaymentSelection('card'));
+    dom.selectPixBtn.addEventListener('click', () => handleOnlinePaymentSelection('pix'));
 }
 
 function applyTheme(theme) {
     document.body.setAttribute('data-theme', theme);
     localStorage.setItem('pamonharia-theme', theme);
-    if (window.paymentBrickController) {
-        window.paymentBrickController.update({ customization: { visual: { style: { theme: theme === 'dark' ? 'dark' : 'default' } } } });
-    }
 }

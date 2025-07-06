@@ -11,10 +11,11 @@ const payment = new Payment(client);
 
 module.exports = {
   /**
-   * Processa um pagamento vindo do Checkout Brick.
+   * Processa um pagamento vindo do Core API (Checkout Transparente).
+   * Lida com diferentes tipos de pagamento (Cartão e PIX).
    */
   async processPayment(request, response) {
-    const { order_id, token, payment_method_id, issuer_id, installments, payer } = request.body;
+    const { order_id, token, payment_method_id, issuer_id, installments, payer, payment_type } = request.body;
 
     try {
         const order = await connection('orders').where('id', order_id).first();
@@ -34,32 +35,39 @@ module.exports = {
             payment_method_id,
             payer: {
                 email: payer.email,
-                first_name: payer.firstName,
-                last_name: payer.lastName,
-                identification: {
-                    type: payer.identification.type,
-                    number: payer.identification.number,
-                },
             },
             external_reference: String(order_id),
         };
 
-        if (payment_method_id !== 'pix') {
+        if (payment_type === 'credit_card' || payment_type === 'debit_card') {
             if (!token) {
                 return response.status(400).json({ error: 'O token do cartão é obrigatório para este tipo de pagamento.' });
             }
             paymentRequestBody.token = token;
             paymentRequestBody.installments = installments;
             paymentRequestBody.issuer_id = issuer_id;
+            
+            if (payer.identification && payer.identification.type && payer.identification.number) {
+                 paymentRequestBody.payer.identification = {
+                    type: payer.identification.type,
+                    number: payer.identification.number,
+                };
+            } else {
+                return response.status(400).json({ error: 'A identificação do pagador (CPF/CNPJ) é obrigatória para pagamentos com cartão.' });
+            }
         }
-
-        console.log(`[PaymentController] Processando pagamento para o pedido ${order_id}...`);
+        
+        // #################### INÍCIO DA MELHORIA ####################
+        // Adiciona log detalhado do corpo da requisição antes de enviá-la.
+        console.log(`[PaymentController] Enviando para o Mercado Pago para o pedido ${order_id}:`);
+        console.log(JSON.stringify(paymentRequestBody, null, 2));
+        // ##################### FIM DA MELHORIA ######################
         
         const paymentResult = await payment.create({ body: paymentRequestBody }, {
             idempotencyKey: idempotencyKey
         });
         
-        console.log(`[PaymentController] Resposta do Mercado Pago recebida para o pedido ${order_id}:`, paymentResult);
+        console.log(`[PaymentController] Resposta do Mercado Pago recebida para o pedido ${order_id}.`);
 
         const orderUpdateData = {
             payment_id: String(paymentResult.id),
@@ -90,12 +98,12 @@ module.exports = {
             return response.json({
                 status: paymentResult.status,
                 payment_id: paymentResult.id,
+                message: 'Pagamento processado com sucesso.'
             });
         }
 
     } catch (error) {
         console.error(`[PaymentController] Erro detalhado ao processar pagamento para o pedido ${order_id}:`, error);
-        // Tenta extrair a mensagem de erro mais específica da resposta da API do Mercado Pago
         const errorMessage = error.cause?.api_response?.data?.message || error.message || 'Erro desconhecido ao processar o pagamento.';
         return response.status(500).json({ 
             error: 'Falha ao processar o pagamento.', 
@@ -104,9 +112,6 @@ module.exports = {
     }
   },
 
-  /**
-   * Recebe e processa webhooks (notificações) do Mercado Pago.
-   */
   async receiveWebhook(request, response) {
     const { query } = request;
     const topic = query.topic || query.type;
