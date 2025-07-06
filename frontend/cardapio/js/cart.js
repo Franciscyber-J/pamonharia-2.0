@@ -206,12 +206,60 @@ export function openComboModal(comboId) {
     const combo = state.allItems.find(item => item.id === comboId);
     if (!combo) return;
     let selectedQuantities = {}, comboBodyHtml = '';
+
+    // #################### INÍCIO DA CORREÇÃO ####################
     combo.products.forEach(option => {
         const fullOptionData = state.allProductsFlat.find(p => p.id === option.id);
         const isOptionOutOfStock = isItemEffectivelyOutOfStock(fullOptionData);
+        // Exibe o modificador de preço se ele for maior que zero.
         const priceModifierText = option.price_modifier > 0 ? `+ R$ ${parseFloat(option.price_modifier).toFixed(2).replace('.', ',')}` : '';
-        comboBodyHtml += `<div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}"><label>${option.name} ${isOptionOutOfStock ? '<small>(Esgotado)</small>' : ''}</label><span class="price-modifier">${priceModifierText}</span><div class="quantity-control"><button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${option.id}">0</span><button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
+        
+        comboBodyHtml += `
+            <div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}">
+                <label>${option.name} ${isOptionOutOfStock ? '<small>(Esgotado)</small>' : ''}</label>
+                <span class="price-modifier">${priceModifierText}</span>
+                <div class="quantity-control">
+                    <button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>-</button>
+                    <span id="quantity-${option.id}">0</span>
+                    <button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>+</button>
+                </div>
+            </div>`;
     });
+
+    const onSave = () => {
+        // Começa com o preço base do combo.
+        let finalPrice = parseFloat(combo.price);
+        let selected_items = [];
+        let itemsToReserve = [];
+
+        for (const [id, quantity] of Object.entries(selectedQuantities)) {
+            if (quantity > 0) {
+                const product = state.allProductsFlat.find(p => p.id == id);
+                const comboProductInfo = combo.products.find(p => p.id == id);
+                
+                // Adiciona o custo extra (modificador) ao preço final.
+                finalPrice += parseFloat(comboProductInfo.price_modifier || 0) * quantity;
+                
+                // Guarda o item selecionado com seu preço base para exibição no carrinho.
+                selected_items.push({ id: product.id, name: product.name, quantity: quantity, price: product.price });
+                itemsToReserve.push({ id: product.id, quantity: quantity });
+            }
+        }
+        
+        const itemData = { 
+            original_id: combo.id, 
+            name: combo.name, 
+            price: finalPrice, 
+            total_value: finalPrice, 
+            is_combo: true, 
+            quantity: 1, 
+            selected_items, 
+            image_url: combo.image_url 
+        };
+        addToCartAndReserve(itemData, itemsToReserve);
+    };
+    // ##################### FIM DA CORREÇÃO ######################
+
     const validator = () => {
         const totalSelected = Object.values(selectedQuantities).reduce((sum, qty) => sum + qty, 0);
         const totalLimit = combo.total_items_limit;
@@ -223,20 +271,7 @@ export function openComboModal(comboId) {
         }
         dom.addToCartBtn.textContent = `Adicionar (${totalSelected}/${totalLimit}) ao Carrinho`;
     };
-    const onSave = () => {
-        let finalPrice = parseFloat(combo.price), selected_items = [], itemsToReserve = [];
-        for (const [id, quantity] of Object.entries(selectedQuantities)) {
-            if (quantity > 0) {
-                const product = state.allProductsFlat.find(p => p.id == id);
-                const comboProductInfo = combo.products.find(p => p.id == id);
-                finalPrice += parseFloat(comboProductInfo.price_modifier || 0) * quantity;
-                selected_items.push({ id: product.id, name: product.name, quantity: quantity, price: product.price });
-                itemsToReserve.push({ id: product.id, quantity: quantity });
-            }
-        }
-        const itemData = { original_id: combo.id, name: combo.name, price: finalPrice, total_value: finalPrice, is_combo: true, quantity: 1, selected_items, image_url: combo.image_url };
-        addToCartAndReserve(itemData, itemsToReserve);
-    };
+
     setupModal({ title: `Montar ${combo.name}`, description: `Selecione exatamente ${combo.total_items_limit} itens.`, body: comboBodyHtml, onSave, onOpen: validator });
     dom.modalBody.querySelectorAll('.quantity-control button').forEach(button => {
         button.addEventListener('click', (e) => {

@@ -57,12 +57,19 @@ export async function fetchAndRenderAllData() {
     };
     recursiveFlattenAndMap(productsResponse);
 
-    // Processa os combos
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // Processa os combos, mesclando os dados dos produtos para preservar o price_modifier.
     combosResponse.forEach(c => {
         if (c.products) {
-            c.products = c.products.map(p => state.allProductsFlat.find(i => i.id === p.id) || p);
+            c.products = c.products.map(comboProduct => {
+                const fullProductDetails = state.allProductsFlat.find(i => i.id === comboProduct.id);
+                // Mescla os detalhes completos do produto com os detalhes específicos do combo
+                // (como price_modifier), garantindo que os dados do combo tenham prioridade.
+                return { ...fullProductDetails, ...comboProduct };
+            });
         }
     });
+    // ##################### FIM DA CORREÇÃO ######################
 
     state.allItems = [...combosResponse.map(c => ({...c, is_combo: true})), ...productsResponse];
 }
