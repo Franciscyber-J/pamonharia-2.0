@@ -26,12 +26,11 @@ module.exports = {
             return response.status(409).json({ error: 'Este pedido já foi pago.' });
         }
         
-        const idempotencyKey = `pamonharia-${order_id}-${Date.now()}`;
+        const idempotencyKey = `pamonharia-order-${order_id}-${Date.now()}`;
 
-        // Monta o corpo base da requisição com os dados comuns.
-        const baseBody = {
+        const paymentRequestBody = {
             transaction_amount: Number(order.total_price),
-            description: `Pedido para ${order.client_name} - Pamonharia 2.0`,
+            description: `Pedido #${order.id} - ${order.client_name}`,
             payment_method_id,
             payer: {
                 email: payer.email,
@@ -45,21 +44,22 @@ module.exports = {
             external_reference: String(order_id),
         };
 
-        // Adiciona os campos específicos de cartão de crédito apenas se o método não for Pix.
         if (payment_method_id !== 'pix') {
-            baseBody.token = token;
-            baseBody.installments = installments;
-            baseBody.issuer_id = issuer_id;
+            if (!token) {
+                return response.status(400).json({ error: 'O token do cartão é obrigatório para este tipo de pagamento.' });
+            }
+            paymentRequestBody.token = token;
+            paymentRequestBody.installments = installments;
+            paymentRequestBody.issuer_id = issuer_id;
         }
 
-        const paymentData = { body: baseBody };
-
-        console.log(`[PaymentController] Processando pagamento para o pedido ${order_id} com idempotency key: ${idempotencyKey}`);
-        const paymentResult = await payment.create(paymentData, {
+        console.log(`[PaymentController] Processando pagamento para o pedido ${order_id}...`);
+        
+        const paymentResult = await payment.create({ body: paymentRequestBody }, {
             idempotencyKey: idempotencyKey
         });
         
-        console.log(`[PaymentController] Resposta do Mercado Pago:`, paymentResult);
+        console.log(`[PaymentController] Resposta do Mercado Pago recebida para o pedido ${order_id}:`, paymentResult);
 
         const orderUpdateData = {
             payment_id: String(paymentResult.id),
@@ -95,7 +95,8 @@ module.exports = {
 
     } catch (error) {
         console.error(`[PaymentController] Erro detalhado ao processar pagamento para o pedido ${order_id}:`, error);
-        const errorMessage = error.cause?.message || error.message || 'Erro desconhecido ao processar o pagamento.';
+        // Tenta extrair a mensagem de erro mais específica da resposta da API do Mercado Pago
+        const errorMessage = error.cause?.api_response?.data?.message || error.message || 'Erro desconhecido ao processar o pagamento.';
         return response.status(500).json({ 
             error: 'Falha ao processar o pagamento.', 
             details: errorMessage
