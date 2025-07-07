@@ -3,7 +3,7 @@ import { initializeCart, getCart, clearCart } from './cart.js';
 import { dom, initializeUI, updateStoreStatus, renderItems, renderCart, showErrorModal, initializeCardPaymentForm } from './ui.js';
 
 // Inicializa o Socket.IO
-const API_BASE_URL = 'http://localhost:10000';
+const API_BASE_URL = 'https://api.render.com/deploy/srv-d1lgojmr433s73dndogg?key=LJmnkh7M4F8';
 export const socket = io(API_BASE_URL);
 
 // Estado global da aplicação
