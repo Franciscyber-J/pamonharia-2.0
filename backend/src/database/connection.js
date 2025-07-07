@@ -1,30 +1,32 @@
 // backend/src/database/connection.js
 const knex = require('knex');
 const configuration = require('../../knexfile');
+const { parse } = require('pg-connection-string');
 
-// #################### INÍCIO DA CORREÇÃO ####################
 // Determina qual ambiente usar com base na variável de ambiente NODE_ENV.
 const env = process.env.NODE_ENV || 'development';
-const config = configuration[env];
+const config = { ...configuration[env] }; // Clona a configuração para evitar mutação do objeto original
 
 console.log(`[Knex] A iniciar conexão em modo: ${env}...`);
 
-// Força o uso de IPv4 diretamente na configuração do driver pg,
-// o que resolve o erro de 'ENETUNREACH' em ambientes como o Render.
-if (env === 'production') {
+// #################### INÍCIO DA CORREÇÃO DEFINITIVA ####################
+// Para o ambiente de produção, decompõe a DATABASE_URL e força o uso de IPv4.
+// Isto é essencial para resolver o erro ENETUNREACH em plataformas como o Render.
+if (env === 'production' && process.env.DATABASE_URL) {
+  const dbConfig = parse(process.env.DATABASE_URL);
+  
   config.connection = {
-    ...config.connection,
-    host: config.connection.host, // Garante que o host seja passado explicitamente
-    port: config.connection.port,
-    user: config.connection.user,
-    database: config.connection.database,
-    password: config.connection.password,
+    host: dbConfig.host,
+    port: dbConfig.port,
+    user: dbConfig.user,
+    password: dbConfig.password,
+    database: dbConfig.database,
     ssl: { rejectUnauthorized: false },
-    family: 4, // Hint para o driver pg
+    family: 4 // Força o driver 'pg' a usar IPv4
   };
 }
+// ##################### FIM DA CORREÇÃO DEFINITIVA ######################
 
 const connection = knex(config);
-// ##################### FIM DA CORREÇÃO ######################
 
 module.exports = connection;
