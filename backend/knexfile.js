@@ -4,8 +4,8 @@ require('dotenv').config();
 module.exports = {
   development: {
     client: 'pg',
-    // A lógica de conexão foi movida para o connection.js
-    connection: process.env.DATABASE_URL, 
+    // A propriedade 'connection' foi REMOVIDA.
+    // Ela será construída dinamicamente no connection.js
     migrations: {
       directory: './src/database/migrations'
     },
@@ -20,8 +20,7 @@ module.exports = {
 
   production: {
     client: 'pg',
-    // A lógica de conexão foi movida para o connection.js
-    connection: process.env.DATABASE_URL, 
+    // A propriedade 'connection' foi REMOVIDA.
     migrations: {
       directory: './src/database/migrations'
     },

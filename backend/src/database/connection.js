@@ -8,10 +8,12 @@ const config = { ...configuration[env] };
 
 console.log(`[Knex] A iniciar conexão em modo: ${env}...`);
 
-// #################### INÍCIO DA CORREÇÃO DEFINITIVA ####################
-// Em produção, decompomos a DATABASE_URL para forçar o uso de IPv4,
-// resolvendo o erro 'ENETUNREACH' em plataformas como o Render.
-if (env === 'production' && process.env.DATABASE_URL) {
+// #################### INÍCIO DA CORREÇÃO FINAL ####################
+// Constrói o objeto de conexão do zero para garantir que não haja sobreposições.
+if (env === 'production') {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('A variável de ambiente DATABASE_URL é obrigatória em produção!');
+  }
   const dbConfig = parse(process.env.DATABASE_URL);
   
   config.connection = {
@@ -21,10 +23,13 @@ if (env === 'production' && process.env.DATABASE_URL) {
     password: dbConfig.password,
     database: dbConfig.database,
     ssl: { rejectUnauthorized: false },
-    family: 4 // Força o driver 'pg' a usar IPv4
+    family: 4 // Força o uso de IPv4
   };
+} else {
+  // Para desenvolvimento, usa a DATABASE_URL diretamente.
+  config.connection = process.env.DATABASE_URL;
 }
-// ##################### FIM DA CORREÇÃO DEFINITIVA ######################
+// ##################### FIM DA CORREÇÃO FINAL ######################
 
 const connection = knex(config);
 
