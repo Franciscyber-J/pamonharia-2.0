@@ -1,3 +1,5 @@
+// frontend/cardapio/js/ui.js
+
 import { state, socket, handleOnlinePaymentSelection } from './main.js';
 import { getAvailableStock, isItemEffectivelyOutOfStock, isComboEffectivelyOutOfStock, openProductWithOptionsModal, openComboModal, addToCartSimple, calculateTotals, clearCart, adjustItemGroupQuantity, adjustCartItemQuantity, removeItemGroup } from './cart.js';
 import { apiFetch } from './api.js';
@@ -299,6 +301,7 @@ export async function initializeCardPaymentForm() {
                 cardholderEmail: { id: 'cardholderEmail', placeholder: 'exemplo@email.com' },
                 docType: { id: 'docType' },
                 docNumber: { id: 'docNumber', placeholder: 'Número do documento' },
+                // A configuração de 'installments' é removida daqui
             },
             callbacks: {
                 onFormMounted: error => {
@@ -326,16 +329,18 @@ export async function initializeCardPaymentForm() {
                     dom.paymentProcessingOverlay.style.display = 'flex';
                     dom.customPaymentContainer.style.display = 'none';
 
+                    // #################### INÍCIO DA CORREÇÃO ####################
+                    // Removemos `installments` da desestruturação, pois não é mais necessário
                     const {
                         paymentMethodId: payment_method_id,
                         issuerId: issuer_id,
                         cardholderEmail: email,
                         amount,
                         token,
-                        installments,
                         docNumber,
                         docType,
                     } = cardForm.getCardFormData();
+                    // ##################### FIM DA CORREÇÃO ######################
 
                     try {
                         const paymentData = {
@@ -343,7 +348,10 @@ export async function initializeCardPaymentForm() {
                             token,
                             payment_method_id,
                             issuer_id,
-                            installments: 1,
+                            // #################### INÍCIO DA CORREÇÃO ####################
+                            // Garantimos que o valor enviado é sempre 1
+                            installments: 1, 
+                            // ##################### FIM DA CORREÇÃO ######################
                             payment_type: 'credit_card',
                             payer: {
                                 email,
