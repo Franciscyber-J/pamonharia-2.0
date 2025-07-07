@@ -2,31 +2,32 @@
 const knex = require('knex');
 const configuration = require('../../knexfile');
 const { parse } = require('pg-connection-string');
+const dns = require('dns');
 
-// Determina qual ambiente usar com base na variável de ambiente NODE_ENV.
+// Força preferência por IPv4 em resoluções DNS (precaução extra)
+dns.setDefaultResultOrder('ipv4first');
+
+// Determina qual ambiente usar com base na variável de ambiente NODE_ENV
 const env = process.env.NODE_ENV || 'development';
-const config = { ...configuration[env] }; // Clona a configuração para evitar mutação do objeto original
+const config = { ...configuration[env] };
 
 console.log(`[Knex] A iniciar conexão em modo: ${env}...`);
 
-// #################### INÍCIO DA CORREÇÃO DEFINITIVA ####################
-// Para o ambiente de produção, decompõe a DATABASE_URL e força o uso de IPv4.
-// Isto é essencial para resolver o erro ENETUNREACH em plataformas como o Render.
+// #################### AJUSTE PARA PRODUÇÃO COM SUPABASE ####################
 if (env === 'production' && process.env.DATABASE_URL) {
   const dbConfig = parse(process.env.DATABASE_URL);
-  
+
   config.connection = {
-    host: dbConfig.host,
-    port: dbConfig.port,
+    host: dbConfig.host,             // Ex: aws-0-sa-east-1.pooler.supabase.com
+    port: dbConfig.port || 5432,
     user: dbConfig.user,
     password: dbConfig.password,
     database: dbConfig.database,
-    ssl: { rejectUnauthorized: false },
-    family: 4 // Força o driver 'pg' a usar IPv4
+    ssl: { rejectUnauthorized: false }, // Recomendado para Supabase
+    family: 4, // Força IPv4
   };
 }
-// ##################### FIM DA CORREÇÃO DEFINITIVA ######################
+// ###########################################################################
 
 const connection = knex(config);
-
 module.exports = connection;
