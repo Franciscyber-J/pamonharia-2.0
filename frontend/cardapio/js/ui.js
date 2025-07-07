@@ -292,17 +292,28 @@ export async function initializeCardPaymentForm() {
             iframe: true,
             form: {
                 id: 'card-payment-form',
-                cardNumber: { id: 'cardNumber', placeholder: '0000 0000 0000 0000' },
+                cardNumber: { id: 'cardNumber', placeholder: 'Número do cartão' },
                 expirationDate: { id: 'expirationDate', placeholder: 'MM/AA' },
-                securityCode: { id: 'securityCode', placeholder: 'CVC' },
-                cardholderName: { id: 'cardholderName', placeholder: 'Nome como no cartão' },
-                cardholderEmail: { id: 'cardholderEmail', placeholder: 'exemplo@email.com' },
-                docType: { id: 'docType' },
-                docNumber: { id: 'docNumber', placeholder: 'Número do documento' },
-                // Conforme a documentação, declaramos os campos para a SDK.
-                issuer: { id: 'issuer' },
-                installments: { id: 'installments' }
+                securityCode: { id: 'securityCode', placeholder: 'Código de segurança' },
+                cardholderName: { id: 'cardholderName', placeholder: 'Titular do cartão' },
+                cardholderEmail: { id: 'cardholderEmail', placeholder: 'E-mail' },
+                // #################### INÍCIO DA CORREÇÃO ####################
+                identificationType: { id: 'identificationType', placeholder: 'Tipo de documento' },
+                identificationNumber: { id: 'identificationNumber', placeholder: 'Número do documento' },
+                issuer: { id: 'issuer', placeholder: 'Banco emissor' },
+                installments: { id: 'installments', placeholder: 'Parcelas' }
+                // ##################### FIM DA CORREÇÃO ######################
             },
+            // #################### INÍCIO DA CORREÇÃO (VISUAL) ####################
+            customization: {
+                visual: {
+                    style: {
+                        // Aplica o tema escuro da SDK aos campos de iframe
+                        theme: 'dark'
+                    }
+                }
+            },
+            // ##################### FIM DA CORREÇÃO (VISUAL) ######################
             callbacks: {
                 onFormMounted: error => {
                     if (error) {
@@ -314,8 +325,12 @@ export async function initializeCardPaymentForm() {
                     if (error) return console.warn('Form Unmounted callback error: ', error);
                 },
                 onIdentificationTypesReceived: (error, identificationTypes) => {
-                    if (error) return console.warn('Identification types callback error: ', error);
-                    const docTypeElement = document.getElementById('docType');
+                    if (error) {
+                        console.warn('Identification types callback error: ', error);
+                        showErrorModal('Erro de Validação', 'Não foi possível carregar os tipos de documento.');
+                        return;
+                    }
+                    const docTypeElement = document.getElementById('identificationType');
                     docTypeElement.innerHTML = '<option value="" disabled selected>Selecione</option>';
                     identificationTypes.forEach(type => {
                         const option = document.createElement('option');
@@ -335,8 +350,9 @@ export async function initializeCardPaymentForm() {
                         cardholderEmail: email,
                         amount,
                         token,
-                        docNumber,
-                        docType,
+                        installments, // A SDK vai popular isso, mas usaremos 1
+                        identificationNumber,
+                        identificationType,
                     } = cardForm.getCardFormData();
 
                     try {
@@ -350,8 +366,8 @@ export async function initializeCardPaymentForm() {
                             payer: {
                                 email,
                                 identification: {
-                                    type: docType,
-                                    number: docNumber,
+                                    type: identificationType,
+                                    number: identificationNumber,
                                 },
                             },
                         };
