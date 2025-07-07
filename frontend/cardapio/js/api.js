@@ -1,6 +1,6 @@
 import { state } from './main.js';
 
-const API_BASE_URL = 'https://api.render.com/deploy/srv-d1lgojmr433s73dndogg?key=LJmnkh7M4F8';
+const API_BASE_URL = 'https://pamonhariasaborosa.expertbr.com';
 
 /**
  * Função centralizada para fazer requisições à API.

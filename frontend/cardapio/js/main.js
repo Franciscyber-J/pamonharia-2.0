@@ -2,8 +2,10 @@ import { apiFetch, fetchAndRenderAllData } from './api.js';
 import { initializeCart, getCart, clearCart } from './cart.js';
 import { dom, initializeUI, updateStoreStatus, renderItems, renderCart, showErrorModal, initializeCardPaymentForm } from './ui.js';
 
-// Inicializa o Socket.IO
-const API_BASE_URL = 'https://api.render.com/deploy/srv-d1lgojmr433s73dndogg?key=LJmnkh7M4F8';
+// #################### INÍCIO DA ATUALIZAÇÃO ####################
+// Atualiza a URL base da API para o seu domínio de produção.
+const API_BASE_URL = 'https://pamonhariasaborosa.expertbr.com';
+// ##################### FIM DA ATUALIZAÇÃO ######################
 export const socket = io(API_BASE_URL);
 
 // Estado global da aplicação

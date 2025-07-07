@@ -165,8 +165,10 @@
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
-        // Funções globais para manipulação de estoque, acessíveis via window
-        const API_BASE_URL_GLOBAL = 'http://localhost:10000';
+        // #################### INÍCIO DA ATUALIZAÇÃO ####################
+        // Atualiza a URL base da API para o seu domínio de produção.
+        const API_BASE_URL_GLOBAL = 'https://pamonhariasaborosa.expertbr.com';
+        // ##################### FIM DA ATUALIZAÇÃO ######################
         
         const globalApiFetch = async (endpoint, options = {}) => {
             options.headers = { ...options.headers, 'Authorization': `Bearer ${localStorage.getItem('authToken')}`, 'Content-Type': 'application/json' };
@@ -226,7 +228,7 @@
         
         // Lógica principal do Dashboard
         document.addEventListener('DOMContentLoaded', async () => {
-            const API_BASE_URL = 'https://api.render.com/deploy/srv-d1lgojmr433s73dndogg?key=LJmnkh7M4F8';
+            const API_BASE_URL = API_BASE_URL_GLOBAL; // Usa a variável global
             const dashboardContent = document.getElementById('dashboard-content');
             const pageTitle = document.getElementById('page-title');
             const soundStatusBtn = document.getElementById('sound-status');
@@ -495,16 +497,12 @@
                 const id = document.getElementById('product-id').value;
                 const children = Array.from(document.querySelectorAll('#addons-list input:checked')).map(cb => ({ id: parseInt(cb.dataset.addonId) }));
                 
-                // #################### INÍCIO DA CORREÇÃO ####################
-                // Garante que um preço '0' seja enviado se o campo estiver vazio ou desabilitado,
-                // evitando o erro de violação de restrição NOT NULL no banco de dados.
                 const priceValue = parseFloat(document.getElementById('product-price').value) || 0;
-                // ##################### FIM DA CORREÇÃO ######################
 
                 const productData = { 
                     name: document.getElementById('product-name').value, 
                     description: document.getElementById('product-description').value, 
-                    price: priceValue, // Utiliza a variável corrigida
+                    price: priceValue, 
                     status: document.getElementById('product-status').value === 'true', 
                     image_url: imageUrl, 
                     force_one_to_one_complement: document.getElementById('force-one-to-one-complement').checked, 
