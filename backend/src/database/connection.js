@@ -1,36 +1,35 @@
-// backend/src/database/connection.js
 const knex = require('knex');
 const configuration = require('../../knexfile');
 const { parse } = require('pg-connection-string');
+const dns = require('dns');
+
+// Força o Node a preferir IPv4 em resoluções DNS (segurança extra)
+dns.setDefaultResultOrder('ipv4first');
 
 const env = process.env.NODE_ENV || 'development';
 const config = { ...configuration[env] };
 
 console.log(`[Knex] A iniciar conexão em modo: ${env}...`);
 
-// #################### INÍCIO DA CORREÇÃO FINAL ####################
-// Constrói o objeto de conexão do zero para garantir que não haja sobreposições.
+if (!process.env.DATABASE_URL) {
+  throw new Error('A variável DATABASE_URL não está definida!');
+}
+
 if (env === 'production') {
-  if (!process.env.DATABASE_URL) {
-    throw new Error('A variável de ambiente DATABASE_URL é obrigatória em produção!');
-  }
   const dbConfig = parse(process.env.DATABASE_URL);
-  
+
   config.connection = {
-    host: dbConfig.host,
-    port: dbConfig.port,
+    host: dbConfig.host, // já será o IPv4 se você ajustou .env
+    port: dbConfig.port || 5432,
     user: dbConfig.user,
     password: dbConfig.password,
     database: dbConfig.database,
-    ssl: { rejectUnauthorized: false }, // Essencial para conexões seguras na maioria das plataformas cloud
-    family: 4 // Força o uso de IPv4 para resolver o problema ENETUNREACH
+    ssl: { rejectUnauthorized: false },
+    family: 4, // Força uso de IPv4 (ainda que redundante se host já for IP)
   };
 } else {
-  // Para desenvolvimento, o uso direto da string DATABASE_URL continua a ser adequado.
   config.connection = process.env.DATABASE_URL;
 }
-// ##################### FIM DA CORREÇÃO FINAL ######################
 
 const connection = knex(config);
-
 module.exports = connection;
