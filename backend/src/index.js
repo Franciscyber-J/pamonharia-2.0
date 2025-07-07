@@ -53,7 +53,7 @@ async function startServer() {
   app.get(['/', '/login'], (req, res) => {
     res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'dashboard', 'login.html'));
   });
-  app.get('/dashboard', (req, res) => {
+   app.get(['/dashboard', '/dashboard.html'], (req, res) => {
     res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'dashboard', 'dashboard.html'));
   });
   app.get('/cardapio', (req, res) => {

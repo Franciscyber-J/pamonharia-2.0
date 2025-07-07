@@ -155,7 +155,7 @@
                 
                 const data = await response.json();
                 localStorage.setItem("authToken", data.token);
-                window.location.href = 'dashboard.html';
+                window.location.href = '/dashboard';
 
             } catch (error) {
                 errorMessage.textContent = "Email ou senha inválidos.";
