@@ -299,7 +299,8 @@ export async function initializeCardPaymentForm() {
                 cardholderEmail: { id: 'cardholderEmail', placeholder: 'exemplo@email.com' },
                 docType: { id: 'docType' },
                 docNumber: { id: 'docNumber', placeholder: 'Número do documento' },
-                // O campo 'installments' é necessário para a SDK, mesmo que oculto.
+                // Conforme a documentação, declaramos os campos para a SDK.
+                issuer: { id: 'issuer' },
                 installments: { id: 'installments' }
             },
             callbacks: {
@@ -344,7 +345,7 @@ export async function initializeCardPaymentForm() {
                             token,
                             payment_method_id,
                             issuer_id: issuer_id,
-                            installments: 1, // Pagamento sempre em 1x (à vista)
+                            installments: 1, // Garantimos o envio de 1 parcela para pagamento à vista.
                             payment_type: 'credit_card',
                             payer: {
                                 email,
