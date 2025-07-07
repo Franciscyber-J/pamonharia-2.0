@@ -57,11 +57,8 @@ module.exports = {
             }
         }
         
-        // #################### INÍCIO DA MELHORIA ####################
-        // Adiciona log detalhado do corpo da requisição antes de enviá-la.
         console.log(`[PaymentController] Enviando para o Mercado Pago para o pedido ${order_id}:`);
         console.log(JSON.stringify(paymentRequestBody, null, 2));
-        // ##################### FIM DA MELHORIA ######################
         
         const paymentResult = await payment.create({ body: paymentRequestBody }, {
             idempotencyKey: idempotencyKey
@@ -112,48 +109,69 @@ module.exports = {
     }
   },
 
+  /**
+   * Recebe e processa notificações de webhook do Mercado Pago.
+   * Segue a boa prática de responder imediatamente com 200 OK e depois processar os dados.
+   */
   async receiveWebhook(request, response) {
-    const { query } = request;
-    const topic = query.topic || query.type;
+    // 1. Extrai os dados da requisição. O tópico pode vir na query, os detalhes vêm no corpo.
+    const { query, body } = request;
+    const topic = query.topic || query.type || body.topic;
     
-    console.log(`[Webhook] Notificação recebida. Tópico: ${topic}, ID do Evento: ${query.id}`);
-    if (topic !== 'payment') {
-      return response.status(200).send();
-    }
+    console.log(`[Webhook] Notificação recebida. Tópico: ${topic}`);
+    console.log('[Webhook] Corpo da requisição:', JSON.stringify(body, null, 2));
 
-    try {
-      const paymentDetails = await payment.get({ id: query.id });
-      const order_id = paymentDetails.external_reference;
+    // 2. Responde IMEDIATAMENTE ao Mercado Pago para confirmar o recebimento.
+    // Isso é crucial para evitar que o Mercado Pago considere a notificação como falha.
+    response.status(200).send('Webhook recebido.');
 
-      if (paymentDetails && order_id) {
-        console.log(`[Webhook] Processando pagamento ${paymentDetails.id} para o pedido ${order_id}. Status: ${paymentDetails.status}`);
-        
-        const orderToUpdate = { 
-          payment_id: String(paymentDetails.id), 
-          payment_status: paymentDetails.status 
-        };
-        
-        if (paymentDetails.status === 'approved') {
-          orderToUpdate.status = 'Pago';
+    // 3. Verifica se é um evento de pagamento e se temos um ID para processar.
+    // O ID do pagamento vem dentro do objeto `data`.
+    const paymentId = body.data?.id;
+
+    if (topic === 'payment' && paymentId) {
+      console.log(`[Webhook] Evento de pagamento identificado. ID do Pagamento: ${paymentId}. Iniciando processamento...`);
+      try {
+        // 4. Busca os detalhes completos do pagamento na API do Mercado Pago.
+        const paymentDetails = await payment.get({ id: paymentId });
+        const order_id = paymentDetails.external_reference;
+
+        if (paymentDetails && order_id) {
+          console.log(`[Webhook] Processando pagamento ${paymentDetails.id} para o pedido ${order_id}. Status: ${paymentDetails.status}`);
+          
+          const orderToUpdate = { 
+            payment_id: String(paymentDetails.id), 
+            payment_status: paymentDetails.status 
+          };
+          
+          // Se o pagamento foi aprovado, atualizamos o status principal do pedido.
+          if (paymentDetails.status === 'approved') {
+            orderToUpdate.status = 'Pago';
+          }
+          
+          await connection('orders').where('id', order_id).update(orderToUpdate);
+          
+          // 5. Emite eventos via Socket.IO para notificar o frontend em tempo real.
+          const updatedOrder = await connection('orders').where('id', order_id).first();
+          if (updatedOrder) {
+              // Notifica a mudança de status (ex: de 'Aguardando Pagamento' para 'Pago')
+              request.io.emit('order_status_updated', { id: updatedOrder.id, status: updatedOrder.status });
+              console.log(`[Webhook] Pedido ${order_id} atualizado para status '${updatedOrder.status}'. Evento 'order_status_updated' emitido.`);
+              
+              // Se foi aprovado, trata como um novo pedido que precisa de atenção na cozinha.
+              if (paymentDetails.status === 'approved') {
+                  request.io.emit('new_order', updatedOrder);
+                  console.log(`[Webhook] Pagamento aprovado. Evento 'new_order' emitido para o pedido ${order_id}.`);
+              }
+          }
         }
-        
-        await connection('orders').where('id', order_id).update(orderToUpdate);
-        
-        const updatedOrder = await connection('orders').where('id', order_id).first();
-        if (updatedOrder) {
-            request.io.emit('order_status_updated', { id: updatedOrder.id, status: updatedOrder.status });
-            console.log(`[Webhook] Pedido ${order_id} atualizado para status '${updatedOrder.status}'. Evento emitido.`);
-            
-            if (paymentDetails.status === 'approved') {
-                request.io.emit('new_order', updatedOrder);
-            }
-        }
+      } catch (error) {
+        // Se ocorrer um erro durante o processamento, apenas registamos no log.
+        // Não tentamos responder ao Mercado Pago novamente, pois já enviámos o status 200.
+        console.error(`[Webhook] Erro ao processar o pagamento ${paymentId} após o recebimento:`, error.message);
       }
-      
-      return response.status(200).send('Webhook processado.');
-    } catch (error) {
-      console.error('[Webhook] Erro ao processar webhook:', error.message);
-      return response.status(500).send('Erro no processamento do webhook.');
+    } else {
+      console.log('[Webhook] Evento ignorado (não é de pagamento ou não possui ID).');
     }
   },
 };
