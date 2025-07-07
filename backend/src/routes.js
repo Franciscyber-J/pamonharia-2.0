@@ -2,7 +2,6 @@
 const express = require('express');
 
 // Importação de todos os controllers
-const UserController = require('./controllers/UserController');
 const SessionController = require('./controllers/SessionController');
 const ProductController = require('./controllers/ProductController');
 const SettingsController = require('./controllers/SettingsController');
@@ -11,54 +10,42 @@ const ComboController = require('./controllers/ComboController');
 const PaymentController = require('./controllers/PaymentController');
 const authMiddleware = require('./middlewares/auth');
 
-const routes = express.Router();
+const router = express.Router(); // Usamos router em vez de routes para clareza
 
 // --- ROTAS PÚBLICAS DA API ---
-// (Não exigem token)
-
-// Sessão (Login)
-routes.post('/sessions', SessionController.create);
-
-// Cardápio e Configurações Públicas
-routes.get('/public/products', ProductController.indexPublic);
-routes.get('/public/combos', ComboController.indexPublic);
-routes.get('/public/settings', SettingsController.show);
-routes.post('/public/orders', OrderController.create);
-
-// Pagamentos
-routes.get('/public/payment-settings', SettingsController.getPaymentSettings);
-routes.post('/payments/process', PaymentController.processPayment);
-routes.post('/payments/webhook', PaymentController.receiveWebhook);
+router.post('/sessions', SessionController.create);
+router.get('/public/products', ProductController.indexPublic);
+router.get('/public/combos', ComboController.indexPublic);
+router.get('/public/settings', SettingsController.show);
+router.post('/public/orders', OrderController.create);
+router.get('/public/payment-settings', SettingsController.getPaymentSettings);
+router.post('/payments/process', PaymentController.processPayment);
+router.post('/payments/webhook', PaymentController.receiveWebhook);
 
 // --- APLICAÇÃO DO MIDDLEWARE DE AUTENTICAÇÃO ---
-// A partir desta linha, todas as rotas abaixo são privadas e exigem um token.
-routes.use(authMiddleware);
+// A partir desta linha, todas as rotas abaixo são privadas
+router.use(authMiddleware);
 
 // --- ROTAS PRIVADAS DA API (DASHBOARD) ---
+router.get('/products', ProductController.index);
+router.post('/products', ProductController.create);
+router.put('/products/:id', ProductController.update);
+router.delete('/products/:id', ProductController.destroy);
+router.patch('/products/:id/stock', ProductController.updateStock);
+router.post('/products/reorder', ProductController.reorder);
 
-// Produtos e Estoque
-routes.get('/products', ProductController.index);
-routes.post('/products', ProductController.create);
-routes.put('/products/:id', ProductController.update);
-routes.delete('/products/:id', ProductController.destroy);
-routes.patch('/products/:id/stock', ProductController.updateStock);
-routes.post('/products/reorder', ProductController.reorder);
+router.get('/combos', ComboController.index);
+router.post('/combos', ComboController.create);
+router.put('/combos/:id', ComboController.update);
+router.delete('/combos/:id', ComboController.destroy);
+router.post('/combos/reorder', ComboController.reorder);
 
-// Combos
-routes.get('/combos', ComboController.index);
-routes.post('/combos', ComboController.create);
-routes.put('/combos/:id', ComboController.update);
-routes.delete('/combos/:id', ComboController.destroy);
-routes.post('/combos/reorder', ComboController.reorder);
+router.get('/settings', SettingsController.show);
+router.put('/settings', SettingsController.update);
+router.get('/cloudinary-signature', SettingsController.generateCloudinarySignature);
 
-// Configurações da Loja
-routes.get('/settings', SettingsController.show);
-routes.put('/settings', SettingsController.update);
-routes.get('/cloudinary-signature', SettingsController.generateCloudinarySignature);
+router.get('/orders', OrderController.index);
+router.patch('/orders/:id/status', OrderController.updateStatus);
+router.delete('/orders/history', OrderController.clearHistory);
 
-// Pedidos
-routes.get('/orders', OrderController.index);
-routes.patch('/orders/:id/status', OrderController.updateStatus);
-routes.delete('/orders/history', OrderController.clearHistory);
-
-module.exports = routes;
+module.exports = router;

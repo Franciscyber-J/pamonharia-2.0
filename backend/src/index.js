@@ -7,7 +7,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const connection = require('./database/connection');
-const routes = require('./routes');
+const apiRoutes = require('./routes'); // Renomeado para clareza
 
 async function startServer() {
   console.log('----------------------------------------------------');
@@ -32,25 +32,32 @@ async function startServer() {
     cors: { origin: "*", methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] }
   });
 
+  // Middlewares essenciais
   app.use(cors());
   app.use(express.json());
 
+  // Injeta o 'io' e o 'trigger' em todas as requisições da API
   app.use((request, response, next) => {
     request.io = io;
     request.triggerInventoryReload = initializeInventory;
     return next();
   });
 
-  // 1. SERVE TODOS OS FICHEIROS ESTÁTICOS DA PASTA `frontend`
+  // 1. Roteamento da API: Todas as rotas de API são prefixadas com /api
+  app.use('/api', apiRoutes);
+
+  // 2. Roteamento de Ficheiros Estáticos: Serve CSS, JS, imagens, etc.
   app.use(express.static(path.resolve(__dirname, '..', '..', 'frontend')));
 
-  // 2. USA O FICHEIRO DE ROTAS APENAS PARA ENDPOINTS QUE COMEÇAM COM `/api`
-  app.use('/api', routes);
-
-  // 3. ROTA DE FALLBACK: Redireciona o acesso à raiz do site para a página de login
-  //    Isto garante que os utilizadores tenham sempre um ponto de entrada.
-  app.get('*', (req, res) => {
+  // 3. Roteamento de Páginas HTML: Define explicitamente as rotas para as páginas principais
+  app.get(['/', '/login'], (req, res) => {
     res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'dashboard', 'login.html'));
+  });
+  app.get('/dashboard', (req, res) => {
+    res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'dashboard', 'dashboard.html'));
+  });
+  app.get('/cardapio', (req, res) => {
+    res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'cardapio', 'index.html'));
   });
 
   // Lógica de Sockets e Inventário (sem alterações)
@@ -84,9 +91,7 @@ async function startServer() {
                 let stockHoldingProductId = product.id;
                 if (product.parent_product_id) {
                     const parent = await trx('products').where('id', product.parent_product_id).first();
-                    if (parent && parent.stock_sync_enabled) {
-                        stockHoldingProductId = parent.id;
-                    }
+                    if (parent && parent.stock_sync_enabled) { stockHoldingProductId = parent.id; }
                 }
                 const currentChange = stockChanges.get(stockHoldingProductId) || 0;
                 stockChanges.set(stockHoldingProductId, currentChange + item.quantity);
@@ -94,9 +99,7 @@ async function startServer() {
             for (const [productId, totalQuantityChange] of stockChanges.entries()) {
                 const product = await trx('products').where('id', productId).first();
                 const currentStock = liveInventory[productId] ?? product.stock_quantity;
-                if (operation === 'decrement' && currentStock < totalQuantityChange) {
-                    throw new Error(`Estoque insuficiente para ${product.name}. Disponível: ${currentStock}, Solicitado: ${totalQuantityChange}.`);
-                }
+                if (operation === 'decrement' && currentStock < totalQuantityChange) { throw new Error(`Estoque insuficiente para ${product.name}. Disponível: ${currentStock}, Solicitado: ${totalQuantityChange}.`); }
                 await trx('products').where('id', productId)[operation]('stock_quantity', totalQuantityChange);
             }
             await trx.commit();
