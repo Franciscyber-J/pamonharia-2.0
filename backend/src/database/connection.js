@@ -22,11 +22,11 @@ if (env === 'production') {
     user: dbConfig.user,
     password: dbConfig.password,
     database: dbConfig.database,
-    ssl: { rejectUnauthorized: false },
-    family: 4 // Força o uso de IPv4
+    ssl: { rejectUnauthorized: false }, // Essencial para conexões seguras na maioria das plataformas cloud
+    family: 4 // Força o uso de IPv4 para resolver o problema ENETUNREACH
   };
 } else {
-  // Para desenvolvimento, usa a DATABASE_URL diretamente.
+  // Para desenvolvimento, o uso direto da string DATABASE_URL continua a ser adequado.
   config.connection = process.env.DATABASE_URL;
 }
 // ##################### FIM DA CORREÇÃO FINAL ######################
