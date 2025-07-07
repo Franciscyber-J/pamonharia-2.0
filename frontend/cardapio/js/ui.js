@@ -1,5 +1,3 @@
-// frontend/cardapio/js/ui.js
-
 import { state, socket, handleOnlinePaymentSelection } from './main.js';
 import { getAvailableStock, isItemEffectivelyOutOfStock, isComboEffectivelyOutOfStock, openProductWithOptionsModal, openComboModal, addToCartSimple, calculateTotals, clearCart, adjustItemGroupQuantity, adjustCartItemQuantity, removeItemGroup } from './cart.js';
 import { apiFetch } from './api.js';
@@ -301,11 +299,8 @@ export async function initializeCardPaymentForm() {
                 cardholderEmail: { id: 'cardholderEmail', placeholder: 'exemplo@email.com' },
                 docType: { id: 'docType' },
                 docNumber: { id: 'docNumber', placeholder: 'Número do documento' },
-                // #################### INÍCIO DA CORREÇÃO ####################
-                // Reintroduzimos os campos para que a SDK os controle, mesmo que estejam ocultos.
-                issuer: { id: 'issuer' },
+                // O campo 'installments' é necessário para a SDK, mesmo que oculto.
                 installments: { id: 'installments' }
-                // ##################### FIM DA CORREÇÃO ######################
             },
             callbacks: {
                 onFormMounted: error => {
@@ -335,7 +330,7 @@ export async function initializeCardPaymentForm() {
 
                     const {
                         paymentMethodId: payment_method_id,
-                        issuerId: issuer_id, // Usamos o issuerId que a SDK nos fornece
+                        issuerId: issuer_id,
                         cardholderEmail: email,
                         amount,
                         token,
@@ -348,8 +343,8 @@ export async function initializeCardPaymentForm() {
                             order_id: state.currentOrder.id,
                             token,
                             payment_method_id,
-                            issuer_id: issuer_id, // Passamos o issuer_id para o backend
-                            installments: 1, // Enviamos sempre 1 para pagamento à vista
+                            issuer_id: issuer_id,
+                            installments: 1, // Pagamento sempre em 1x (à vista)
                             payment_type: 'credit_card',
                             payer: {
                                 email,
@@ -392,7 +387,7 @@ export async function initializeCardPaymentForm() {
         window.cardForm = cardForm;
     } catch (e) {
         console.error('Falha crítica ao inicializar o CardForm:', e);
-        throw e;
+        showErrorModal('Erro Crítico', 'Não foi possível inicializar o formulário de pagamento. Por favor, recarregue a página.');
     }
 }
 
