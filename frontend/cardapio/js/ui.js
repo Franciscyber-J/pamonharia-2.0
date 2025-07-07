@@ -301,7 +301,11 @@ export async function initializeCardPaymentForm() {
                 cardholderEmail: { id: 'cardholderEmail', placeholder: 'exemplo@email.com' },
                 docType: { id: 'docType' },
                 docNumber: { id: 'docNumber', placeholder: 'Número do documento' },
-                // A configuração de 'installments' é removida daqui
+                // #################### INÍCIO DA CORREÇÃO ####################
+                // Reintroduzimos os campos para que a SDK os controle, mesmo que estejam ocultos.
+                issuer: { id: 'issuer' },
+                installments: { id: 'installments' }
+                // ##################### FIM DA CORREÇÃO ######################
             },
             callbacks: {
                 onFormMounted: error => {
@@ -329,29 +333,23 @@ export async function initializeCardPaymentForm() {
                     dom.paymentProcessingOverlay.style.display = 'flex';
                     dom.customPaymentContainer.style.display = 'none';
 
-                    // #################### INÍCIO DA CORREÇÃO ####################
-                    // Removemos `installments` da desestruturação, pois não é mais necessário
                     const {
                         paymentMethodId: payment_method_id,
-                        issuerId: issuer_id,
+                        issuerId: issuer_id, // Usamos o issuerId que a SDK nos fornece
                         cardholderEmail: email,
                         amount,
                         token,
                         docNumber,
                         docType,
                     } = cardForm.getCardFormData();
-                    // ##################### FIM DA CORREÇÃO ######################
 
                     try {
                         const paymentData = {
                             order_id: state.currentOrder.id,
                             token,
                             payment_method_id,
-                            issuer_id,
-                            // #################### INÍCIO DA CORREÇÃO ####################
-                            // Garantimos que o valor enviado é sempre 1
-                            installments: 1, 
-                            // ##################### FIM DA CORREÇÃO ######################
+                            issuer_id: issuer_id, // Passamos o issuer_id para o backend
+                            installments: 1, // Enviamos sempre 1 para pagamento à vista
                             payment_type: 'credit_card',
                             payer: {
                                 email,
