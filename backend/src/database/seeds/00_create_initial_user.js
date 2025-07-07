@@ -6,24 +6,36 @@ const bcrypt = require('bcryptjs');
  * @returns { Promise<void> } 
  */
 exports.seed = async function(knex) {
-  // Verifica se o usuário já existe para evitar erros de duplicidade
-  const userExists = await knex('users').where('email', 'admin@pamonharia.com').first();
+  // --- Utilizador Administrador ---
+  const adminEmail = 'admin@pamonharia.com';
+  const adminExists = await knex('users').where('email', adminEmail).first();
 
-  if (!userExists) {
-    // Gera o hash da senha padrão
+  if (!adminExists) {
     const password_hash = await bcrypt.hash('admin123', 8);
-
-    // Insere o usuário administrador na tabela 'users'
-    await knex('users').insert([
-      {
-        name: 'Administrador',
-        email: 'admin@pamonharia.com',
-        password_hash: password_hash,
-      }
-    ]);
-
-    console.log("✅ Seed: Usuário 'admin@pamonharia.com' criado com sucesso.");
+    await knex('users').insert([{
+      name: 'Administrador',
+      email: adminEmail,
+      password_hash: password_hash,
+    }]);
+    console.log(`✅ Seed: Utilizador '${adminEmail}' criado com sucesso.`);
   } else {
-    console.log("ℹ️ Seed: Usuário 'admin@pamonharia.com' já existe. Nenhuma ação foi necessária.");
+    console.log(`ℹ️ Seed: Utilizador '${adminEmail}' já existe.`);
+  }
+
+  // --- Utilizador Operador ---
+  const operatorEmail = 'operador@pamonharia.com';
+  const operatorExists = await knex('users').where('email', operatorEmail).first();
+
+  if (!operatorExists) {
+    // Senha para o operador: 'operador123'
+    const password_hash = await bcrypt.hash('operador123', 8);
+    await knex('users').insert([{
+      name: 'Operador de Caixa',
+      email: operatorEmail,
+      password_hash: password_hash,
+    }]);
+    console.log(`✅ Seed: Utilizador '${operatorEmail}' criado com sucesso.`);
+  } else {
+    console.log(`ℹ️ Seed: Utilizador '${operatorEmail}' já existe.`);
   }
 };
