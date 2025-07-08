@@ -1,0 +1,17 @@
+# Ficheiro de configuração para ignorar ficheiros e pastas no Git para o serviço do Bot.
+
+# Ignorar a pasta de dependências do Node.js.
+node_modules
+
+# Ignorar ficheiros de variáveis de ambiente.
+.env
+
+# Ignorar ficheiros de log que possam ser gerados.
+npm-debug.log*
+*.log
+
+# Ignorar a pasta de sessão do whatsapp-web.js.
+/sessions
+
+# Ignorar a pasta de cache do whatsapp-web.js.
+/.wwebjs_cache
