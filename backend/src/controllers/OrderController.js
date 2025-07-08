@@ -41,8 +41,15 @@ module.exports = {
         return await trx('orders').where('id', order_id).first();
       });
 
-      request.io.emit('new_order', newOrderData);
-      console.log(`[Socket.IO] Evento "new_order" (status: ${initialStatus}) emitido para o dashboard.`);
+      // #################### INÍCIO DA CORREÇÃO ####################
+      // Só emite o evento 'new_order' para o dashboard se o pagamento for na entrega.
+      // Pedidos online só aparecerão via webhook após a confirmação do pagamento.
+      if (newOrderData.payment_method !== 'online') {
+        request.io.emit('new_order', newOrderData);
+        console.log(`[Socket.IO] Evento "new_order" (pagamento na entrega) emitido para o dashboard.`);
+      }
+      // ##################### FIM DA CORREÇÃO ######################
+
       return response.status(201).json(newOrderData);
     } catch (error) {
       console.error('[OrderController] ERRO AO CRIAR PEDIDO:', error.message, error.stack);

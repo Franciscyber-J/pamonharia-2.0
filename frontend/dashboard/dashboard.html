@@ -331,7 +331,19 @@
                 const actionsHtml = actionMap[order.status] || '';
                 const displayAddress = order.client_address === 'Retirada no Local' ? '<strong>Retirada no Local</strong>' : order.client_address;
                 
-                const paymentInfo = order.payment_id ? `<p class="order-details">Pgto. Online: ${order.payment_status || 'Pendente'}</p>` : '';
+                 // #################### INÍCIO DA CORREÇÃO ####################
+                const paymentStatusTranslations = {
+                    'approved': 'Aprovado',
+                    'pending': 'Pendente',
+                    'in_process': 'Processando',
+                    'rejected': 'Rejeitado',
+                    'cancelled': 'Cancelado',
+                    'refunded': 'Devolvido',
+                    'charged_back': 'Estornado'
+                };
+                const translatedStatus = paymentStatusTranslations[order.payment_status] || order.payment_status || 'Pendente';
+                const paymentInfo = order.payment_id ? `<p class="order-details">Pgto. Online: ${translatedStatus}</p>` : '';
+                // ##################### FIM DA CORREÇÃO ######################
 
                 card.innerHTML = `
                     <div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div>
