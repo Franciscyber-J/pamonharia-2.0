@@ -3,28 +3,33 @@ require('dotenv').config({ path: require('path').resolve(__dirname, './.env') })
 const knex = require('knex');
 const configuration = require('./knexfile');
 
-// IMPORTANTE: Usa a mesma configuração de conexão que a sua aplicação
+// Usa a configuração de desenvolvimento para o script de limpeza local.
+// Altere para configuration.production se precisar limpar o banco de produção.
 const db = knex(configuration.development);
 
 async function cleanDatabase() {
   console.log('--- INICIANDO LIMPEZA MANUAL DA BASE DE DADOS ---');
   try {
-    // Lista de todas as tabelas na ordem inversa de dependência
+    // CORREÇÃO: A ordem das tabelas foi ajustada para respeitar as dependências
+    // de chaves estrangeiras. Tabelas que são referenciadas por outras
+    // são apagadas por último.
     const tableNames = [
       'knex_migrations_lock',
       'knex_migrations',
-      'combo_products',
-      'combos',
-      'order_items',
-      'orders',
-      'products',
+      'order_items',      // Depende de 'orders', 'products', 'combos' -> Apagada primeiro
+      'combo_products',   // Depende de 'combos', 'products' -> Apagada no início
+      'orders',           // É referenciada por 'order_items'
+      'combos',           // É referenciada por 'combo_products' e 'order_items'
+      'products',         // É referenciada por várias tabelas
       'users',
       'store_settings',
     ];
 
     for (const table of tableNames) {
       console.log(`A verificar e apagar tabela: ${table}...`);
-      await db.schema.dropTableIfExists(table);
+      // Usamos .raw para poder adicionar o 'CASCADE', que apaga as dependências automaticamente.
+      // Esta é uma abordagem ainda mais robusta.
+      await db.raw(`DROP TABLE IF EXISTS "${table}" CASCADE`);
       console.log(`Tabela ${table} apagada (se existia).`);
     }
 
