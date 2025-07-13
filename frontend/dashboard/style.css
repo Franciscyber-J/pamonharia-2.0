@@ -10,6 +10,9 @@
     --danger-color: #e53e3e;
     --danger-glow-color: rgba(229, 62, 62, 0.6);
     --success-color: #38A169;
+    --success-glow-color: rgba(56, 161, 105, 0.6);
+    --warning-color: #D97706; /* Amarelo/Laranja para Pausar */
+    --warning-glow-color: rgba(245, 158, 11, 0.7);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -108,29 +111,29 @@ input:checked + .slider:before { transform: translateX(20px); }
 .order-tag.delivery-delivery { background-color: rgba(79, 209, 197, 0.2); color: var(--secondary-color); }
 .order-tag.delivery-pickup { background-color: rgba(159, 122, 234, 0.2); color: var(--primary-color); }
 
-.data-table { width: 100%; border-collapse: collapse; background-color: var(--card-bg); border-radius: 12px; overflow: hidden; box-shadow: 0 8px 32px 0 rgba(0,0,0,0.37); }
+.data-table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    background-color: var(--card-bg); 
+    border-radius: 12px; 
+    box-shadow: 0 8px 32px 0 rgba(0,0,0,0.37); 
+}
+
 .data-table th, .data-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
 .data-table th { background-color: rgba(0,0,0,0.2); font-weight: 600; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.5px; }
 .data-table tr:last-child td { border-bottom: none; }
 .status-badge { padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
 .status-badge.active { background-color: rgba(79, 209, 197, 0.2); color: var(--secondary-color); }
 .status-badge.inactive { background-color: rgba(113, 128, 150, 0.2); color: #a0aec0; }
-.action-buttons button { margin-right: 10px; background: none; border: none; cursor: pointer; color: var(--text-color); opacity: 0.7; transition: opacity 0.2s; font-size: 1rem; }
-.action-buttons button:hover { opacity: 1; color: var(--secondary-color); }
 
-/* #################### INÍCIO DA CORREÇÃO (OCULTAR FILHOS) #################### */
-.product-row.is-child {
-    background-color: rgba(0,0,0,0.15);
-    display: none; /* Garante que os filhos comecem ocultos */
-}
-/* ##################### FIM DA CORREÇÃO (OCULTAR FILHOS) ##################### */
+.product-row.is-child { background-color: rgba(0,0,0,0.15); display: none; }
 .product-row.is-child td:nth-child(2) { padding-left: 40px; }
 .product-name-cell { display: flex; align-items: center; gap: 10px; }
 .toggle-children-btn { cursor: pointer; transition: transform 0.2s ease; user-select: none; width: 14px; display: inline-block; text-align: center; }
 .toggle-children-btn.expanded { transform: rotate(90deg); }
 .child-indicator { color: var(--secondary-color); font-size: 1.2rem; }
 .product-image-thumbnail { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; background-color: var(--input-bg); }
-.stock-controls { display: flex; align-items: center; gap: 8px; min-width: 340px; }
+.stock-controls { display: flex; align-items: center; gap: 8px; min-width: 380px; }
 .stock-controls .toggle-switch { transform: scale(0.8); }
 .stock-input { width: 60px; text-align: center; padding: 5px; }
 .stock-btn { background-color: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-color); width: 30px; height: 30px; border-radius: 50%; cursor: pointer; font-size: 1.2rem; }
@@ -184,3 +187,78 @@ input:checked + .slider:before { transform: translateX(20px); }
 .confirm-modal-content { background: var(--card-bg); padding: 30px; border-radius: 12px; border: 1px solid var(--border-color); text-align: center; max-width: 400px; }
 .confirm-modal-content p { margin-bottom: 25px; font-size: 1.1rem; }
 .confirm-modal-buttons { display: flex; justify-content: center; gap: 15px; }
+
+/* #################### INÍCIO DOS ESTILOS ATUALIZADOS #################### */
+.btn-icon {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.5rem;
+    padding: 0 5px;
+    opacity: 0.7;
+    transition: all 0.2s ease;
+    line-height: 1;
+    vertical-align: middle;
+}
+.btn-icon:hover {
+    opacity: 1;
+    transform: scale(1.1);
+}
+.btn-icon:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    text-shadow: none;
+}
+
+.btn-icon-pause { color: var(--warning-color); }
+.btn-icon-pause:hover { text-shadow: 0 0 5px var(--warning-color), 0 0 15px var(--warning-glow-color); }
+
+.btn-icon-play { color: var(--success-color); }
+.btn-icon-play:hover { text-shadow: 0 0 5px var(--success-color), 0 0 15px var(--success-glow-color); }
+
+.action-buttons-cell { text-align: right !important; width: 50px; }
+.actions-container { position: relative; display: inline-block; }
+
+.btn-actions-menu {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--text-color);
+}
+.btn-actions-menu:hover {
+    color: var(--secondary-color);
+    text-shadow: 0 0 8px var(--glow-color);
+}
+
+.actions-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    z-index: 10;
+    min-width: 150px;
+    overflow: hidden;
+}
+.actions-menu.visible { display: block; }
+.actions-menu a {
+    display: block;
+    padding: 10px 15px;
+    color: var(--text-color);
+    text-decoration: none;
+    transition: background-color 0.2s;
+    font-size: 0.9rem;
+    text-align: center; /* Centraliza o texto */
+}
+.actions-menu a:hover {
+    background-color: var(--primary-color);
+    color: white;
+}
+.actions-menu a.danger { color: var(--danger-color); }
+.actions-menu a.danger:hover {
+    background-color: var(--danger-color);
+    color: white;
+}
+/* ##################### FIM DOS ESTILOS ATUALIZADOS ###################### */

@@ -289,14 +289,23 @@ export function openComboModal(comboId) {
     });
 }
 
+// #################### INÍCIO DA ATUALIZAÇÃO DA FUNÇÃO ####################
 export function isItemEffectivelyOutOfStock(item) {
     if (!item) return true;
+    
+    // Se o status do item for `false` (inativo), ele está sempre esgotado para o cliente.
+    if (item.status === false) return true;
+
     const stock = getAvailableStock(item);
+    // Se um item é apenas um "container" (não é vendido por si só)
     if (item.children && item.children.length > 0 && !item.sell_parent_product) {
+        // Ele está esgotado se TODAS as suas opções de filhos estiverem esgotadas.
         return item.children.every(child => isItemEffectivelyOutOfStock(state.allProductsFlat.find(p => p.id === child.id)));
     }
+    // Para todos os outros casos, a decisão é baseada na quantidade de estoque.
     return stock <= 0;
 }
+// ##################### FIM DA ATUALIZAÇÃO DA FUNÇÃO ######################
 
 export function isComboEffectivelyOutOfStock(combo) {
     if (!combo || !combo.products) return true;

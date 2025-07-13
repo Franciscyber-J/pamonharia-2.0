@@ -155,7 +155,6 @@ module.exports = {
     return response.status(204).send();
   },
 
-  // ######################## INÍCIO DA CORREÇÃO (SINCRONIZAÇÃO ATÔMICA) ########################
   // Atualiza o estoque de um produto e propaga a alteração para os filhos, se necessário.
   async updateStock(request, response) {
     const { id } = request.params;
@@ -188,8 +187,6 @@ module.exports = {
       });
 
       // 3. Notifica todos os clientes sobre a mudança para recarregar os dados.
-      // O 'data_updated' é mais robusto aqui, pois força a recarga completa,
-      // garantindo que o frontend reflita a mudança nos filhos também.
       emitDataUpdated(request);
       
       // 4. Força o servidor a recarregar o inventário da base de dados.
@@ -205,7 +202,6 @@ module.exports = {
       return response.status(500).json({ error: 'Falha ao atualizar o estoque.' });
     }
   },
-  // ######################### FIM DA CORREÇÃO (SINCRONIZAÇÃO ATÔMICA) ##########################
 
   // Reordena os produtos no cardápio.
   async reorder(request, response) {
@@ -229,5 +225,51 @@ module.exports = {
       console.error('[ProductController] Erro ao reordenar produtos:', error);
       return response.status(500).json({ error: 'Falha ao reordenar os produtos.' });
     }
+  },
+
+  // #################### INÍCIO DA NOVA FUNÇÃO ####################
+  // Duplica um produto e seus complementos associados.
+  async duplicate(request, response) {
+    const { id } = request.params;
+    try {
+        await connection.transaction(async trx => {
+            // 1. Encontra o produto original e seus filhos diretos.
+            const originalParent = await trx('products').where('id', id).first();
+            if (!originalParent) {
+                return response.status(404).json({ error: 'Produto original não encontrado.' });
+            }
+            const originalChildren = await trx('products').where('parent_product_id', id);
+
+            // 2. Prepara os dados do novo produto pai.
+            const { id: parentId, created_at: p_created, updated_at: p_updated, ...parentData } = originalParent;
+            parentData.name = `${parentData.name} (Cópia)`;
+            parentData.status = false; // Começa desativado por segurança.
+            
+            // 3. Insere o novo pai e obtém o seu ID.
+            const [newParent] = await trx('products').insert(parentData).returning('*');
+
+            // 4. Se existirem filhos, duplica-os e associa-os ao novo pai.
+            if (originalChildren.length > 0) {
+                const newChildrenData = originalChildren.map(child => {
+                    const { id: childId, parent_product_id, created_at, updated_at, ...childData } = child;
+                    return {
+                        ...childData,
+                        parent_product_id: newParent.id, // Associa ao novo pai.
+                        status: false // Filhos também começam desativados.
+                    };
+                });
+                await trx('products').insert(newChildrenData);
+            }
+        });
+
+        emitDataUpdated(request);
+        await request.triggerInventoryReload();
+
+        return response.status(201).json({ message: 'Produto duplicado com sucesso.' });
+    } catch (error) {
+        console.error(`[ProductController] Erro ao duplicar produto ID ${id}:`, error);
+        return response.status(500).json({ error: 'Falha ao duplicar o produto.' });
+    }
   }
+  // ##################### FIM DA NOVA FUNÇÃO ######################
 };

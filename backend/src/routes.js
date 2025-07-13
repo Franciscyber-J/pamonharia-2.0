@@ -33,6 +33,7 @@ router.put('/products/:id', ProductController.update);
 router.delete('/products/:id', ProductController.destroy);
 router.patch('/products/:id/stock', ProductController.updateStock);
 router.post('/products/reorder', ProductController.reorder);
+router.post('/products/:id/duplicate', ProductController.duplicate); // NOVA ROTA
 
 router.get('/combos', ComboController.index);
 router.post('/combos', ComboController.create);

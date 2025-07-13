@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Pamonharia 2.0</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌽</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
@@ -196,17 +197,16 @@
                 return response.status === 204 ? null : response.json();
             } catch (error) {
                 console.error(`Falha na chamada da API para ${endpoint}:`, error);
-                // Exibe uma mensagem de erro mais amigável no dashboard
                 const dashboardContent = document.getElementById('dashboard-content');
                 if(dashboardContent) {
                     dashboardContent.innerHTML = `<p style="color: red; text-align: center;">Erro de comunicação com o servidor. A página será recarregada.</p>`;
                 }
-                // Recarrega a página após um erro crítico para tentar restabelecer a sessão
                 setTimeout(() => window.location.reload(), 3000);
-                throw error; // Propaga o erro para interromper a cadeia de promessas
+                throw error;
             }
         };
 
+        // #################### INÍCIO DAS FUNÇÕES GLOBAIS ####################
         window.handleStockAdjust = (button, amount) => {
             const stockInput = button.parentElement.querySelector('.stock-input');
             if (stockInput && !stockInput.disabled) {
@@ -239,7 +239,7 @@
             const productId = row.dataset.id;
             const isEnabled = checkbox.checked;
             
-            row.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn').forEach(el => {
+            row.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn, .btn-icon-pause, .btn-icon-play').forEach(el => {
                 if (!el.classList.contains('stock-enabled-toggle')) {
                     el.disabled = !isEnabled;
                 }
@@ -248,6 +248,51 @@
             await globalApiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify({ stock_enabled: isEnabled }) });
         };
         
+        window.toggleProductStatus = async (productId, newStatus) => {
+            try {
+                await globalApiFetch(`/products/${productId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ status: newStatus })
+                });
+            } catch (error) {
+                console.error(`Falha ao atualizar o status do produto ${productId}:`, error);
+                alert('Não foi possível atualizar o status do produto.');
+            }
+        };
+        
+        window.duplicateProduct = async (productId) => {
+            window.showCustomConfirm('Tem a certeza de que deseja duplicar este item?', async () => {
+                try {
+                    await globalApiFetch(`/products/${productId}/duplicate`, { method: 'POST' });
+                } catch (error) {
+                    console.error('Falha ao duplicar item:', error);
+                    alert('Não foi possível duplicar o item.');
+                }
+            }, 'btn-primary', 'Duplicar');
+        };
+
+        window.toggleActionsMenu = (event) => {
+            event.stopPropagation();
+            const button = event.currentTarget;
+            const menu = button.nextElementSibling;
+
+            // Fecha todos os outros menus antes de abrir o novo
+            document.querySelectorAll('.actions-menu.visible').forEach(openMenu => {
+                if (openMenu !== menu) {
+                    openMenu.classList.remove('visible');
+                }
+            });
+
+            menu.classList.toggle('visible');
+        };
+
+        // Listener global para fechar os menus
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.actions-menu.visible').forEach(openMenu => {
+                openMenu.classList.remove('visible');
+            });
+        });
+
         document.addEventListener('DOMContentLoaded', () => {
             const API_BASE_URL = API_BASE_URL_GLOBAL;
             const dashboardContent = document.getElementById('dashboard-content');
@@ -262,8 +307,9 @@
             let isSoundEnabled = true;
 
             const apiFetch = globalApiFetch;
+            window.refreshCurrentProductView = refreshCurrentProductView;
 
-            const renderPedidosPage = () => {
+            function renderPedidosPage() {
                 pageTitle.textContent = 'Painel de Pedidos';
                 dashboardContent.innerHTML = `
                     <div class="orders-header">
@@ -292,7 +338,7 @@
                 fetchAndRenderOrders();
             };
             
-            const fetchAndRenderOrders = async () => {
+            async function fetchAndRenderOrders() {
                 try {
                     const { activeOrders, finishedOrders, rejectedOrders } = await apiFetch('/orders');
                     document.querySelectorAll('.order-list').forEach(list => list.innerHTML = '');
@@ -303,7 +349,7 @@
                 } catch (error) { console.error("Erro ao buscar pedidos:", error); }
             };
 
-            const createOrderCard = (order) => {
+            function createOrderCard(order) {
                 const card = document.createElement('div');
                 card.className = 'order-card';
                 card.id = `order-${order.id}`;
@@ -331,19 +377,9 @@
                 const actionsHtml = actionMap[order.status] || '';
                 const displayAddress = order.client_address === 'Retirada no Local' ? '<strong>Retirada no Local</strong>' : order.client_address;
                 
-                 // #################### INÍCIO DA CORREÇÃO ####################
-                const paymentStatusTranslations = {
-                    'approved': 'Aprovado',
-                    'pending': 'Pendente',
-                    'in_process': 'Processando',
-                    'rejected': 'Rejeitado',
-                    'cancelled': 'Cancelado',
-                    'refunded': 'Devolvido',
-                    'charged_back': 'Estornado'
-                };
+                const paymentStatusTranslations = { 'approved': 'Aprovado', 'pending': 'Pendente', 'in_process': 'Processando', 'rejected': 'Rejeitado', 'cancelled': 'Cancelado', 'refunded': 'Devolvido', 'charged_back': 'Estornado' };
                 const translatedStatus = paymentStatusTranslations[order.payment_status] || order.payment_status || 'Pendente';
                 const paymentInfo = order.payment_id ? `<p class="order-details">Pgto. Online: ${translatedStatus}</p>` : '';
-                // ##################### FIM DA CORREÇÃO ######################
 
                 card.innerHTML = `
                     <div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div>
@@ -358,16 +394,8 @@
                 return card;
             };
 
-            const addOrderCard = (order, prepend = true) => {
-                const statusMap = { 
-                    'Aguardando Pagamento': 'col-novo', 
-                    'Pago': 'col-novo',
-                    'Novo': 'col-novo', 
-                    'Em Preparo': 'col-em-preparo', 
-                    'Pronto para Entrega': 'col-pronto-para-entrega', 
-                    'Finalizado': 'col-finalizado', 
-                    'Cancelado': 'col-cancelado' 
-                };
+            function addOrderCard(order, prepend = true) {
+                const statusMap = { 'Aguardando Pagamento': 'col-novo', 'Pago': 'col-novo', 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto-para-entrega', 'Finalizado': 'col-finalizado', 'Cancelado': 'col-cancelado' };
                 const columnId = statusMap[order.status];
                 if (!columnId) return;
 
@@ -382,13 +410,13 @@
                 }
             };
 
-            const moveOrderCard = (orderId, newStatus) => {
+            function moveOrderCard(orderId, newStatus) {
                 const card = document.getElementById(`order-${orderId}`);
                 if (card) card.remove();
                 fetchAndRenderOrders();
             };
             
-            const flattenProductsWithParentInfo = (products) => {
+            function flattenProductsWithParentInfo(products) {
                 let flatList = [];
                 products.forEach(p => {
                     const { children, ...parent } = p;
@@ -401,14 +429,11 @@
                 return flatList;
             };
 
-            const fetchAllProducts = async () => {
+            async function fetchAllProducts() {
                 try {
                     allProducts = await apiFetch('/products');
                     allProductsFlat = flattenProductsWithParentInfo(allProducts);
-                } catch (error) {
-                    console.error("Não foi possível carregar os produtos.", error);
-                    // O erro já é tratado dentro do `globalApiFetch`
-                }
+                } catch (error) { console.error("Não foi possível carregar os produtos.", error); }
             };
             
             const socket = io(API_BASE_URL);
@@ -433,14 +458,14 @@
 
             window.updateOrderStatus = async (orderId, newStatus) => { stopNotification(); try { await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) }); } catch (error) { console.error(`Falha ao atualizar status:`, error); } };
 
-            const renderProdutosPage = () => {
+            function renderProdutosPage() {
                 pageTitle.textContent = 'Produtos Principais';
                 dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`;
                 document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true));
                 renderProdutosPageContent();
             };
 
-            const renderProdutosPageContent = () => {
+            function renderProdutosPageContent() {
                 const tbody = document.getElementById('products-tbody');
                 if (!tbody) return;
                 
@@ -475,7 +500,7 @@
                 initSortable('products-tbody', '/products/reorder');
             };
 
-            const renderComplementosPageContent = () => {
+            function renderComplementosPageContent() {
                 const tbody = document.getElementById('complementos-tbody');
                 if (!tbody) return;
                 
@@ -487,7 +512,7 @@
                 initSortable('complementos-tbody', '/products/reorder');
             };
 
-            const refreshCurrentProductView = async () => {
+            async function refreshCurrentProductView() {
                 await fetchAllProducts();
                 const currentPage = document.querySelector('nav a.active')?.id.split('-')[1];
                 if (currentPage === 'produtos') {
@@ -498,17 +523,16 @@
             };
 
             window.deleteProduct = async (id) => {
-                showCustomConfirm('Tem a certeza de que deseja apagar este item? Esta ação não pode ser desfeita.', async () => {
+                window.showCustomConfirm('Tem a certeza de que deseja apagar este item? Esta ação não pode ser desfeita.', async () => {
                     try {
                         await apiFetch(`/products/${id}`, { method: 'DELETE' });
-                        await refreshCurrentProductView();
                     } catch (error) {
                         alert('Não foi possível apagar o item.');
                     }
                 });
             };
 
-            const saveProduct = async (event) => {
+            async function saveProduct(event) {
                 event.preventDefault();
                 const saveButton = document.getElementById('save-product-button');
                 saveButton.disabled = true; saveButton.textContent = 'Salvando...';
@@ -548,37 +572,70 @@
                 try {
                     await apiFetch(id ? `/products/${id}` : '/products', { method: id ? 'PUT' : 'POST', body: JSON.stringify(productData) });
                     closeProductModal();
-                    await refreshCurrentProductView();
                 } catch (error) { alert('Falha ao salvar o produto.'); }
                 finally { saveButton.disabled = false; saveButton.textContent = 'Salvar'; }
             };
 
-            const renderComplementosPage = () => {
+            function renderComplementosPage() {
                 pageTitle.textContent = 'Itens de Complemento';
                 dashboardContent.innerHTML = `<div class="page-header"><h2>Banco de Itens para Complemento</h2><button id="add-complemento-btn" class="btn btn-primary">Adicionar Novo Item</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Itens criados e gerenciados aqui. Podem ser vinculados a um Produto Principal para serem vendidos como opções.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Item</th><th>Preço</th><th>Status</th><th>Estoque</th><th>Ações</th></tr></thead><tbody id="complementos-tbody"></tbody></table>`;
                 document.getElementById('add-complemento-btn').addEventListener('click', () => openProductModal(null, false));
                 renderComplementosPageContent();
             };
             
-            const createProductRow = (product, isChild = false, isSynced = false) => {
+            function createProductRow(product, isChild = false, isSynced = false) {
                 const stock_quantity = product.stock_quantity ?? '';
                 const isActuallyDisabled = (isChild && isSynced) || (!product.stock_enabled);
                 const stock_controls_disabled = isActuallyDisabled ? 'disabled' : '';
+                
                 let parentControls = '';
-                if (!isChild && product.is_main_product) { parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="apiFetch('/products/${product.id}', { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: this.checked }) }).then(refreshCurrentProductView)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`; }
+                if (!isChild && product.is_main_product) {
+                    parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="globalApiFetch('/products/${product.id}', { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: this.checked }) }).then(window.refreshCurrentProductView)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
+                }
+
                 const hasChildren = !isChild && product.children && product.children.length > 0;
                 const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
                 const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
+                
+                const pausePlayButton = product.status 
+                    ? `<button class="btn-icon btn-icon-pause" onclick="window.toggleProductStatus(${product.id}, false)" ${stock_controls_disabled} title="Pausar item">⏸️</button>`
+                    : `<button class="btn-icon btn-icon-play" onclick="window.toggleProductStatus(${product.id}, true)" ${stock_controls_disabled} title="Ativar item">▶️</button>`;
+
                 let stockControlsCell = '';
                 const isParentContainerOnly = !isChild && hasChildren && !product.sell_parent_product;
-                if (isParentContainerOnly) { stockControlsCell = `<td style="font-size: 0.8rem; color: var(--text-secondary); font-style: italic; text-align: center; vertical-align: middle;">Gerenciado pelos<br>complementos</td>`; }
-                else { stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" onchange="handleStockEnableToggle(this)" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" onclick="handleStockAdjust(this, -1)" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" onkeydown="if(event.key==='Enter'){ event.preventDefault(); handleStockSave(this); this.blur(); }" ${stock_controls_disabled}><button class="stock-btn stock-increase" onclick="handleStockAdjust(this, 1)" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" onclick="handleStockSave(this)" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span></div></td>`; }
-                return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">${dragHandle}<td><div class="product-name-cell">${toggleButton} ${isChild ? '<span class="child-indicator">↳</span>' : ''} <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail"><span>${product.name}</span></div>${parentControls}</td><td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td><td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>${stockControlsCell}<td class="action-buttons"><button onclick="openProductModal(${product.id})">Editar</button><button onclick="deleteProduct(${product.id})">Apagar</button></td></tr>`;
+                if (isParentContainerOnly) {
+                    stockControlsCell = `<td style="font-size: 0.8rem; color: var(--text-secondary); font-style: italic; text-align: center; vertical-align: middle;">Gerenciado pelos<br>complementos</td>`;
+                } else {
+                    stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" onchange="window.handleStockEnableToggle(this)" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" onclick="window.handleStockAdjust(this, -1)" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.handleStockSave(this); this.blur(); }" ${stock_controls_disabled}><button class="stock-btn stock-increase" onclick="window.handleStockAdjust(this, 1)" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" onclick="window.handleStockSave(this)" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span>${pausePlayButton}</div></td>`;
+                }
+                
+                const actionButtons = `
+                    <div class="actions-container">
+                        <button class="btn-icon btn-actions-menu" onclick="window.toggleActionsMenu(event)">⋮</button>
+                        <div class="actions-menu">
+                            <a href="#" onclick="event.preventDefault(); openProductModal(${product.id})">Editar</a>
+                            <a href="#" onclick="event.preventDefault(); window.duplicateProduct(${product.id})">Duplicar</a>
+                            <a href="#" class="danger" onclick="event.preventDefault(); window.deleteProduct(${product.id})">Apagar</a>
+                        </div>
+                    </div>
+                `;
+
+                return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">
+                            ${dragHandle}
+                            <td>
+                                <div class="product-name-cell">${toggleButton} ${isChild ? '<span class="child-indicator">↳</span>' : ''} <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail"><span>${product.name}</span></div>
+                                ${parentControls}
+                            </td>
+                            <td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td>
+                            <td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>
+                            ${stockControlsCell}
+                            <td class="action-buttons-cell">${actionButtons}</td>
+                        </tr>`;
             };
-            
+
             window.toggleChildren = (btn, parentId) => { btn.classList.toggle('expanded'); document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`).forEach(row => { row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row'; }); };
             
-            window.openProductModal = async (id = null, isMainProduct = true) => {
+            async function openProductModal(id = null, isMainProduct = true) {
                 const modal = document.getElementById('product-modal-overlay');
                 const form = document.getElementById('product-form');
                 form.reset();
@@ -641,9 +698,9 @@
                 modal.style.display = 'flex';
             };
 
-            const closeProductModal = () => document.getElementById('product-modal-overlay').style.display = 'none';
+            function closeProductModal() { document.getElementById('product-modal-overlay').style.display = 'none'; };
             
-            const fetchAndRenderCombos = async () => {
+            async function fetchAndRenderCombos() {
                 try {
                     const combos = await apiFetch('/combos');
                     const tbody = document.getElementById('combos-tbody');
@@ -656,14 +713,14 @@
                 } catch (error) { console.error("Erro ao buscar combos:", error); }
             };
 
-            const renderCombosPage = () => {
+            function renderCombosPage() {
                 pageTitle.textContent = 'Gestão de Combos';
                 dashboardContent.innerHTML = `<div class="page-header"><h2>Todos os Combos</h2><button id="add-combo-btn" class="btn btn-primary">Criar Combo</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table"><thead><tr><th style="width: 40px;"></th><th>Combo</th><th>Preço Base</th><th>Itens</th><th>Status</th><th>Ações</th></tr></thead><tbody id="combos-tbody"></tbody></table>`;
                 document.getElementById('add-combo-btn').addEventListener('click', () => openComboModal());
                 fetchAndRenderCombos();
             };
 
-            window.openComboModal = async (id = null) => {
+            async function openComboModal(id = null) {
                 const modal = document.getElementById('combo-modal-overlay');
                 const form = document.getElementById('combo-form');
                 form.reset();
@@ -741,9 +798,9 @@
                 modal.style.display = 'flex';
             };
 
-            const closeComboModal = () => document.getElementById('combo-modal-overlay').style.display = 'none';
+            function closeComboModal() { document.getElementById('combo-modal-overlay').style.display = 'none'; };
 
-            const saveCombo = async (event) => {
+            async function saveCombo(event) {
                 event.preventDefault();
                 const saveButton = document.getElementById('save-combo-button');
                 saveButton.disabled = true; saveButton.textContent = 'Salvando...';
@@ -776,13 +833,13 @@
             
             window.deleteCombo = async (id) => { showCustomConfirm('Tem a certeza de que deseja apagar este combo?', async () => { try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); await fetchAndRenderCombos(); } catch (error) { console.error('Erro ao apagar combo:', error); } }); };
             
-            const renderSettingsPage = () => {
+            function renderSettingsPage() {
                 pageTitle.textContent = 'Configurações da Loja';
                 dashboardContent.innerHTML = `<form id="settings-form" class="settings-form"><div class="settings-card"><div class="card-header"><h3>Status da Loja</h3></div><div id="status-buttons" class="status-buttons"><button type="button" data-status="true">Forçar Aberta</button><button type="button" data-status="false">Forçar Fechada</button><button type="button" data-status="null">Seguir Horário</button></div></div><div class="settings-card"><div class="card-header"><h3>Informações Gerais</h3></div><div class="info-grid"><div class="grid-col-span-2 form-group"><label for="address">Endereço</label><input type="text" id="address" class="input-field"></div><div class="form-group"><label for="store_name">Nome da Loja</label><input type="text" id="store_name" class="input-field"></div><div class="form-group"><label for="location_link">Link Google Maps</label><input type="text" id="location_link" class="input-field"></div></div></div><div class="settings-card"><div class="card-header"><h3>Financeiro</h3></div><div class="form-group"><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" step="0.50" class="input-field"></div></div><div class="settings-card"><div class="card-header"><h3>Horários</h3></div><div class="operating-hours-grid" id="hours-grid"></div></div><div class="settings-card"><div class="card-header"><h3>Notificações</h3></div><div class="form-group"><label for="notification_sound">Carregar Som (MP3, WAV)</label><input type="file" id="notification_sound" accept="audio/*"></div><div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;"><p id="sound-feedback"></p><button type="button" id="remove-sound-btn" style="display: none;" class="btn btn-danger">Remover</button></div></div><div class="form-buttons"><span id="save-feedback"></span><button type="submit" class="btn btn-primary">Salvar Alterações</button></div></form>`;
                 fetchAndPopulateSettings();
             };
 
-            const fetchAndPopulateSettings = async () => {
+            async function fetchAndPopulateSettings() {
                 try {
                     const settings = await apiFetch('/settings');
                     document.getElementById('store_name').value = settings.store_name; document.getElementById('address').value = settings.address; document.getElementById('location_link').value = settings.location_link; document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2);
@@ -800,7 +857,7 @@
                 } catch (error) { console.error("Falha ao buscar config:", error); }
             };
 
-            const addSettingsListeners = (currentSettings) => {
+            function addSettingsListeners(currentSettings) {
                 const form = document.getElementById('settings-form'); if (!form) return;
                 document.querySelectorAll('#status-buttons button').forEach(b => b.addEventListener('click', () => { document.querySelector('#status-buttons button.selected')?.classList.remove('selected'); b.classList.add('selected'); }));
                 const soundInput = document.getElementById('notification_sound'), soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
@@ -833,7 +890,7 @@
                 });
             };
 
-            const initSortable = (tbodyId, reorderEndpoint) => {
+            function initSortable(tbodyId, reorderEndpoint) {
                 const tbody = document.getElementById(tbodyId);
                 if (!tbody) return;
                 new Sortable(tbody, {
@@ -853,13 +910,18 @@
                 });
             };
             
-            const showCustomConfirm = (message, onConfirm) => {
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // Tornando a função globalmente acessível
+            function showCustomConfirm(message, onConfirm, confirmClass = 'btn-danger', confirmText = 'Confirmar') {
                 const modal = document.getElementById('confirm-modal-overlay');
                 const messageEl = document.getElementById('confirm-modal-message');
                 const confirmBtn = document.getElementById('confirm-modal-confirm');
                 const cancelBtn = document.getElementById('confirm-modal-cancel');
 
                 messageEl.textContent = message;
+                
+                confirmBtn.textContent = confirmText;
+                confirmBtn.className = `btn ${confirmClass}`;
 
                 const newConfirmBtn = confirmBtn.cloneNode(true);
                 confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
@@ -875,7 +937,9 @@
 
                 modal.style.display = 'flex';
             };
-            
+            window.showCustomConfirm = showCustomConfirm;
+            // ##################### FIM DA CORREÇÃO ######################
+
             const navLinks = { pedidos: document.getElementById('nav-pedidos'), produtos: document.getElementById('nav-produtos'), complementos: document.getElementById('nav-complementos'), combos: document.getElementById('nav-combos'), configuracoes: document.getElementById('nav-configuracoes') };
             const pages = { pedidos: renderPedidosPage, produtos: renderProdutosPage, complementos: renderComplementosPage, combos: renderCombosPage, configuracoes: renderSettingsPage };
             const handleNavigation = (e) => { e.preventDefault(); document.querySelector('nav a.active')?.classList.remove('active'); const link = e.currentTarget; link.classList.add('active'); const pageKey = link.id.split('-')[1]; if (pages[pageKey]) pages[pageKey](); };
@@ -892,6 +956,7 @@
             document.getElementById('product-image-input').addEventListener('change', (event) => { const preview = document.getElementById('product-image-preview'); const prompt = document.getElementById('product-upload-prompt'); if (event.target.files[0]) { const reader = new FileReader(); reader.onload = (e) => { preview.src = e.target.result; prompt.style.display = 'none'; }; reader.readAsDataURL(event.target.files[0]); } });
             document.getElementById('combo-image-input').addEventListener('change', (event) => { const preview = document.getElementById('combo-image-preview'); const prompt = document.getElementById('combo-upload-prompt'); if (event.target.files[0]) { const reader = new FileReader(); reader.onload = (e) => { preview.src = e.target.result; prompt.style.display = 'none'; }; reader.readAsDataURL(event.target.files[0]); } });
             document.getElementById('logout-button').addEventListener('click', () => { localStorage.removeItem('authToken'); window.location.href = '/dashboard/login.html'; });
+            
             const initializeSoundSystem = async () => { try { const settings = await apiFetch('/settings'); setupAudioPlayer(settings.notification_sound_url); document.body.addEventListener('click', () => { if (notificationAudio && notificationAudio.paused) { notificationAudio.play().then(() => notificationAudio.pause()).catch(()=>{}); } }, { once: true }); } catch (error) { setupAudioPlayer(null); } };
             
             const main = async () => {
