@@ -165,13 +165,18 @@
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
-        const API_BASE_URL_GLOBAL = 'https://pamonhariasaborosa.expertbr.com';
+        // #################### INÍCIO DA SOLUÇÃO ARQUITETÓNICA ####################
+        // Define a URL base da API dinamicamente com base no ambiente (local ou produção)
+        const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const API_BASE_URL_GLOBAL = IS_LOCAL ? 'http://localhost:10000' : 'https://pamonhariasaborosa.expertbr.com';
+        console.log(`[Config] Ambiente detectado: ${IS_LOCAL ? 'Local' : 'Produção'}. API URL: ${API_BASE_URL_GLOBAL}`);
+        // ##################### FIM DA SOLUÇÃO ARQUITETÓNICA ######################
         
         const globalApiFetch = async (endpoint, options = {}) => {
             const currentToken = localStorage.getItem('authToken');
             if (!currentToken) {
                 window.location.href = '/dashboard/login.html';
-                return; // Interrompe a execução
+                return;
             }
 
             options.headers = {
@@ -191,22 +196,18 @@
                 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
+                    // O refresh da página foi removido para que possa ver o erro na consola sem interrupções.
                     throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
                 }
                 
                 return response.status === 204 ? null : response.json();
             } catch (error) {
                 console.error(`Falha na chamada da API para ${endpoint}:`, error);
-                const dashboardContent = document.getElementById('dashboard-content');
-                if(dashboardContent) {
-                    dashboardContent.innerHTML = `<p style="color: red; text-align: center;">Erro de comunicação com o servidor. A página será recarregada.</p>`;
-                }
-                setTimeout(() => window.location.reload(), 3000);
+                alert(`Erro de comunicação com o servidor: ${error.message}`);
                 throw error;
             }
         };
 
-        // #################### INÍCIO DAS FUNÇÕES GLOBAIS ####################
         window.handleStockAdjust = (button, amount) => {
             const stockInput = button.parentElement.querySelector('.stock-input');
             if (stockInput && !stockInput.disabled) {
@@ -239,7 +240,7 @@
             const productId = row.dataset.id;
             const isEnabled = checkbox.checked;
             
-            row.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn, .btn-icon-pause, .btn-icon-play').forEach(el => {
+            row.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn, .btn-status-toggle').forEach(el => {
                 if (!el.classList.contains('stock-enabled-toggle')) {
                     el.disabled = !isEnabled;
                 }
@@ -275,18 +276,14 @@
             event.stopPropagation();
             const button = event.currentTarget;
             const menu = button.nextElementSibling;
-
-            // Fecha todos os outros menus antes de abrir o novo
             document.querySelectorAll('.actions-menu.visible').forEach(openMenu => {
                 if (openMenu !== menu) {
                     openMenu.classList.remove('visible');
                 }
             });
-
             menu.classList.toggle('visible');
         };
 
-        // Listener global para fechar os menus
         document.addEventListener('click', () => {
             document.querySelectorAll('.actions-menu.visible').forEach(openMenu => {
                 openMenu.classList.remove('visible');
@@ -294,7 +291,6 @@
         });
 
         document.addEventListener('DOMContentLoaded', () => {
-            const API_BASE_URL = API_BASE_URL_GLOBAL;
             const dashboardContent = document.getElementById('dashboard-content');
             const pageTitle = document.getElementById('page-title');
             const soundStatusBtn = document.getElementById('sound-status');
@@ -308,6 +304,7 @@
 
             const apiFetch = globalApiFetch;
             window.refreshCurrentProductView = refreshCurrentProductView;
+            window.showCustomConfirm = showCustomConfirm;
 
             function renderPedidosPage() {
                 pageTitle.textContent = 'Painel de Pedidos';
@@ -323,18 +320,11 @@
                         <div class="order-column"><h3>Concluídos</h3><div class="order-list" id="col-finalizado"></div></div>
                         <div class="order-column"><h3>Recusados</h3><div class="order-list" id="col-cancelado"></div></div>
                     </div>`;
-                
                 document.getElementById('clear-history-btn').addEventListener('click', () => {
                     showCustomConfirm('Tem a certeza de que deseja apagar permanentemente todos os pedidos concluídos, recusados e abandonados?', async () => {
-                        try {
-                            await apiFetch('/orders/history', { method: 'DELETE' });
-                        } catch (error) {
-                            console.error('Falha ao limpar histórico:', error);
-                            alert('Não foi possível limpar o histórico.');
-                        }
+                        try { await apiFetch('/orders/history', { method: 'DELETE' }); } catch (error) { console.error('Falha ao limpar histórico:', error); alert('Não foi possível limpar o histórico.'); }
                     });
                 });
-
                 fetchAndRenderOrders();
             };
             
@@ -342,7 +332,6 @@
                 try {
                     const { activeOrders, finishedOrders, rejectedOrders } = await apiFetch('/orders');
                     document.querySelectorAll('.order-list').forEach(list => list.innerHTML = '');
-                    
                     activeOrders.forEach(order => addOrderCard(order, true));
                     finishedOrders.forEach(order => addOrderCard(order, false));
                     rejectedOrders.forEach(order => addOrderCard(order, false));
@@ -353,44 +342,18 @@
                 const card = document.createElement('div');
                 card.className = 'order-card';
                 card.id = `order-${order.id}`;
-
                 let paymentTag = '';
-                if (order.status === 'Pago' || order.payment_status === 'approved') {
-                    paymentTag = `<span class="order-tag payment-paid">PAGO</span>`;
-                } else if (order.payment_method === 'on_delivery') {
-                    paymentTag = `<span class="order-tag payment-on-delivery">PAGAR NA ENTREGA</span>`;
-                } else if (order.status === 'Aguardando Pagamento') {
-                    paymentTag = `<span class="order-tag payment-pending">AGUARDANDO PAGAMENTO</span>`;
-                }
-
-                const deliveryTypeTag = order.client_address === 'Retirada no local' 
-                    ? `<span class="order-tag delivery-pickup">RETIRADA</span>`
-                    : `<span class="order-tag delivery-delivery">ENTREGA</span>`;
-
-                const actionMap = {
-                    'Aguardando Pagamento': `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`,
-                    'Pago': `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`,
-                    'Novo': `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`,
-                    'Em Preparo': `<button onclick="updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto</button>`,
-                    'Pronto para Entrega': `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Finalizado</button>`
-                };
+                if (order.status === 'Pago' || order.payment_status === 'approved') { paymentTag = `<span class="order-tag payment-paid">PAGO</span>`; } 
+                else if (order.payment_method === 'on_delivery') { paymentTag = `<span class="order-tag payment-on-delivery">PAGAR NA ENTREGA</span>`; } 
+                else if (order.status === 'Aguardando Pagamento') { paymentTag = `<span class="order-tag payment-pending">AGUARDANDO PAGAMENTO</span>`; }
+                const deliveryTypeTag = order.client_address === 'Retirada no local' ? `<span class="order-tag delivery-pickup">RETIRADA</span>` : `<span class="order-tag delivery-delivery">ENTREGA</span>`;
+                const actionMap = { 'Aguardando Pagamento': `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`, 'Pago': `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`, 'Novo': `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`, 'Em Preparo': `<button onclick="updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto</button>`, 'Pronto para Entrega': `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Finalizado</button>` };
                 const actionsHtml = actionMap[order.status] || '';
                 const displayAddress = order.client_address === 'Retirada no Local' ? '<strong>Retirada no Local</strong>' : order.client_address;
-                
                 const paymentStatusTranslations = { 'approved': 'Aprovado', 'pending': 'Pendente', 'in_process': 'Processando', 'rejected': 'Rejeitado', 'cancelled': 'Cancelado', 'refunded': 'Devolvido', 'charged_back': 'Estornado' };
                 const translatedStatus = paymentStatusTranslations[order.payment_status] || order.payment_status || 'Pendente';
                 const paymentInfo = order.payment_id ? `<p class="order-details">Pgto. Online: ${translatedStatus}</p>` : '';
-
-                card.innerHTML = `
-                    <div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div>
-                    <div class="order-tags">${paymentTag}${deliveryTypeTag}</div>
-                    <div class="order-card-body">
-                        <p><strong>Cliente:</strong> ${order.client_name}</p>
-                        <p><strong>Contacto:</strong> ${order.client_phone || 'Não informado'}</p>
-                        <p><strong>Destino:</strong> ${displayAddress}</p>
-                        ${paymentInfo}
-                    </div>
-                    <div class="order-card-actions">${actionsHtml}</div>`;
+                card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div><div class="order-tags">${paymentTag}${deliveryTypeTag}</div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Contacto:</strong> ${order.client_phone || 'Não informado'}</p><p><strong>Destino:</strong> ${displayAddress}</p>${paymentInfo}</div><div class="order-card-actions">${actionsHtml}</div>`;
                 return card;
             };
 
@@ -398,12 +361,10 @@
                 const statusMap = { 'Aguardando Pagamento': 'col-novo', 'Pago': 'col-novo', 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto-para-entrega', 'Finalizado': 'col-finalizado', 'Cancelado': 'col-cancelado' };
                 const columnId = statusMap[order.status];
                 if (!columnId) return;
-
                 const column = document.getElementById(columnId);
                 if (column) {
                     const existingCard = document.getElementById(`order-${order.id}`);
                     if(existingCard) existingCard.remove();
-
                     const card = createOrderCard(order);
                     if (prepend) column.prepend(card);
                     else column.appendChild(card);
@@ -436,7 +397,7 @@
                 } catch (error) { console.error("Não foi possível carregar os produtos.", error); }
             };
             
-            const socket = io(API_BASE_URL);
+            const socket = io(API_BASE_URL_GLOBAL);
 
             const updateSoundStatusButton = () => { if (soundStatusBtn) { soundStatusBtn.textContent = isSoundEnabled ? '🔊 Som Ligado' : '🔇 Som Desligado'; soundStatusBtn.classList.toggle('sound-on', isSoundEnabled); soundStatusBtn.classList.toggle('sound-off', !isSoundEnabled); } };
             const setupAudioPlayer = (soundUrl) => { if (soundUrl) { notificationAudio = new Audio(soundUrl); notificationAudio.loop = true; } else { notificationAudio = null; } updateSoundStatusButton(); }
@@ -468,67 +429,43 @@
             function renderProdutosPageContent() {
                 const tbody = document.getElementById('products-tbody');
                 if (!tbody) return;
-                
-                const expandedRowIds = new Set();
-                tbody.querySelectorAll('.toggle-children-btn.expanded').forEach(btn => { 
-                    const parentRow = btn.closest('.product-row'); 
-                    if(parentRow) expandedRowIds.add(parentRow.dataset.id); 
-                });
-
+                const expandedRowIds = new Set(Array.from(tbody.querySelectorAll('.toggle-children-btn.expanded')).map(btn => btn.closest('.product-row')?.dataset.id));
                 tbody.innerHTML = '';
-
                 const mainProducts = allProducts.filter(p => p.is_main_product);
                 mainProducts.forEach(product => {
                     tbody.innerHTML += createProductRow(product);
-                    if (product.children && product.children.length > 0) { 
-                        product.children.forEach(child => { 
-                            tbody.innerHTML += createProductRow(child, true, product.stock_sync_enabled); 
-                        }); 
-                    }
+                    if (product.children && product.children.length > 0) { product.children.forEach(child => { tbody.innerHTML += createProductRow(child, true, product.stock_sync_enabled); }); }
                 });
-
                 expandedRowIds.forEach(id => {
                     const row = tbody.querySelector(`.product-row[data-id='${id}']`);
                     const btn = row?.querySelector('.toggle-children-btn');
                     if(btn) {
                         btn.classList.add('expanded');
-                        const childrenRows = document.querySelectorAll(`.product-row.is-child[data-parent-id='${id}']`);
-                        childrenRows.forEach(childRow => childRow.style.display = 'table-row');
+                        document.querySelectorAll(`.product-row.is-child[data-parent-id='${id}']`).forEach(childRow => childRow.style.display = 'table-row');
                     }
                 });
-                
                 initSortable('products-tbody', '/products/reorder');
             };
 
             function renderComplementosPageContent() {
                 const tbody = document.getElementById('complementos-tbody');
                 if (!tbody) return;
-                
                 tbody.innerHTML = '';
-                
                 const complementItems = allProductsFlat.filter(p => !p.is_main_product);
                 complementItems.forEach(item => { tbody.innerHTML += createProductRow(item, false); });
-                
                 initSortable('complementos-tbody', '/products/reorder');
             };
 
             async function refreshCurrentProductView() {
                 await fetchAllProducts();
                 const currentPage = document.querySelector('nav a.active')?.id.split('-')[1];
-                if (currentPage === 'produtos') {
-                    renderProdutosPageContent();
-                } else if (currentPage === 'complementos') {
-                    renderComplementosPageContent();
-                }
+                if (currentPage === 'produtos') { renderProdutosPageContent(); } 
+                else if (currentPage === 'complementos') { renderComplementosPageContent(); }
             };
 
             window.deleteProduct = async (id) => {
                 window.showCustomConfirm('Tem a certeza de que deseja apagar este item? Esta ação não pode ser desfeita.', async () => {
-                    try {
-                        await apiFetch(`/products/${id}`, { method: 'DELETE' });
-                    } catch (error) {
-                        alert('Não foi possível apagar o item.');
-                    }
+                    try { await apiFetch(`/products/${id}`, { method: 'DELETE' }); } catch (error) { alert('Não foi possível apagar o item.'); }
                 });
             };
 
@@ -554,21 +491,8 @@
                 }
                 const id = document.getElementById('product-id').value;
                 const children = Array.from(document.querySelectorAll('#addons-list input:checked')).map(cb => ({ id: parseInt(cb.dataset.addonId) }));
-                
                 const priceValue = parseFloat(document.getElementById('product-price').value) || 0;
-
-                const productData = { 
-                    name: document.getElementById('product-name').value, 
-                    description: document.getElementById('product-description').value, 
-                    price: priceValue, 
-                    status: document.getElementById('product-status').value === 'true', 
-                    image_url: imageUrl, 
-                    force_one_to_one_complement: document.getElementById('force-one-to-one-complement').checked, 
-                    sell_parent_product: document.getElementById('sell-parent-product').checked, 
-                    parent_product_id: document.getElementById('parent-product-id').value || null, 
-                    is_main_product: document.getElementById('is-main-product-flag').value === 'true', 
-                    children: children 
-                };
+                const productData = { name: document.getElementById('product-name').value, description: document.getElementById('product-description').value, price: priceValue, status: document.getElementById('product-status').value === 'true', image_url: imageUrl, force_one_to_one_complement: document.getElementById('force-one-to-one-complement').checked, sell_parent_product: document.getElementById('sell-parent-product').checked, parent_product_id: document.getElementById('parent-product-id').value || null, is_main_product: document.getElementById('is-main-product-flag').value === 'true', children: children };
                 try {
                     await apiFetch(id ? `/products/${id}` : '/products', { method: id ? 'PUT' : 'POST', body: JSON.stringify(productData) });
                     closeProductModal();
@@ -587,20 +511,16 @@
                 const stock_quantity = product.stock_quantity ?? '';
                 const isActuallyDisabled = (isChild && isSynced) || (!product.stock_enabled);
                 const stock_controls_disabled = isActuallyDisabled ? 'disabled' : '';
-                
                 let parentControls = '';
                 if (!isChild && product.is_main_product) {
                     parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="globalApiFetch('/products/${product.id}', { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: this.checked }) }).then(window.refreshCurrentProductView)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
                 }
-
                 const hasChildren = !isChild && product.children && product.children.length > 0;
                 const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
                 const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
-                
                 const pausePlayButton = product.status 
-                    ? `<button class="btn-icon btn-icon-pause" onclick="window.toggleProductStatus(${product.id}, false)" ${stock_controls_disabled} title="Pausar item">⏸️</button>`
-                    : `<button class="btn-icon btn-icon-play" onclick="window.toggleProductStatus(${product.id}, true)" ${stock_controls_disabled} title="Ativar item">▶️</button>`;
-
+                    ? `<button class="btn-icon btn-status-toggle paused" onclick="window.toggleProductStatus(${product.id}, false)" ${stock_controls_disabled} title="Pausar item">||</button>`
+                    : `<button class="btn-icon btn-status-toggle playing" onclick="window.toggleProductStatus(${product.id}, true)" ${stock_controls_disabled} title="Ativar item">▶</button>`;
                 let stockControlsCell = '';
                 const isParentContainerOnly = !isChild && hasChildren && !product.sell_parent_product;
                 if (isParentContainerOnly) {
@@ -608,29 +528,8 @@
                 } else {
                     stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" onchange="window.handleStockEnableToggle(this)" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" onclick="window.handleStockAdjust(this, -1)" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.handleStockSave(this); this.blur(); }" ${stock_controls_disabled}><button class="stock-btn stock-increase" onclick="window.handleStockAdjust(this, 1)" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" onclick="window.handleStockSave(this)" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span>${pausePlayButton}</div></td>`;
                 }
-                
-                const actionButtons = `
-                    <div class="actions-container">
-                        <button class="btn-icon btn-actions-menu" onclick="window.toggleActionsMenu(event)">⋮</button>
-                        <div class="actions-menu">
-                            <a href="#" onclick="event.preventDefault(); openProductModal(${product.id})">Editar</a>
-                            <a href="#" onclick="event.preventDefault(); window.duplicateProduct(${product.id})">Duplicar</a>
-                            <a href="#" class="danger" onclick="event.preventDefault(); window.deleteProduct(${product.id})">Apagar</a>
-                        </div>
-                    </div>
-                `;
-
-                return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">
-                            ${dragHandle}
-                            <td>
-                                <div class="product-name-cell">${toggleButton} ${isChild ? '<span class="child-indicator">↳</span>' : ''} <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail"><span>${product.name}</span></div>
-                                ${parentControls}
-                            </td>
-                            <td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td>
-                            <td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>
-                            ${stockControlsCell}
-                            <td class="action-buttons-cell">${actionButtons}</td>
-                        </tr>`;
+                const actionButtons = `<div class="actions-container"><button class="btn-icon btn-actions-menu" onclick="window.toggleActionsMenu(event)">⋮</button><div class="actions-menu"><a href="#" onclick="event.preventDefault(); openProductModal(${product.id})">Editar</a><a href="#" onclick="event.preventDefault(); window.duplicateProduct(${product.id})">Duplicar</a><a href="#" class="danger" onclick="event.preventDefault(); window.deleteProduct(${product.id})">Apagar</a></div></div>`;
+                return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">${dragHandle}<td><div class="product-name-cell">${toggleButton} ${isChild ? '<span class="child-indicator">↳</span>' : ''} <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail"><span>${product.name}</span></div>${parentControls}</td><td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td><td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>${stockControlsCell}<td class="action-buttons-cell">${actionButtons}</td></tr>`;
             };
 
             window.toggleChildren = (btn, parentId) => { btn.classList.toggle('expanded'); document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`).forEach(row => { row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row'; }); };
@@ -893,53 +792,24 @@
             function initSortable(tbodyId, reorderEndpoint) {
                 const tbody = document.getElementById(tbodyId);
                 if (!tbody) return;
-                new Sortable(tbody, {
-                    handle: '.drag-handle',
-                    animation: 150,
-                    filter: '.is-child',
-                    onMove: function (evt) { return evt.related.className.indexOf('is-child') === -1; },
-                    onEnd: async (evt) => {
-                        const orderedIds = Array.from(tbody.querySelectorAll('tr:not(.is-child)')).map(row => row.dataset.id);
-                        try {
-                            await apiFetch(reorderEndpoint, { method: 'POST', body: JSON.stringify({ orderedIds }) });
-                        } catch (error) {
-                            alert('Não foi possível salvar a nova ordem.');
-                            fetchAndRenderOrders();
-                        }
-                    }
-                });
+                new Sortable(tbody, { handle: '.drag-handle', animation: 150, filter: '.is-child', onMove: function (evt) { return evt.related.className.indexOf('is-child') === -1; }, onEnd: async (evt) => { const orderedIds = Array.from(tbody.querySelectorAll('tr:not(.is-child)')).map(row => row.dataset.id); try { await apiFetch(reorderEndpoint, { method: 'POST', body: JSON.stringify({ orderedIds }) }); } catch (error) { alert('Não foi possível salvar a nova ordem.'); fetchAndRenderOrders(); } } });
             };
             
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // Tornando a função globalmente acessível
             function showCustomConfirm(message, onConfirm, confirmClass = 'btn-danger', confirmText = 'Confirmar') {
                 const modal = document.getElementById('confirm-modal-overlay');
                 const messageEl = document.getElementById('confirm-modal-message');
                 const confirmBtn = document.getElementById('confirm-modal-confirm');
                 const cancelBtn = document.getElementById('confirm-modal-cancel');
-
                 messageEl.textContent = message;
-                
                 confirmBtn.textContent = confirmText;
                 confirmBtn.className = `btn ${confirmClass}`;
-
                 const newConfirmBtn = confirmBtn.cloneNode(true);
                 confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
-                
-                newConfirmBtn.onclick = () => {
-                    onConfirm();
-                    modal.style.display = 'none';
-                };
-                
-                cancelBtn.onclick = () => {
-                    modal.style.display = 'none';
-                };
-
+                newConfirmBtn.onclick = () => { onConfirm(); modal.style.display = 'none'; };
+                cancelBtn.onclick = () => { modal.style.display = 'none'; };
                 modal.style.display = 'flex';
             };
-            window.showCustomConfirm = showCustomConfirm;
-            // ##################### FIM DA CORREÇÃO ######################
-
+            
             const navLinks = { pedidos: document.getElementById('nav-pedidos'), produtos: document.getElementById('nav-produtos'), complementos: document.getElementById('nav-complementos'), combos: document.getElementById('nav-combos'), configuracoes: document.getElementById('nav-configuracoes') };
             const pages = { pedidos: renderPedidosPage, produtos: renderProdutosPage, complementos: renderComplementosPage, combos: renderCombosPage, configuracoes: renderSettingsPage };
             const handleNavigation = (e) => { e.preventDefault(); document.querySelector('nav a.active')?.classList.remove('active'); const link = e.currentTarget; link.classList.add('active'); const pageKey = link.id.split('-')[1]; if (pages[pageKey]) pages[pageKey](); };
@@ -960,10 +830,7 @@
             const initializeSoundSystem = async () => { try { const settings = await apiFetch('/settings'); setupAudioPlayer(settings.notification_sound_url); document.body.addEventListener('click', () => { if (notificationAudio && notificationAudio.paused) { notificationAudio.play().then(() => notificationAudio.pause()).catch(()=>{}); } }, { once: true }); } catch (error) { setupAudioPlayer(null); } };
             
             const main = async () => {
-                await Promise.all([
-                    fetchAllProducts(),
-                    initializeSoundSystem()
-                ]);
+                await Promise.all([ fetchAllProducts(), initializeSoundSystem() ]);
                 navLinks.pedidos.click();
             };
 

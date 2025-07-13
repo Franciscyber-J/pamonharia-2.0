@@ -11,8 +11,8 @@
     --danger-glow-color: rgba(229, 62, 62, 0.6);
     --success-color: #38A169;
     --success-glow-color: rgba(56, 161, 105, 0.6);
-    --warning-color: #D97706; /* Amarelo/Laranja para Pausar */
-    --warning-glow-color: rgba(245, 158, 11, 0.7);
+    --paused-bg-color: #4A5568;
+    --paused-glow-color: rgba(113, 128, 150, 0.5);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -188,33 +188,60 @@ input:checked + .slider:before { transform: translateX(20px); }
 .confirm-modal-content p { margin-bottom: 25px; font-size: 1.1rem; }
 .confirm-modal-buttons { display: flex; justify-content: center; gap: 15px; }
 
-/* #################### INÍCIO DOS ESTILOS ATUALIZADOS #################### */
+/* #################### INÍCIO DOS NOVOS ESTILOS #################### */
 .btn-icon {
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 1.5rem;
-    padding: 0 5px;
-    opacity: 0.7;
+    padding: 0;
+    opacity: 0.8;
     transition: all 0.2s ease;
-    line-height: 1;
     vertical-align: middle;
 }
-.btn-icon:hover {
+.btn-icon:hover:not(:disabled) {
     opacity: 1;
     transform: scale(1.1);
 }
 .btn-icon:disabled {
     opacity: 0.3;
     cursor: not-allowed;
-    text-shadow: none;
+    box-shadow: none;
 }
 
-.btn-icon-pause { color: var(--warning-color); }
-.btn-icon-pause:hover { text-shadow: 0 0 5px var(--warning-color), 0 0 15px var(--warning-glow-color); }
-
-.btn-icon-play { color: var(--success-color); }
-.btn-icon-play:hover { text-shadow: 0 0 5px var(--success-color), 0 0 15px var(--success-glow-color); }
+.btn-status-toggle {
+    font-family: monospace;
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: white;
+    width: 38px;
+    height: 30px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    border-right: 1px solid rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+}
+.btn-status-toggle.paused {
+    background-color: var(--paused-bg-color);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+}
+.btn-status-toggle.paused:hover:not(:disabled) {
+    background-color: #616e82;
+}
+.btn-status-toggle.playing {
+    background-color: var(--success-color);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.4);
+}
+.btn-status-toggle.playing:hover:not(:disabled) {
+    background-color: #48bb78;
+}
+.btn-status-toggle.playing {
+    font-size: 1rem;
+    padding-left: 2px;
+}
 
 .action-buttons-cell { text-align: right !important; width: 50px; }
 .actions-container { position: relative; display: inline-block; }
@@ -250,7 +277,7 @@ input:checked + .slider:before { transform: translateX(20px); }
     text-decoration: none;
     transition: background-color 0.2s;
     font-size: 0.9rem;
-    text-align: center; /* Centraliza o texto */
+    text-align: center;
 }
 .actions-menu a:hover {
     background-color: var(--primary-color);
@@ -261,4 +288,4 @@ input:checked + .slider:before { transform: translateX(20px); }
     background-color: var(--danger-color);
     color: white;
 }
-/* ##################### FIM DOS ESTILOS ATUALIZADOS ###################### */
+/* ##################### FIM DOS NOVOS ESTILOS ###################### */
