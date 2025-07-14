@@ -58,7 +58,7 @@ aside { flex: 1; position: sticky; top: 20px; }
 .item-info h3 { font-family: var(--font-display); font-size: 1.25rem; font-weight: 500; margin-bottom: 8px; text-align: center; }
 .item-info .description { font-size: 0.9rem; color: var(--text-secondary); min-height: 40px; margin-bottom: 15px; flex-grow: 1; text-align: left; }
 .item-price { font-size: 1.5rem; font-weight: 700; color: var(--primary-color); text-align: center; }
-.action-button { background-color: var(--primary-color); color: white; border: none; padding: 12px; width: 100%; font-weight: 500; cursor: pointer; transition: background-color 0.2s; margin-top: 15px; border-radius: 8px; font-size: 1rem; }
+.action-button { background-color: var(--primary-color); color: white; border: none; padding: 12px; width: 100%; font-weight: 500; cursor: pointer; transition: all 0.2s ease-in-out; margin-top: 15px; border-radius: 8px; font-size: 1rem; }
 .action-button:hover:not(:disabled) { background-color: var(--primary-color-dark); }
 .action-button:disabled { background-color: #9ca3af; cursor: not-allowed; }
 
@@ -89,10 +89,9 @@ aside { flex: 1; position: sticky; top: 20px; }
 .total-row { display: flex; justify-content: space-between; margin-bottom: 10px; }
 .total-row.grand-total { font-size: 1.2rem; font-weight: 700; color: var(--primary-color); }
 .checkout-container { margin-top: 20px; }
-.checkout-container h3 { font-family: var(--font-display); margin-bottom: 20px; }
+.checkout-container h3 { font-family: var(--font-display); margin-bottom: 20px; text-align: center; }
 #order-form label, #card-payment-form label { display: block; margin-bottom: 5px; font-weight: 500; font-size: 0.9rem; }
-/* #################### INÍCIO DA CORREÇÃO #################### */
-.input-field, #docType {
+.input-field, select.input-field {
     width: 100%;
     padding: 10px;
     margin-bottom: 15px;
@@ -113,16 +112,61 @@ select.input-field {
     background-size: 1.5em 1.5em;
     padding-right: 2.5rem;
 }
-/* ##################### FIM DA CORREÇÃO ###################### */
 .delivery-options, .payment-options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; border: 1px solid var(--border-color); padding: 10px; border-radius: 8px; }
 .delivery-options label, .payment-options label { display: flex; align-items: center; gap: 8px; }
 .payment-options p { font-weight: 500; }
 #order-success-message, #payment-status-message { text-align: center; padding: 40px 20px; }
 #order-success-message h3, #payment-status-message h3 { color: var(--success-color); font-size: 1.5rem; margin-bottom: 15px; }
 
+/* #################### INÍCIO DA CORREÇÃO #################### */
+.btn {
+    padding: 10px 20px;
+    font-size: 1rem;
+    font-weight: 500;
+    border-radius: 8px;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    line-height: 1.5;
+}
+.btn.btn-primary, button#card-payment-submit-btn {
+    background-color: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+.btn.btn-primary:hover, button#card-payment-submit-btn:hover {
+    background-color: var(--primary-color-dark);
+    border-color: var(--primary-color-dark);
+}
+.btn.btn-secondary {
+    background-color: transparent;
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+.btn.btn-secondary:hover {
+    background-color: var(--bg-primary);
+    border-color: var(--text-secondary);
+    color: var(--text-primary);
+}
+.form-buttons {
+    margin-top: 1.5rem;
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+}
+.form-buttons.split {
+    justify-content: space-between;
+    align-items: center;
+}
+#card-payment-submit-btn { /* Garante que o botão de pagar tenha o mesmo estilo base */
+    margin: 0;
+    width: auto;
+}
+/* ##################### FIM DA CORREÇÃO ##################### */
+
+
 /* --- ESTILOS PARA O PAGAMENTO CUSTOMIZADO (CORE API) --- */
 #online-payment-method-selection { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
-#custom-payment-container h3 { text-align: center; }
 .form-row { display: flex; gap: 15px; }
 .form-row .form-group { flex: 1; }
 .input-field-mp { background-color: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; height: 41px; }

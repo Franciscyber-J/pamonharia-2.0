@@ -1,7 +1,10 @@
 import { state, socket } from './main.js';
-import { dom, renderCart, setupModal, showErrorModal, toggleCartModal } from './ui.js';
+import { dom, renderCart, setupModal, showErrorModal } from './ui.js';
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// Esta função é interna ao módulo do carrinho e não precisa ser exportada.
 function handleQuantityChange(target, selectedState, validator, item, options = {}) {
+// ##################### FIM DA CORREÇÃO ######################
     const itemId = parseInt(target.dataset.itemId);
     const isIncrement = target.textContent === '+';
 
@@ -28,7 +31,6 @@ function handleQuantityChange(target, selectedState, validator, item, options = 
     document.getElementById(`quantity-${itemId}`).textContent = selectedState[itemId];
     if (validator) validator();
 }
-
 
 export function initializeCart() {
     console.log('[Cart] 🛒 Inicializando carrinho do localStorage.');

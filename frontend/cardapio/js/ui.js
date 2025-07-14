@@ -1,8 +1,8 @@
 import { state, handleOnlinePaymentSelection } from './main.js';
 // #################### INÍCIO DA CORREÇÃO ####################
-// A importação de 'handleQuantityChange' foi REMOVIDA, pois a função é interna de cart.js
+// A importação de 'handleQuantityChange' foi REMOVIDA.
 import { openProductWithOptionsModal, openComboModal, addToCartSimple, clearCart, adjustItemGroupQuantity, adjustCartItemQuantity, removeItemGroup, calculateTotals, isComboEffectivelyOutOfStock, isItemEffectivelyOutOfStock } from './cart.js';
-import { handleBackToCart, handleBackToPaymentSelection } from './payment.js';
+import { handleBackToCart, handleBackToPaymentSelection, initializeCardPaymentForm } from './payment.js';
 // ##################### FIM DA CORREÇÃO ######################
 
 export const dom = {
@@ -33,6 +33,7 @@ export const dom = {
     errorModal: document.getElementById('error-modal'),
     errorModalTitle: document.getElementById('error-modal-title'),
     errorModalMessage: document.getElementById('error-modal-message'),
+    newOrderBtn: document.getElementById('new-order-btn'),
     onlinePaymentMethodSelection: document.getElementById('online-payment-method-selection'),
     selectCardBtn: document.getElementById('select-card-btn'),
     selectPixBtn: document.getElementById('select-pix-btn'),
@@ -244,6 +245,7 @@ export function setupModal(config) {
 }
 
 export function initializeUI() {
+    console.log('[UI] 🎨 Inicializando a Interface do Utilizador e os listeners.');
     const savedTheme = localStorage.getItem('pamonharia-theme');
     const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     applyTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
@@ -311,6 +313,8 @@ export function initializeUI() {
     dom.backToCartBtn.addEventListener('click', handleBackToCart);
     dom.backToPaymentSelectionBtn.addEventListener('click', handleBackToPaymentSelection);
     dom.backToPaymentSelectionFromPixBtn.addEventListener('click', handleBackToPaymentSelection);
+
+    dom.newOrderBtn.addEventListener('click', resetForNewOrder);
 }
 
 function applyTheme(theme) {
@@ -320,4 +324,24 @@ function applyTheme(theme) {
 
 function toggleErrorModal(show) {
     dom.errorModal.style.display = show ? 'flex' : 'none';
+}
+
+function resetForNewOrder() {
+    console.log('[UI] Resetando a interface para um novo pedido.');
+    
+    dom.successMessage.style.display = 'none';
+    dom.cartWrapper.style.display = 'block';
+    
+    dom.orderForm.style.display = 'block';
+
+    dom.onlinePaymentMethodSelection.style.display = 'none';
+    dom.customPaymentContainer.style.display = 'none';
+    dom.pixPaymentContainer.style.display = 'none';
+
+    dom.orderForm.reset();
+    dom.submitOrderBtn.disabled = true;
+    dom.submitOrderBtn.textContent = 'Finalizar Pedido';
+
+    const event = new Event('change', { bubbles: true });
+    document.querySelector('input[name="delivery-type"]').dispatchEvent(event);
 }

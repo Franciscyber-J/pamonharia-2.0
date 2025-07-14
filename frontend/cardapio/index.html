@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="https://sdk.mercadopago.com/js/v2" async></script>
-    </head>
+</head>
 <body>
     <div class="container">
         <header class="header">
@@ -72,7 +72,7 @@
                             <h3>Escolha como pagar online</h3>
                             <button id="select-card-btn" class="action-button">Pagar com Cartão</button>
                             <button id="select-pix-btn" class="action-button">Pagar com PIX</button>
-                            <div class="form-buttons" style="margin-top: 1rem;">
+                            <div class="form-buttons">
                                 <button type="button" id="back-to-cart-btn" class="btn btn-secondary">Voltar ao Carrinho</button>
                             </div>
                         </div>
@@ -117,7 +117,7 @@
                                     <select id="issuer"></select>
                                     <select id="installments"></select>
                                 </div>
-                                <div class="form-buttons" style="margin-top: 1rem; display: flex; justify-content: space-between;">
+                                <div class="form-buttons split">
                                      <button type="button" id="back-to-payment-selection-btn" class="btn btn-secondary">Voltar</button>
                                      <button type="submit" id="card-payment-submit-btn" class="btn btn-primary">Pagar com Cartão</button>
                                 </div>
@@ -132,7 +132,7 @@
                             <input type="text" id="pix-copy-paste" readonly>
                             <button id="pix-copy-btn" class="action-button">Copiar Código</button>
                             <p class="pix-expiration">Este código expira em 30 minutos.</p>
-                             <div class="form-buttons" style="margin-top: 1rem;">
+                             <div class="form-buttons">
                                  <button type="button" id="back-to-payment-selection-from-pix-btn" class="btn btn-secondary">Escolher Outro Método</button>
                             </div>
                         </div>
@@ -143,7 +143,11 @@
                         </div>
                     </div>
                 </div>
-                <div id="order-success-message" style="display: none;"><h3>Obrigado pelo seu pedido!</h3><p>Ele já foi enviado para a nossa cozinha e em breve chegará até você.</p></div>
+                <div id="order-success-message" style="display: none;">
+                    <h3>Obrigado pelo seu pedido!</h3>
+                    <p>Ele já foi enviado para a nossa cozinha e em breve chegará até você.</p>
+                    <button id="new-order-btn" class="action-button" style="margin-top: 20px;">Fazer Novo Pedido</button>
+                </div>
                 <div id="payment-status-message" style="display: none;"><h3>Status do Pagamento</h3><p id="payment-status-text"></p><button class="action-button" onclick="window.location.href='/cardapio'">Voltar ao Cardápio</button></div>
             </aside>
         </div>
@@ -158,7 +162,6 @@
     <div id="selection-modal" class="modal-overlay"><div class="modal-content"><button class="modal-close-btn">&times;</button><div id="modal-header" class="modal-header"></div><div id="modal-body" class="modal-body"></div><div class="modal-footer"><div id="modal-feedback" class="modal-feedback"></div><button id="add-to-cart-btn" class="action-button">Adicionar ao Carrinho</button></div></div></div>
     <div id="error-modal" class="modal-overlay"><div class="modal-content"><button class="modal-close-btn" onclick="document.getElementById('error-modal').style.display='none'">&times;</button><div id="error-modal-header" class="modal-header" style="color: var(--danger-color);"><h3 id="error-modal-title">Ocorreu um Erro</h3></div><div id="error-modal-body" class="modal-body" style="text-align: center;"><p id="error-modal-message"></p></div><div class="modal-footer"><button onclick="document.getElementById('error-modal').style.display='none'" class="action-button" style="background-color: var(--danger-color);">Fechar</button></div></div></div>
 
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script type="module" src="./js/main.js"></script>
 </body>
 </html>

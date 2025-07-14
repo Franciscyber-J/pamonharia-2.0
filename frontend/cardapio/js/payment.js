@@ -1,14 +1,20 @@
 // frontend/cardapio/js/payment.js
+console.log('[payment.js] Módulo iniciado.');
 import { state } from './main.js';
+// #################### INÍCIO DA CORREÇÃO ####################
+// A importação de toggleCartModal foi removida daqui, pois não é usada.
+// A lógica de UI é tratada por ui.js ou main.js.
 import { dom, showErrorModal } from './ui.js';
+// ##################### FIM DA CORREÇÃO ######################
 import { apiFetch } from './api.js';
 import { clearCart } from './cart.js';
 
 export async function initializeCardPaymentForm() {
+    console.log('[Payment] Inicializando formulário do cartão de crédito.');
     dom.customPaymentContainer.style.display = 'block';
 
     if (window.cardForm) {
-        try { window.cardForm.unmount(); } catch (e) { console.warn("Could not unmount previous card form.", e); }
+        try { window.cardForm.unmount(); } catch (e) { console.warn("Não foi possível desmontar o formulário de cartão anterior.", e); }
     }
 
     try {
@@ -28,7 +34,7 @@ export async function initializeCardPaymentForm() {
                 installments: { id: 'installments' }
             },
             callbacks: {
-                onFormMounted: error => { if (error) console.error('Form Mounted handling error: ', error) },
+                onFormMounted: error => { if (error) console.error('Erro ao montar o formulário do Mercado Pago:', error) },
                 onSubmit: handleCardFormSubmit,
                 onError: (errors) => { 
                     const firstError = errors[0];
@@ -48,6 +54,7 @@ export async function initializeCardPaymentForm() {
 
 async function handleCardFormSubmit(event) {
     event.preventDefault();
+    console.log('[Payment] Submetendo pagamento com cartão...');
     dom.paymentProcessingOverlay.style.display = 'flex';
 
     try {
@@ -82,7 +89,7 @@ async function handleCardFormSubmit(event) {
             method: 'POST',
             body: JSON.stringify(paymentData)
         });
-
+        console.log('[Payment] Resposta do processamento recebida:', paymentResponse);
         dom.paymentProcessingOverlay.style.display = 'none';
 
         if (paymentResponse.status === 'approved') {
@@ -97,12 +104,14 @@ async function handleCardFormSubmit(event) {
     } catch (error) {
         dom.paymentProcessingOverlay.style.display = 'none';
         const detail = error.details || error.message || 'Não foi possível processar o pagamento.';
+        console.error('[Payment] ❌ Erro ao submeter pagamento:', detail);
         dom.cardPaymentFeedback.textContent = `Erro: ${detail}`;
     }
 }
 
 
 export function handleBackToCart() {
+    console.log('[UI] Navegando de volta para o carrinho.');
     dom.onlinePaymentMethodSelection.style.display = 'none';
     dom.orderForm.style.display = 'block';
     dom.submitOrderBtn.disabled = false;
@@ -111,6 +120,7 @@ export function handleBackToCart() {
 
 
 export function handleBackToPaymentSelection() {
+    console.log('[UI] Navegando de volta para a seleção de método de pagamento.');
     dom.customPaymentContainer.style.display = 'none';
     dom.pixPaymentContainer.style.display = 'none';
     dom.onlinePaymentMethodSelection.style.display = 'flex';

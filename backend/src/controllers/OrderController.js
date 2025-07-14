@@ -37,22 +37,22 @@ module.exports = {
             item_details: JSON.stringify(item.selected_items || [])
         }));
         if (orderItemsToInsert.length > 0) { await trx('order_items').insert(orderItemsToInsert); }
-        console.log(`[OrderController] Pedido ${order_id} criado com sucesso com status "${initialStatus}".`);
-        return await trx('orders').where('id', order_id).first();
+        const createdOrder = await trx('orders').where('id', order_id).first();
+        console.log(`[OrderController] ✅ Pedido ${order_id} criado com sucesso com status "${initialStatus}".`);
+        return createdOrder;
       });
 
       // #################### INÍCIO DA CORREÇÃO ####################
-      // Só emite o evento 'new_order' para o dashboard se o pagamento for na entrega.
-      // Pedidos online só aparecerão via webhook após a confirmação do pagamento.
-      if (newOrderData.payment_method !== 'online') {
+      // Garante que, para pagamentos na entrega, o evento 'new_order' seja emitido para o dashboard.
+      if (newOrderData.payment_method === 'on_delivery') {
         request.io.emit('new_order', newOrderData);
-        console.log(`[Socket.IO] Evento "new_order" (pagamento na entrega) emitido para o dashboard.`);
+        console.log(`[Socket.IO] 🚀 Evento "new_order" (pagamento na entrega) emitido para o dashboard.`);
       }
       // ##################### FIM DA CORREÇÃO ######################
 
       return response.status(201).json(newOrderData);
     } catch (error) {
-      console.error('[OrderController] ERRO AO CRIAR PEDIDO:', error.message, error.stack);
+      console.error('[OrderController] ❌ ERRO AO CRIAR PEDIDO:', error.message, error.stack);
       return response.status(400).json({ error: 'Não foi possível registrar o pedido.' });
     }
   },
@@ -74,7 +74,7 @@ module.exports = {
       request.io.emit('history_cleared');
       return response.status(204).send();
     } catch (error) {
-      console.error('[OrderController] ERRO AO LIMPAR HISTÓRICO:', error);
+      console.error('[OrderController] ❌ ERRO AO LIMPAR HISTÓRICO:', error);
       return response.status(500).json({ error: 'Falha ao limpar o histórico de pedidos.' });
     }
   }

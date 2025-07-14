@@ -1,4 +1,5 @@
 // frontend/cardapio/js/main.js
+console.log('[main.js] Módulo iniciado.');
 import { apiFetch, fetchAndRenderAllData } from './api.js';
 import { initializeCart, getCart, clearCart } from './cart.js';
 import { dom, initializeUI, updateStoreStatus, renderItems, renderCart, showErrorModal } from './ui.js';
@@ -21,12 +22,14 @@ export const state = {
 };
 
 async function main() {
+    console.log('[main.js] Função main() iniciada.');
     try {
         const paymentSettings = await apiFetch('/public/payment-settings');
-        if (paymentSettings.mercadoPagoPublicKey) {
+        if (paymentSettings && paymentSettings.mercadoPagoPublicKey) {
+            console.log('[main.js] Chave do Mercado Pago recebida. A inicializar SDK.');
             state.mp = new MercadoPago(paymentSettings.mercadoPagoPublicKey, { locale: 'pt-BR' });
         } else {
-            console.warn("Chave pública do Mercado Pago não foi encontrada. Pagamento online estará desabilitado.");
+            console.warn("[main.js] Chave pública do Mercado Pago não foi encontrada. Pagamento online estará desabilitado.");
         }
         
         await fetchAndRenderAllData();
@@ -42,13 +45,14 @@ async function main() {
     }
 }
 
-socket.on('connect', () => console.log(`[Cardapio] ✅ Socket.IO conectado ao servidor em ${API_BASE_URL}.`));
+socket.on('connect', () => console.log(`[Socket.IO] ✅ Conectado ao servidor em ${API_BASE_URL}.`));
 socket.on('stock_update', (inventory) => {
+    console.log('[Socket.IO] 📥 Recebido "stock_update":', inventory);
     state.liveStockState = inventory;
     renderItems();
 });
 socket.on('data_updated', async () => {
-    console.log('[Cardapio] 🔄 Evento "data_updated" recebido. A recarregar dados do cardápio...');
+    console.log('[Socket.IO] 🔄 Recebido "data_updated". A recarregar todos os dados.');
     await fetchAndRenderAllData();
     updateStoreStatus();
     renderItems();
@@ -57,6 +61,7 @@ socket.on('data_updated', async () => {
 
 async function handleOrderSubmit(e) {
     e.preventDefault();
+    console.log('[Order] ➡️ Iniciando submissão de pedido.');
     const paymentMethod = document.querySelector('input[name="payment-method"]:checked').value;
     const totalPrice = state.cart.reduce((acc, item) => acc + (item.total_value || 0), 0);
 
@@ -92,15 +97,19 @@ async function handleOrderSubmit(e) {
             dom.submitOrderBtn.textContent = 'Finalizar Pedido';
             return;
         }
+        console.log('[Order] Pagamento online selecionado. A mostrar opções de método.');
         dom.orderForm.style.display = 'none';
         dom.onlinePaymentMethodSelection.style.display = 'flex';
     } else {
+        console.log('[Order] Pagamento na entrega selecionado. A enviar pedido...');
         try {
             state.currentOrder = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(state.orderData) });
+            console.log('[Order] ✅ Pedido criado com sucesso:', state.currentOrder);
             dom.cartWrapper.style.display = 'none';
             dom.successMessage.style.display = 'block';
             clearCart();
         } catch (error) {
+            console.error('[Order] ❌ Falha ao criar pedido:', error);
             showErrorModal('Falha no Pedido', `Não foi possível criar seu pedido. Detalhe: ${error.message || 'Erro desconhecido'}`);
             dom.submitOrderBtn.disabled = false;
             dom.submitOrderBtn.textContent = 'Finalizar Pedido';
@@ -109,12 +118,14 @@ async function handleOrderSubmit(e) {
 }
 
 export async function handleOnlinePaymentSelection(method) {
+    console.log(`[Payment] Método de pagamento online selecionado: ${method}`);
     try {
         dom.onlinePaymentMethodSelection.style.display = 'none';
         dom.paymentProcessingOverlay.style.display = 'flex';
 
         state.currentOrder = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(state.orderData) });
-
+        console.log(`[Payment] Pedido ${state.currentOrder.id} criado. A preparar pagamento...`);
+        
         if (method === 'card') {
             await initializeCardPaymentForm();
             dom.paymentProcessingOverlay.style.display = 'none';
@@ -126,6 +137,7 @@ export async function handleOnlinePaymentSelection(method) {
                 payer: { email: document.getElementById('client-name').value.replace(/\s/g, '').toLowerCase() + '@email.com' }
             };
             const paymentResponse = await apiFetch('/payments/process', { method: 'POST', body: JSON.stringify(paymentData) });
+            console.log('[Payment] Resposta do PIX recebida:', paymentResponse);
             dom.paymentProcessingOverlay.style.display = 'none';
             dom.pixQrCode.src = `data:image/jpeg;base64,${paymentResponse.qr_code_base64}`;
             dom.pixCopyPaste.value = paymentResponse.qr_code;
@@ -135,6 +147,7 @@ export async function handleOnlinePaymentSelection(method) {
     } catch (error) {
         dom.paymentProcessingOverlay.style.display = 'none';
         const errorMessage = (error?.details) || error.message || 'Erro desconhecido ao inicializar o pagamento.';
+        console.error('[Payment] ❌ Falha na preparação do pagamento:', errorMessage);
         showErrorModal('Falha na Preparação do Pagamento', `Não foi possível iniciar o pagamento. Detalhe: ${errorMessage}`);
         
         dom.orderForm.style.display = 'block';
