@@ -14,7 +14,6 @@
 <body>
     <div class="background-bubbles"></div>
     <script>
-        // Redireciona para a página de login se não houver um token de autenticação
         const token = localStorage.getItem('authToken');
         if (!token) {
             window.location.href = '/dashboard/login.html';
@@ -165,12 +164,9 @@
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script>
-        // #################### INÍCIO DA SOLUÇÃO ARQUITETÓNICA ####################
-        // Define a URL base da API dinamicamente com base no ambiente (local ou produção)
         const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         const API_BASE_URL_GLOBAL = IS_LOCAL ? 'http://localhost:10000' : 'https://pamonhariasaborosa.expertbr.com';
         console.log(`[Config] Ambiente detectado: ${IS_LOCAL ? 'Local' : 'Produção'}. API URL: ${API_BASE_URL_GLOBAL}`);
-        // ##################### FIM DA SOLUÇÃO ARQUITETÓNICA ######################
         
         const globalApiFetch = async (endpoint, options = {}) => {
             const currentToken = localStorage.getItem('authToken');
@@ -196,7 +192,6 @@
                 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
-                    // O refresh da página foi removido para que possa ver o erro na consola sem interrupções.
                     throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
                 }
                 
@@ -207,6 +202,10 @@
                 throw error;
             }
         };
+
+        let allProducts = [];
+        let allProductsFlat = [];
+        let isProgrammaticallyUpdating = false;
 
         window.handleStockAdjust = (button, amount) => {
             const stockInput = button.parentElement.querySelector('.stock-input');
@@ -250,14 +249,29 @@
         };
         
         window.toggleProductStatus = async (productId, newStatus) => {
+            isProgrammaticallyUpdating = true; 
             try {
+                const product = allProductsFlat.find(p => p.id === productId);
+                if (product) {
+                    product.status = newStatus;
+                    const row = document.querySelector(`.product-row[data-id='${productId}']`);
+                    if (row) {
+                        const isChild = row.classList.contains('is-child');
+                        const parent = allProducts.find(p => p.children?.some(c => c.id === productId));
+                        const newRowHtml = window.createProductRow(product, isChild, parent?.stock_sync_enabled);
+                        row.outerHTML = newRowHtml;
+                    }
+                }
                 await globalApiFetch(`/products/${productId}`, {
                     method: 'PUT',
                     body: JSON.stringify({ status: newStatus })
                 });
             } catch (error) {
                 console.error(`Falha ao atualizar o status do produto ${productId}:`, error);
-                alert('Não foi possível atualizar o status do produto.');
+                alert('Não foi possível atualizar o status do produto. A recarregar a lista para garantir a consistência.');
+                await refreshCurrentProductView();
+            } finally {
+                setTimeout(() => { isProgrammaticallyUpdating = false; }, 500); 
             }
         };
         
@@ -297,14 +311,22 @@
             const PLACEHOLDER_IMG_60 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2260%22%20height%3D%2260%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%229%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESem%20Foto%3C%2Ftext%3E%3C%2Fsvg%3E';
             const PLACEHOLDER_IMG_200 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22200%22%20height%3D%22200%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22200%22%20height%3D%22200%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%2214%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESelecionar%20Imagem%3C%2Ftext%3E%3C%2Fsvg%3E';
             
-            let allProducts = [];
-            let allProductsFlat = [];
             let notificationAudio;
             let isSoundEnabled = true;
 
             const apiFetch = globalApiFetch;
+            
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // Funções expostas para o escopo global para serem acessíveis pelos `onclick`.
+            window.openProductModal = openProductModal;
+            window.deleteProduct = deleteProduct;
+            window.openComboModal = openComboModal;
+            window.deleteCombo = deleteCombo;
             window.refreshCurrentProductView = refreshCurrentProductView;
             window.showCustomConfirm = showCustomConfirm;
+            window.createProductRow = createProductRow; // Função crucial agora é global
+            window.toggleChildren = toggleChildren;
+            // ##################### FIM DA CORREÇÃO ######################
 
             function renderPedidosPage() {
                 pageTitle.textContent = 'Painel de Pedidos';
@@ -413,6 +435,9 @@
             socket.on('stock_update', (liveInventory) => { for (const productId in liveInventory) { document.querySelectorAll(`.product-row[data-id='${productId}']`).forEach(productRow => { const stockInput = productRow.querySelector('.stock-input'); if (stockInput && document.activeElement !== stockInput) { stockInput.value = liveInventory[productId]; } }); } });
             
             socket.on('data_updated', async () => {
+                if (isProgrammaticallyUpdating) {
+                    return;
+                }
                 console.log('[Dashboard] 🔄 Recebido "data_updated". Recarregando e renderizando a tabela de produtos...');
                 await refreshCurrentProductView();
             });
@@ -463,7 +488,7 @@
                 else if (currentPage === 'complementos') { renderComplementosPageContent(); }
             };
 
-            window.deleteProduct = async (id) => {
+            function deleteProduct(id) {
                 window.showCustomConfirm('Tem a certeza de que deseja apagar este item? Esta ação não pode ser desfeita.', async () => {
                     try { await apiFetch(`/products/${id}`, { method: 'DELETE' }); } catch (error) { alert('Não foi possível apagar o item.'); }
                 });
@@ -516,25 +541,25 @@
                     parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="globalApiFetch('/products/${product.id}', { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: this.checked }) }).then(window.refreshCurrentProductView)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
                 }
                 const hasChildren = !isChild && product.children && product.children.length > 0;
-                const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
+                const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="window.toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
                 const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
                 const pausePlayButton = product.status 
-                    ? `<button class="btn-icon btn-status-toggle paused" onclick="window.toggleProductStatus(${product.id}, false)" ${stock_controls_disabled} title="Pausar item">||</button>`
-                    : `<button class="btn-icon btn-status-toggle playing" onclick="window.toggleProductStatus(${product.id}, true)" ${stock_controls_disabled} title="Ativar item">▶</button>`;
+                    ? `<button class="btn-icon btn-status-toggle paused" onclick="window.toggleProductStatus(${product.id}, false)" title="Pausar item">||</button>`
+                    : `<button class="btn-icon btn-status-toggle playing" onclick="window.toggleProductStatus(${product.id}, true)" title="Ativar item">▶</button>`;
                 let stockControlsCell = '';
                 const isParentContainerOnly = !isChild && hasChildren && !product.sell_parent_product;
                 if (isParentContainerOnly) {
                     stockControlsCell = `<td style="font-size: 0.8rem; color: var(--text-secondary); font-style: italic; text-align: center; vertical-align: middle;">Gerenciado pelos<br>complementos</td>`;
                 } else {
-                    stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" onchange="window.handleStockEnableToggle(this)" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" onclick="window.handleStockAdjust(this, -1)" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.handleStockSave(this); this.blur(); }" ${stock_controls_disabled}><button class="stock-btn stock-increase" onclick="window.handleStockAdjust(this, 1)" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" onclick="window.handleStockSave(this)" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span>${pausePlayButton}</div></td>`;
+                    stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" onchange="window.handleStockEnableToggle(this)" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" onclick="window.handleStockAdjust(this, -1)" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.handleStockSave(this); this.blur(); }" ${stock_controls_disabled}><button class="stock-btn stock-increase" onclick="window.handleStockAdjust(this, 1)" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" onclick="window.handleStockSave(this)" ${stock_controls_disabled}>Salvar</button>${pausePlayButton}</div></td>`;
                 }
-                const actionButtons = `<div class="actions-container"><button class="btn-icon btn-actions-menu" onclick="window.toggleActionsMenu(event)">⋮</button><div class="actions-menu"><a href="#" onclick="event.preventDefault(); openProductModal(${product.id})">Editar</a><a href="#" onclick="event.preventDefault(); window.duplicateProduct(${product.id})">Duplicar</a><a href="#" class="danger" onclick="event.preventDefault(); window.deleteProduct(${product.id})">Apagar</a></div></div>`;
+                const actionButtons = `<div class="actions-container"><button class="btn-icon btn-actions-menu" onclick="window.toggleActionsMenu(event)">⋮</button><div class="actions-menu"><a href="#" onclick="event.preventDefault(); window.openProductModal(${product.id})">Editar</a><a href="#" onclick="event.preventDefault(); window.duplicateProduct(${product.id})">Duplicar</a><a href="#" class="danger" onclick="event.preventDefault(); window.deleteProduct(${product.id})">Apagar</a></div></div>`;
                 return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">${dragHandle}<td><div class="product-name-cell">${toggleButton} ${isChild ? '<span class="child-indicator">↳</span>' : ''} <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail"><span>${product.name}</span></div>${parentControls}</td><td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td><td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>${stockControlsCell}<td class="action-buttons-cell">${actionButtons}</td></tr>`;
             };
 
-            window.toggleChildren = (btn, parentId) => { btn.classList.toggle('expanded'); document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`).forEach(row => { row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row'; }); };
+            function toggleChildren(btn, parentId) { btn.classList.toggle('expanded'); document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`).forEach(row => { row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row'; }); };
             
-            async function openProductModal(id = null, isMainProduct = true) {
+            function openProductModal(id = null, isMainProduct = true) {
                 const modal = document.getElementById('product-modal-overlay');
                 const form = document.getElementById('product-form');
                 form.reset();
@@ -606,7 +631,7 @@
                     tbody.innerHTML = '';
                     combos.forEach(combo => {
                         const productNames = combo.allow_free_choice ? combo.products.map(p => p.name).join(', ') : combo.products.map(p => `${p.quantity_in_combo}x ${p.name}`).join(', ');
-                        tbody.innerHTML += `<tr data-id="${combo.id}"><td><span class="drag-handle">⠿</span></td><td><div style="display: flex; align-items: center; gap: 15px;"><img src="${combo.image_url || PLACEHOLDER_IMG_60}" alt="${combo.name}" class="product-image-thumbnail"><span>${combo.name}</span></div></td><td>R$ ${parseFloat(combo.price).toFixed(2).replace('.', ',')}</td><td>${productNames || 'Nenhum'}</td><td><span class="status-badge ${combo.status ? 'active' : 'inactive'}">${combo.status ? 'Ativo' : 'Inativo'}</span></td><td class="action-buttons"><button onclick="openComboModal(${combo.id})">Editar</button><button onclick="deleteCombo(${combo.id})">Apagar</button></td></tr>`;
+                        tbody.innerHTML += `<tr data-id="${combo.id}"><td><span class="drag-handle">⠿</span></td><td><div style="display: flex; align-items: center; gap: 15px;"><img src="${combo.image_url || PLACEHOLDER_IMG_60}" alt="${combo.name}" class="product-image-thumbnail"><span>${combo.name}</span></div></td><td>R$ ${parseFloat(combo.price).toFixed(2).replace('.', ',')}</td><td>${productNames || 'Nenhum'}</td><td><span class="status-badge ${combo.status ? 'active' : 'inactive'}">${combo.status ? 'Ativo' : 'Inativo'}</span></td><td class="action-buttons-cell"><div class="actions-container"><button class="btn-icon btn-actions-menu" onclick="window.toggleActionsMenu(event)">⋮</button><div class="actions-menu"><a href="#" onclick="event.preventDefault(); window.openComboModal(${combo.id})">Editar</a><a href="#" class="danger" onclick="event.preventDefault(); window.deleteCombo(${combo.id})">Apagar</a></div></div></td></tr>`;
                     });
                     initSortable('combos-tbody', '/combos/reorder');
                 } catch (error) { console.error("Erro ao buscar combos:", error); }
@@ -619,7 +644,7 @@
                 fetchAndRenderCombos();
             };
 
-            async function openComboModal(id = null) {
+            function openComboModal(id = null) {
                 const modal = document.getElementById('combo-modal-overlay');
                 const form = document.getElementById('combo-form');
                 form.reset();
@@ -629,71 +654,84 @@
                 document.getElementById('combo-upload-prompt').style.display = 'block';
                 const productsListDiv = document.getElementById('combo-products-list');
                 productsListDiv.innerHTML = 'Carregando...';
-                if (allProductsFlat.length === 0) await fetchAllProducts();
+                
                 let comboData = { products: [], total_items_limit: 1, allow_free_choice: true };
                 if (id) {
                     document.getElementById('combo-modal-title').textContent = 'Editar Combo';
-                    const allCombos = await apiFetch('/combos');
-                    comboData = allCombos.find(c => c.id === id);
-                    document.getElementById('combo-id').value = comboData.id;
-                    document.getElementById('combo-name').value = comboData.name;
-                    document.getElementById('combo-description').value = comboData.description;
-                    document.getElementById('combo-price').value = parseFloat(comboData.price).toFixed(2);
-                    document.getElementById('combo-status').value = String(comboData.status);
-                    if (comboData.image_url) { document.getElementById('combo-image-url').value = comboData.image_url; document.getElementById('combo-image-preview').src = comboData.image_url; document.getElementById('combo-upload-prompt').style.display = 'none'; }
-                } else { document.getElementById('combo-modal-title').textContent = 'Adicionar Novo Combo'; }
-                document.getElementById('total-items-limit').value = comboData.total_items_limit;
-                const freeChoiceToggle = document.getElementById('allow-free-choice');
-                freeChoiceToggle.checked = comboData.allow_free_choice;
-                const productsInComboMap = new Map(comboData.products.map(p => [p.product_id, { quantity: p.quantity_in_combo, modifier: p.price_modifier || '0.00' }]));
-                productsListDiv.innerHTML = `<div class="combo-product-item-header"><span>Produto</span><span class="quantity-header">Qtd. no Combo</span><span>Ajuste de Preço (R$)</span></div>`;
-                allProductsFlat.forEach(product => {
-                    const comboInfo = productsInComboMap.get(product.id);
-                    const isChecked = !!comboInfo;
-                    const quantity = comboInfo ? comboInfo.quantity : 1;
-                    const priceModifier = comboInfo ? parseFloat(comboInfo.modifier).toFixed(2) : '0.00';
-                    productsListDiv.innerHTML += `<div class="combo-product-item"><label class="combo-product-name"><input type="checkbox" data-product-id="${product.id}" ${isChecked ? 'checked' : ''}> ${product.name}</label><input type="number" class="input-field quantity-in-combo" min="1" value="${quantity}" ${!isChecked ? 'disabled' : ''}><input type="number" step="0.01" class="input-field price-modifier" value="${priceModifier}" ${!isChecked ? 'disabled' : ''}></div>`;
-                });
-                const validatorDiv = document.getElementById('combo-quantity-validator');
-                const saveButton = document.getElementById('save-combo-button');
-                const validateQuantities = () => {
-                    if (freeChoiceToggle.checked) { validatorDiv.style.display = 'none'; saveButton.disabled = false; return; }
-                    validatorDiv.style.display = 'block';
-                    const totalLimit = parseInt(document.getElementById('total-items-limit').value) || 0;
-                    let currentTotal = 0;
-                    productsListDiv.querySelectorAll('.combo-product-item').forEach(itemRow => {
-                        if (itemRow.querySelector('input[type="checkbox"]').checked) currentTotal += parseInt(itemRow.querySelector('.quantity-in-combo').value) || 0;
+                    const populateForm = async () => {
+                        if (allProductsFlat.length === 0) await fetchAllProducts();
+                        const allCombos = await apiFetch('/combos');
+                        comboData = allCombos.find(c => c.id === id);
+                        document.getElementById('combo-id').value = comboData.id;
+                        document.getElementById('combo-name').value = comboData.name;
+                        document.getElementById('combo-description').value = comboData.description;
+                        document.getElementById('combo-price').value = parseFloat(comboData.price).toFixed(2);
+                        document.getElementById('combo-status').value = String(comboData.status);
+                        if (comboData.image_url) { document.getElementById('combo-image-url').value = comboData.image_url; document.getElementById('combo-image-preview').src = comboData.image_url; document.getElementById('combo-upload-prompt').style.display = 'none'; }
+                        populateProductsList();
+                    };
+                    populateForm();
+                } else { 
+                    document.getElementById('combo-modal-title').textContent = 'Adicionar Novo Combo';
+                    populateProductsList();
+                }
+
+                function populateProductsList() {
+                    document.getElementById('total-items-limit').value = comboData.total_items_limit;
+                    const freeChoiceToggle = document.getElementById('allow-free-choice');
+                    freeChoiceToggle.checked = comboData.allow_free_choice;
+                    const productsInComboMap = new Map(comboData.products.map(p => [p.product_id, { quantity: p.quantity_in_combo, modifier: p.price_modifier || '0.00' }]));
+                    productsListDiv.innerHTML = `<div class="combo-product-item-header"><span>Produto</span><span class="quantity-header">Qtd. no Combo</span><span>Ajuste de Preço (R$)</span></div>`;
+                    allProductsFlat.forEach(product => {
+                        const comboInfo = productsInComboMap.get(product.id);
+                        const isChecked = !!comboInfo;
+                        const quantity = comboInfo ? comboInfo.quantity : 1;
+                        const priceModifier = comboInfo ? parseFloat(comboInfo.modifier).toFixed(2) : '0.00';
+                        productsListDiv.innerHTML += `<div class="combo-product-item"><label class="combo-product-name"><input type="checkbox" data-product-id="${product.id}" ${isChecked ? 'checked' : ''}> ${product.name}</label><input type="number" class="input-field quantity-in-combo" min="1" value="${quantity}" ${!isChecked ? 'disabled' : ''}><input type="number" step="0.01" class="input-field price-modifier" value="${priceModifier}" ${!isChecked ? 'disabled' : ''}></div>`;
                     });
-                    validatorDiv.textContent = `Total de itens selecionados: ${currentTotal} / ${totalLimit}`;
-                    if (currentTotal === totalLimit) { validatorDiv.className = 'combo-quantity-validator valid'; saveButton.disabled = false; }
-                    else { validatorDiv.className = 'combo-quantity-validator invalid'; saveButton.disabled = true; }
-                };
-                const toggleItemInputs = () => {
-                    const isFreeChoice = freeChoiceToggle.checked;
-                    productsListDiv.querySelector('.quantity-header').style.display = isFreeChoice ? 'none' : 'block';
-                    productsListDiv.querySelectorAll('.combo-product-item').forEach(itemRow => {
-                        const checkbox = itemRow.querySelector('input[type="checkbox"]');
-                        const quantityInput = itemRow.querySelector('.quantity-in-combo');
-                        quantityInput.style.display = isFreeChoice ? 'none' : 'block';
-                        if (checkbox.checked) quantityInput.disabled = isFreeChoice;
-                    });
-                    const gridStyle = isFreeChoice ? '1fr 150px' : '1fr 120px 150px';
-                    productsListDiv.querySelector('.combo-product-item-header').style.gridTemplateColumns = gridStyle;
-                    productsListDiv.querySelectorAll('.combo-product-item').forEach(item => item.style.gridTemplateColumns = gridStyle);
-                    validateQuantities();
-                };
-                freeChoiceToggle.addEventListener('change', toggleItemInputs);
-                document.getElementById('total-items-limit').addEventListener('input', validateQuantities);
-                productsListDiv.querySelectorAll('input[type="checkbox"], .quantity-in-combo').forEach(el => {
-                    el.addEventListener('input', () => {
-                        const itemRow = el.closest('.combo-product-item');
-                        const isChecked = itemRow.querySelector('input[type="checkbox"]').checked;
-                        itemRow.querySelector('.price-modifier').disabled = !isChecked;
-                        itemRow.querySelector('.quantity-in-combo').disabled = !isChecked || freeChoiceToggle.checked;
+
+                    const validatorDiv = document.getElementById('combo-quantity-validator');
+                    const saveButton = document.getElementById('save-combo-button');
+                    const validateQuantities = () => {
+                        if (freeChoiceToggle.checked) { validatorDiv.style.display = 'none'; saveButton.disabled = false; return; }
+                        validatorDiv.style.display = 'block';
+                        const totalLimit = parseInt(document.getElementById('total-items-limit').value) || 0;
+                        let currentTotal = 0;
+                        productsListDiv.querySelectorAll('.combo-product-item').forEach(itemRow => {
+                            if (itemRow.querySelector('input[type="checkbox"]').checked) currentTotal += parseInt(itemRow.querySelector('.quantity-in-combo').value) || 0;
+                        });
+                        validatorDiv.textContent = `Total de itens selecionados: ${currentTotal} / ${totalLimit}`;
+                        if (currentTotal === totalLimit) { validatorDiv.className = 'combo-quantity-validator valid'; saveButton.disabled = false; }
+                        else { validatorDiv.className = 'combo-quantity-validator invalid'; saveButton.disabled = true; }
+                    };
+
+                    const toggleItemInputs = () => {
+                        const isFreeChoice = freeChoiceToggle.checked;
+                        productsListDiv.querySelector('.quantity-header').style.display = isFreeChoice ? 'none' : 'block';
+                        productsListDiv.querySelectorAll('.combo-product-item').forEach(itemRow => {
+                            const checkbox = itemRow.querySelector('input[type="checkbox"]');
+                            const quantityInput = itemRow.querySelector('.quantity-in-combo');
+                            quantityInput.style.display = isFreeChoice ? 'none' : 'block';
+                            if (checkbox.checked) quantityInput.disabled = isFreeChoice;
+                        });
+                        const gridStyle = isFreeChoice ? '1fr 150px' : '1fr 120px 150px';
+                        productsListDiv.querySelector('.combo-product-item-header').style.gridTemplateColumns = gridStyle;
+                        productsListDiv.querySelectorAll('.combo-product-item').forEach(item => item.style.gridTemplateColumns = gridStyle);
                         validateQuantities();
+                    };
+                    freeChoiceToggle.addEventListener('change', toggleItemInputs);
+                    document.getElementById('total-items-limit').addEventListener('input', validateQuantities);
+                    productsListDiv.querySelectorAll('input[type="checkbox"], .quantity-in-combo').forEach(el => {
+                        el.addEventListener('input', () => {
+                            const itemRow = el.closest('.combo-product-item');
+                            const isChecked = itemRow.querySelector('input[type="checkbox"]').checked;
+                            itemRow.querySelector('.price-modifier').disabled = !isChecked;
+                            itemRow.querySelector('.quantity-in-combo').disabled = !isChecked || freeChoiceToggle.checked;
+                            validateQuantities();
+                        });
                     });
-                });
-                toggleItemInputs(); 
+                    toggleItemInputs(); 
+                }
                 modal.style.display = 'flex';
             };
 
@@ -730,7 +768,7 @@
                 finally { saveButton.disabled = false; saveButton.textContent = 'Salvar Combo'; }
             };
             
-            window.deleteCombo = async (id) => { showCustomConfirm('Tem a certeza de que deseja apagar este combo?', async () => { try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); await fetchAndRenderCombos(); } catch (error) { console.error('Erro ao apagar combo:', error); } }); };
+            function deleteCombo(id) { showCustomConfirm('Tem a certeza de que deseja apagar este combo?', async () => { try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); await fetchAndRenderCombos(); } catch (error) { console.error('Erro ao apagar combo:', error); } }); };
             
             function renderSettingsPage() {
                 pageTitle.textContent = 'Configurações da Loja';

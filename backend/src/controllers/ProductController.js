@@ -218,7 +218,9 @@ module.exports = {
       });
       console.log('[ProductController] Produtos reordenados com sucesso.');
       
-      emitDataUpdated(request);
+      // #################### INÍCIO DA CORREÇÃO ####################
+      emitDataUpdated(request); // EMITE O EVENTO PARA ATUALIZAR OS CARDÁPIOS
+      // ##################### FIM DA CORREÇÃO ######################
       
       return response.status(200).json({ message: 'Produtos reordenados com sucesso.' });
     } catch (error) {
@@ -227,35 +229,30 @@ module.exports = {
     }
   },
 
-  // #################### INÍCIO DA NOVA FUNÇÃO ####################
   // Duplica um produto e seus complementos associados.
   async duplicate(request, response) {
     const { id } = request.params;
     try {
         await connection.transaction(async trx => {
-            // 1. Encontra o produto original e seus filhos diretos.
             const originalParent = await trx('products').where('id', id).first();
             if (!originalParent) {
                 return response.status(404).json({ error: 'Produto original não encontrado.' });
             }
             const originalChildren = await trx('products').where('parent_product_id', id);
 
-            // 2. Prepara os dados do novo produto pai.
             const { id: parentId, created_at: p_created, updated_at: p_updated, ...parentData } = originalParent;
             parentData.name = `${parentData.name} (Cópia)`;
-            parentData.status = false; // Começa desativado por segurança.
+            parentData.status = false; 
             
-            // 3. Insere o novo pai e obtém o seu ID.
             const [newParent] = await trx('products').insert(parentData).returning('*');
 
-            // 4. Se existirem filhos, duplica-os e associa-os ao novo pai.
             if (originalChildren.length > 0) {
                 const newChildrenData = originalChildren.map(child => {
                     const { id: childId, parent_product_id, created_at, updated_at, ...childData } = child;
                     return {
                         ...childData,
-                        parent_product_id: newParent.id, // Associa ao novo pai.
-                        status: false // Filhos também começam desativados.
+                        parent_product_id: newParent.id, 
+                        status: false 
                     };
                 });
                 await trx('products').insert(newChildrenData);
@@ -271,5 +268,4 @@ module.exports = {
         return response.status(500).json({ error: 'Falha ao duplicar o produto.' });
     }
   }
-  // ##################### FIM DA NOVA FUNÇÃO ######################
 };

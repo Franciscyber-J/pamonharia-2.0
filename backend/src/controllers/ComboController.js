@@ -48,7 +48,6 @@ module.exports = {
           .andWhere('products.status', true)
           .select(
             'products.*',
-            // **MUDANÇA**: Alias `products.id` para `id` para consistência no frontend.
             'products.id as id',
             'combo_products.quantity_in_combo',
             'combo_products.price_modifier'
@@ -82,7 +81,7 @@ module.exports = {
         }
       });
       
-      emitDataUpdated(request); // EMITE O EVENTO
+      emitDataUpdated(request); 
       
       return response.status(201).json({ message: 'Combo criado com sucesso.' });
     } catch (error) {
@@ -113,7 +112,7 @@ module.exports = {
         }
       });
       
-      emitDataUpdated(request); // EMITE O EVENTO
+      emitDataUpdated(request); 
       
       return response.json({ message: 'Combo atualizado com sucesso.' });
     } catch (error) {
@@ -129,7 +128,7 @@ module.exports = {
       return response.status(404).json({ error: 'Combo não encontrado.' });
     }
     
-    emitDataUpdated(request); // EMITE O EVENTO
+    emitDataUpdated(request); 
     
     return response.status(204).send();
   },
@@ -148,7 +147,9 @@ module.exports = {
       });
       console.log('[ComboController] Combos reordenados com sucesso.');
       
-      emitDataUpdated(request); // EMITE O EVENTO
+      // #################### INÍCIO DA CORREÇÃO ####################
+      emitDataUpdated(request); // EMITE O EVENTO PARA ATUALIZAR OS CARDÁPIOS
+      // ##################### FIM DA CORREÇÃO ######################
       
       return response.status(200).json({ message: 'Combos reordenados com sucesso.' });
     } catch (error) {

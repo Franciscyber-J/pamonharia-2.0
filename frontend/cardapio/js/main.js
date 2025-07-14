@@ -1,14 +1,13 @@
+// frontend/cardapio/js/main.js
 import { apiFetch, fetchAndRenderAllData } from './api.js';
 import { initializeCart, getCart, clearCart } from './cart.js';
-import { dom, initializeUI, updateStoreStatus, renderItems, renderCart, showErrorModal, initializeCardPaymentForm } from './ui.js';
+import { dom, initializeUI, updateStoreStatus, renderItems, renderCart, showErrorModal } from './ui.js';
+import { initializeCardPaymentForm } from './payment.js';
 
-// #################### INÍCIO DA ATUALIZAÇÃO ####################
-// Atualiza a URL base da API para o seu domínio de produção.
-const API_BASE_URL = 'https://pamonhariasaborosa.expertbr.com';
-// ##################### FIM DA ATUALIZAÇÃO ######################
+const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const API_BASE_URL = IS_LOCAL ? 'http://localhost:10000' : 'https://pamonhariasaborosa.expertbr.com';
 export const socket = io(API_BASE_URL);
 
-// Estado global da aplicação
 export const state = {
     cart: [],
     allItems: [],
@@ -17,17 +16,18 @@ export const state = {
     storeSettings: {},
     liveStockState: {},
     currentOrder: null,
-    mp: null, // Instância do MercadoPago
-    orderData: {}, // Armazena temporariamente os dados do pedido
+    mp: null,
+    orderData: {},
 };
 
-// Função principal de inicialização
 async function main() {
     try {
         const paymentSettings = await apiFetch('/public/payment-settings');
-        state.mp = new MercadoPago(paymentSettings.mercadoPagoPublicKey, {
-            locale: 'pt-BR'
-        });
+        if (paymentSettings.mercadoPagoPublicKey) {
+            state.mp = new MercadoPago(paymentSettings.mercadoPagoPublicKey, { locale: 'pt-BR' });
+        } else {
+            console.warn("Chave pública do Mercado Pago não foi encontrada. Pagamento online estará desabilitado.");
+        }
         
         await fetchAndRenderAllData();
         initializeUI();
@@ -42,34 +42,29 @@ async function main() {
     }
 }
 
-// Listeners do Socket.IO
-socket.on('connect', () => console.log('[Cardapio] ✅ Socket.IO conectado ao servidor.'));
+socket.on('connect', () => console.log(`[Cardapio] ✅ Socket.IO conectado ao servidor em ${API_BASE_URL}.`));
 socket.on('stock_update', (inventory) => {
     state.liveStockState = inventory;
     renderItems();
 });
 socket.on('data_updated', async () => {
+    console.log('[Cardapio] 🔄 Evento "data_updated" recebido. A recarregar dados do cardápio...');
     await fetchAndRenderAllData();
     updateStoreStatus();
     renderItems();
     renderCart();
 });
 
-/**
- * Orquestra o fluxo de finalização de pedido.
- * @param {Event} e - O evento do formulário.
- */
 async function handleOrderSubmit(e) {
     e.preventDefault();
     const paymentMethod = document.querySelector('input[name="payment-method"]:checked').value;
-    const totalPrice = parseFloat(dom.grandTotalEl.textContent.replace('R$ ', '').replace(',', '.'));
+    const totalPrice = state.cart.reduce((acc, item) => acc + (item.total_value || 0), 0);
 
     if (paymentMethod === 'online' && totalPrice < 1.00) {
         showErrorModal('Valor Baixo Para Pagamento Online', 'O valor mínimo para pagamentos online é de R$ 1,00.');
         return;
     }
 
-    // Guarda os dados do pedido no estado global temporariamente
     const deliveryType = document.querySelector('input[name="delivery-type"]:checked').value;
     state.orderData = {
         client_name: document.getElementById('client-name').value,
@@ -81,7 +76,7 @@ async function handleOrderSubmit(e) {
             price: itemGroup.price,
             quantity: itemGroup.quantity,
             is_combo: !!itemGroup.is_combo,
-            item_details: itemGroup.selected_items || []
+            selected_items: itemGroup.selected_items || []
         })),
         total_price: totalPrice,
         payment_method: paymentMethod
@@ -91,10 +86,15 @@ async function handleOrderSubmit(e) {
     dom.submitOrderBtn.textContent = 'A processar...';
 
     if (paymentMethod === 'online') {
+        if (!state.mp) {
+            showErrorModal('Pagamento Indisponível', 'O pagamento online não está configurado corretamente. Por favor, escolha "Pagar na Entrega".');
+            dom.submitOrderBtn.disabled = false;
+            dom.submitOrderBtn.textContent = 'Finalizar Pedido';
+            return;
+        }
         dom.orderForm.style.display = 'none';
         dom.onlinePaymentMethodSelection.style.display = 'flex';
     } else {
-        // Processa o pedido para "Pagar na Entrega"
         try {
             state.currentOrder = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(state.orderData) });
             dom.cartWrapper.style.display = 'none';
@@ -108,10 +108,6 @@ async function handleOrderSubmit(e) {
     }
 }
 
-/**
- * Lida com a seleção do método de pagamento online (Cartão ou PIX).
- * @param {'card' | 'pix'} method - O método de pagamento selecionado.
- */
 export async function handleOnlinePaymentSelection(method) {
     try {
         dom.onlinePaymentMethodSelection.style.display = 'none';
@@ -138,11 +134,7 @@ export async function handleOnlinePaymentSelection(method) {
 
     } catch (error) {
         dom.paymentProcessingOverlay.style.display = 'none';
-        
-        const errorMessage = (error && error[0] && error[0].description) 
-            ? `Erro da API: ${error[0].description}. Verifique se a sua conta está habilitada para produção.`
-            : error.message || 'Erro desconhecido ao inicializar o pagamento.';
-
+        const errorMessage = (error?.details) || error.message || 'Erro desconhecido ao inicializar o pagamento.';
         showErrorModal('Falha na Preparação do Pagamento', `Não foi possível iniciar o pagamento. Detalhe: ${errorMessage}`);
         
         dom.orderForm.style.display = 'block';
@@ -152,8 +144,6 @@ export async function handleOnlinePaymentSelection(method) {
     }
 }
 
-// Listener do formulário de pedido
 dom.orderForm.addEventListener('submit', handleOrderSubmit);
 
-// Inicia a aplicação
 main();

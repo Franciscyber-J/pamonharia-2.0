@@ -1,8 +1,10 @@
-import { state, socket, handleOnlinePaymentSelection } from './main.js';
-import { getAvailableStock, isItemEffectivelyOutOfStock, isComboEffectivelyOutOfStock, openProductWithOptionsModal, openComboModal, addToCartSimple, calculateTotals, clearCart, adjustItemGroupQuantity, adjustCartItemQuantity, removeItemGroup } from './cart.js';
-import { apiFetch } from './api.js';
+import { state, handleOnlinePaymentSelection } from './main.js';
+// #################### INÍCIO DA CORREÇÃO ####################
+// A importação de 'handleQuantityChange' foi REMOVIDA, pois a função é interna de cart.js
+import { openProductWithOptionsModal, openComboModal, addToCartSimple, clearCart, adjustItemGroupQuantity, adjustCartItemQuantity, removeItemGroup, calculateTotals, isComboEffectivelyOutOfStock, isItemEffectivelyOutOfStock } from './cart.js';
+import { handleBackToCart, handleBackToPaymentSelection } from './payment.js';
+// ##################### FIM DA CORREÇÃO ######################
 
-// Centraliza todos os elementos do DOM para fácil acesso
 export const dom = {
     productsGrid: document.getElementById('products-grid'),
     combosGrid: document.getElementById('combos-grid'),
@@ -46,6 +48,9 @@ export const dom = {
     footerAddress: document.getElementById('footer-address'),
     footerHours: document.getElementById('footer-hours'),
     footerLocationLink: document.getElementById('footer-location-link'),
+    backToCartBtn: document.getElementById('back-to-cart-btn'),
+    backToPaymentSelectionBtn: document.getElementById('back-to-payment-selection-btn'),
+    backToPaymentSelectionFromPixBtn: document.getElementById('back-to-payment-selection-from-pix-btn'),
 };
 
 export function renderItems() {
@@ -223,7 +228,7 @@ export function updateStoreStatus() {
 export function showErrorModal(title, message) {
     dom.errorModalTitle.textContent = title;
     dom.errorModalMessage.textContent = message;
-    dom.errorModal.style.display = 'flex';
+    toggleErrorModal(true);
 }
 
 export function setupModal(config) {
@@ -236,176 +241,6 @@ export function setupModal(config) {
     dom.modal.querySelector('.modal-close-btn').onclick = () => dom.modal.style.display = 'none';
     dom.modal.style.display = 'flex';
     if (config.onOpen) config.onOpen();
-}
-
-export function handleQuantityChange(target, selectedState, validator, item, options = {}) {
-    const itemId = parseInt(target.dataset.itemId);
-    const isIncrement = target.textContent === '+';
-
-    if (isIncrement) {
-        if (options.isComplement && options.oneToOneRuleActive) {
-            const parentQty = options.getParentQty();
-            const totalComplements = options.getTotalComplementsQty();
-            if (totalComplements >= parentQty) {
-                dom.modalFeedback.textContent = `Limite de complementos atingido (${parentQty}).`;
-                setTimeout(() => dom.modalFeedback.textContent = '', 3000);
-                return;
-            }
-        }
-        const availableStock = getAvailableStock(item);
-        if (availableStock !== Infinity && (selectedState[itemId] || 0) >= availableStock) {
-            dom.modalFeedback.textContent = `Limite de estoque para "${item.name}" atingido.`;
-            setTimeout(() => dom.modalFeedback.textContent = '', 3000);
-            return;
-        }
-        selectedState[itemId] = (selectedState[itemId] || 0) + 1;
-    } else {
-        selectedState[itemId] = Math.max(0, (selectedState[itemId] || 0) - 1);
-    }
-    document.getElementById(`quantity-${itemId}`).textContent = selectedState[itemId];
-    if (validator) validator();
-}
-
-/**
- * Inicializa o formulário de pagamento customizado com a SDK do Mercado Pago.
- */
-export async function initializeCardPaymentForm() {
-    if (!state.mp) {
-        showErrorModal('Erro de Configuração', 'Não foi possível carregar o sistema de pagamento.');
-        return;
-    }
-
-    dom.onlinePaymentMethodSelection.style.display = 'none';
-    dom.customPaymentContainer.style.display = 'block';
-    
-    if (window.cardForm) {
-        try {
-            window.cardForm.unmount();
-        } catch (e) {
-            console.warn("Could not unmount previous card form.", e);
-        }
-    }
-
-    try {
-        const cardForm = await state.mp.cardForm({
-            amount: String(state.currentOrder.total_price),
-            iframe: true,
-            form: {
-                id: 'card-payment-form',
-                cardNumber: { id: 'cardNumber', placeholder: 'Número do cartão' },
-                expirationDate: { id: 'expirationDate', placeholder: 'MM/AA' },
-                securityCode: { id: 'securityCode', placeholder: 'Código de segurança' },
-                cardholderName: { id: 'cardholderName', placeholder: 'Titular do cartão' },
-                cardholderEmail: { id: 'cardholderEmail', placeholder: 'E-mail' },
-                // #################### INÍCIO DA CORREÇÃO ####################
-                identificationType: { id: 'identificationType', placeholder: 'Tipo de documento' },
-                identificationNumber: { id: 'identificationNumber', placeholder: 'Número do documento' },
-                issuer: { id: 'issuer', placeholder: 'Banco emissor' },
-                installments: { id: 'installments', placeholder: 'Parcelas' }
-                // ##################### FIM DA CORREÇÃO ######################
-            },
-            // #################### INÍCIO DA CORREÇÃO (VISUAL) ####################
-            customization: {
-                visual: {
-                    style: {
-                        // Aplica o tema escuro da SDK aos campos de iframe
-                        theme: 'dark'
-                    }
-                }
-            },
-            // ##################### FIM DA CORREÇÃO (VISUAL) ######################
-            callbacks: {
-                onFormMounted: error => {
-                    if (error) {
-                        console.error('Erro ao montar o formulário do cartão:', error);
-                        showErrorModal('Erro de Pagamento', 'Não foi possível exibir o formulário de pagamento. Verifique se sua conta está habilitada para produção.');
-                    }
-                },
-                onFormUnmounted: error => {
-                    if (error) return console.warn('Form Unmounted callback error: ', error);
-                },
-                onIdentificationTypesReceived: (error, identificationTypes) => {
-                    if (error) {
-                        console.warn('Identification types callback error: ', error);
-                        showErrorModal('Erro de Validação', 'Não foi possível carregar os tipos de documento.');
-                        return;
-                    }
-                    const docTypeElement = document.getElementById('identificationType');
-                    docTypeElement.innerHTML = '<option value="" disabled selected>Selecione</option>';
-                    identificationTypes.forEach(type => {
-                        const option = document.createElement('option');
-                        option.value = type.id;
-                        option.textContent = type.name;
-                        docTypeElement.appendChild(option);
-                    });
-                },
-                onSubmit: async (event) => {
-                    event.preventDefault();
-                    dom.paymentProcessingOverlay.style.display = 'flex';
-                    dom.customPaymentContainer.style.display = 'none';
-
-                    const {
-                        paymentMethodId: payment_method_id,
-                        issuerId: issuer_id,
-                        cardholderEmail: email,
-                        amount,
-                        token,
-                        installments, // A SDK vai popular isso, mas usaremos 1
-                        identificationNumber,
-                        identificationType,
-                    } = cardForm.getCardFormData();
-
-                    try {
-                        const paymentData = {
-                            order_id: state.currentOrder.id,
-                            token,
-                            payment_method_id,
-                            issuer_id: issuer_id,
-                            installments: 1, // Garantimos o envio de 1 parcela para pagamento à vista.
-                            payment_type: 'credit_card',
-                            payer: {
-                                email,
-                                identification: {
-                                    type: identificationType,
-                                    number: identificationNumber,
-                                },
-                            },
-                        };
-                        
-                        const paymentResponse = await apiFetch('/payments/process', {
-                            method: 'POST',
-                            body: JSON.stringify(paymentData)
-                        });
-
-                        dom.paymentProcessingOverlay.style.display = 'none';
-                        dom.cartWrapper.style.display = 'none';
-                        dom.successMessage.style.display = 'block';
-                        dom.successMessage.innerHTML = `<h3>Pagamento Aprovado!</h3><p>Pedido #${state.currentOrder.id} confirmado.</p>`;
-                        clearCart();
-
-                    } catch (error) {
-                        dom.paymentProcessingOverlay.style.display = 'none';
-                        dom.customPaymentContainer.style.display = 'block';
-                        const detail = error.message || 'Não foi possível processar o pagamento.';
-                        dom.cardPaymentFeedback.textContent = `Erro: ${detail}`;
-                    }
-                },
-                onError: (errors, event) => {
-                    let message = 'Verifique os dados do cartão.';
-                    if (errors && errors.length > 0) {
-                        message = errors[0].message;
-                        console.error('Erro da SDK do Mercado Pago:', errors);
-                    }
-                    dom.cardPaymentFeedback.textContent = message;
-                    showErrorModal('Erro no Cartão', message);
-                }
-            },
-        });
-        window.cardForm = cardForm;
-    } catch (e) {
-        console.error('Falha crítica ao inicializar o CardForm:', e);
-        showErrorModal('Erro Crítico', 'Não foi possível inicializar o formulário de pagamento. Por favor, recarregue a página.');
-    }
 }
 
 export function initializeUI() {
@@ -472,9 +307,17 @@ export function initializeUI() {
 
     dom.selectCardBtn.addEventListener('click', () => handleOnlinePaymentSelection('card'));
     dom.selectPixBtn.addEventListener('click', () => handleOnlinePaymentSelection('pix'));
+
+    dom.backToCartBtn.addEventListener('click', handleBackToCart);
+    dom.backToPaymentSelectionBtn.addEventListener('click', handleBackToPaymentSelection);
+    dom.backToPaymentSelectionFromPixBtn.addEventListener('click', handleBackToPaymentSelection);
 }
 
 function applyTheme(theme) {
     document.body.setAttribute('data-theme', theme);
     localStorage.setItem('pamonharia-theme', theme);
+}
+
+function toggleErrorModal(show) {
+    dom.errorModal.style.display = show ? 'flex' : 'none';
 }

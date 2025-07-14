@@ -4,12 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cardápio - Pamonharia Sabor do Goiás</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌽</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <script src="https://sdk.mercadopago.com/js/v2"></script>
-</head>
+    <script src="https://sdk.mercadopago.com/js/v2" async></script>
+    </head>
 <body>
     <div class="container">
         <header class="header">
@@ -71,6 +72,9 @@
                             <h3>Escolha como pagar online</h3>
                             <button id="select-card-btn" class="action-button">Pagar com Cartão</button>
                             <button id="select-pix-btn" class="action-button">Pagar com PIX</button>
+                            <div class="form-buttons" style="margin-top: 1rem;">
+                                <button type="button" id="back-to-cart-btn" class="btn btn-secondary">Voltar ao Carrinho</button>
+                            </div>
                         </div>
 
                         <div id="custom-payment-container" style="display: none;">
@@ -113,8 +117,10 @@
                                     <select id="issuer"></select>
                                     <select id="installments"></select>
                                 </div>
-
-                                <button type="submit" id="card-payment-submit-btn" class="action-button">Pagar com Cartão</button>
+                                <div class="form-buttons" style="margin-top: 1rem; display: flex; justify-content: space-between;">
+                                     <button type="button" id="back-to-payment-selection-btn" class="btn btn-secondary">Voltar</button>
+                                     <button type="submit" id="card-payment-submit-btn" class="btn btn-primary">Pagar com Cartão</button>
+                                </div>
                                 <div id="card-payment-feedback" class="payment-feedback"></div>
                             </form>
                         </div>
@@ -126,6 +132,9 @@
                             <input type="text" id="pix-copy-paste" readonly>
                             <button id="pix-copy-btn" class="action-button">Copiar Código</button>
                             <p class="pix-expiration">Este código expira em 30 minutos.</p>
+                             <div class="form-buttons" style="margin-top: 1rem;">
+                                 <button type="button" id="back-to-payment-selection-from-pix-btn" class="btn btn-secondary">Escolher Outro Método</button>
+                            </div>
                         </div>
                         
                         <div id="payment-processing-overlay" style="display: none;">

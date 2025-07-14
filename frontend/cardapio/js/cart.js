@@ -1,27 +1,47 @@
 import { state, socket } from './main.js';
-import { dom, renderCart, setupModal, handleQuantityChange, showErrorModal } from './ui.js';
+import { dom, renderCart, setupModal, showErrorModal, toggleCartModal } from './ui.js';
 
-/**
- * Carrega o carrinho do localStorage.
- * @returns {Array} O carrinho de compras.
- */
+function handleQuantityChange(target, selectedState, validator, item, options = {}) {
+    const itemId = parseInt(target.dataset.itemId);
+    const isIncrement = target.textContent === '+';
+
+    if (isIncrement) {
+        if (options.isComplement && options.oneToOneRuleActive) {
+            const parentQty = options.getParentQty();
+            const totalComplements = options.getTotalComplementsQty();
+            if (totalComplements >= parentQty) {
+                dom.modalFeedback.textContent = `Limite de complementos atingido (${parentQty}).`;
+                setTimeout(() => dom.modalFeedback.textContent = '', 3000);
+                return;
+            }
+        }
+        const availableStock = getAvailableStock(item);
+        if (availableStock !== Infinity && (selectedState[itemId] || 0) >= availableStock) {
+            dom.modalFeedback.textContent = `Limite de estoque para "${item.name}" atingido.`;
+            setTimeout(() => dom.modalFeedback.textContent = '', 3000);
+            return;
+        }
+        selectedState[itemId] = (selectedState[itemId] || 0) + 1;
+    } else {
+        selectedState[itemId] = Math.max(0, (selectedState[itemId] || 0) - 1);
+    }
+    document.getElementById(`quantity-${itemId}`).textContent = selectedState[itemId];
+    if (validator) validator();
+}
+
+
 export function initializeCart() {
+    console.log('[Cart] 🛒 Inicializando carrinho do localStorage.');
     const savedCart = localStorage.getItem('pamonharia-cart');
     return savedCart ? JSON.parse(savedCart) : [];
 }
 
-/**
- * Retorna o estado atual do carrinho.
- * @returns {Array}
- */
 export function getCart() {
     return state.cart;
 }
 
-/**
- * Limpa o carrinho e devolve o estoque.
- */
 export function clearCart() {
+    console.log('[Cart] 🧹 Limpando carrinho e devolvendo estoque.');
     const allItemsToRelease = state.cart.flatMap(itemGroup => {
         let items = [];
         const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
@@ -36,15 +56,13 @@ export function clearCart() {
     }).filter(i => i && i.id && i.quantity > 0);
 
     if (allItemsToRelease.length > 0) {
+        console.log('[Socket.IO] 📤 Emitindo "release_stock" para:', allItemsToRelease);
         socket.emit('release_stock', allItemsToRelease);
     }
     state.cart = [];
     renderCart();
 }
 
-/**
- * Calcula os totais (subtotal, entrega, total geral) e atualiza a UI.
- */
 export function calculateTotals() {
     let subtotal = 0;
     state.cart.forEach(itemGroup => {
@@ -61,14 +79,13 @@ export function calculateTotals() {
     dom.grandTotalEl.textContent = `R$ ${grandTotal.toFixed(2).replace('.', ',')}`;
 }
 
-/**
- * Adiciona um item simples (sem opções) ao carrinho.
- * @param {number} itemId - O ID do produto.
- */
 export function addToCartSimple(itemId) {
     const item = state.allProductsFlat.find(p => p.id === itemId);
-    if (!item || isItemEffectivelyOutOfStock(item)) return;
-
+    if (!item || isItemEffectivelyOutOfStock(item)) {
+        console.warn(`[Cart] Tentativa de adicionar item esgotado ou inválido: ID ${itemId}`);
+        return;
+    }
+    console.log(`[Cart] Adicionando item simples: ${item.name}`);
     const itemsToReserve = [{ id: item.id, quantity: 1 }];
     const itemData = {
         original_id: item.id,
@@ -83,11 +100,8 @@ export function addToCartSimple(itemId) {
     addToCartAndReserve(itemData, itemsToReserve);
 }
 
-/**
- * Abre o modal para produtos com complementos.
- * @param {number} productId - O ID do produto.
- */
 export function openProductWithOptionsModal(productId) {
+    console.log(`[UI] Abrindo modal de opções para o produto ID: ${productId}`);
     const product = state.allItems.find(item => item.id === productId);
     if (!product) return;
 
@@ -203,15 +217,14 @@ export function openProductWithOptionsModal(productId) {
 }
 
 export function openComboModal(comboId) {
+    console.log(`[UI] Abrindo modal de combo para o ID: ${comboId}`);
     const combo = state.allItems.find(item => item.id === comboId);
     if (!combo) return;
     let selectedQuantities = {}, comboBodyHtml = '';
 
-    // #################### INÍCIO DA CORREÇÃO ####################
     combo.products.forEach(option => {
         const fullOptionData = state.allProductsFlat.find(p => p.id === option.id);
         const isOptionOutOfStock = isItemEffectivelyOutOfStock(fullOptionData);
-        // Exibe o modificador de preço se ele for maior que zero.
         const priceModifierText = option.price_modifier > 0 ? `+ R$ ${parseFloat(option.price_modifier).toFixed(2).replace('.', ',')}` : '';
         
         comboBodyHtml += `
@@ -227,7 +240,6 @@ export function openComboModal(comboId) {
     });
 
     const onSave = () => {
-        // Começa com o preço base do combo.
         let finalPrice = parseFloat(combo.price);
         let selected_items = [];
         let itemsToReserve = [];
@@ -237,10 +249,8 @@ export function openComboModal(comboId) {
                 const product = state.allProductsFlat.find(p => p.id == id);
                 const comboProductInfo = combo.products.find(p => p.id == id);
                 
-                // Adiciona o custo extra (modificador) ao preço final.
                 finalPrice += parseFloat(comboProductInfo.price_modifier || 0) * quantity;
                 
-                // Guarda o item selecionado com seu preço base para exibição no carrinho.
                 selected_items.push({ id: product.id, name: product.name, quantity: quantity, price: product.price });
                 itemsToReserve.push({ id: product.id, quantity: quantity });
             }
@@ -258,7 +268,6 @@ export function openComboModal(comboId) {
         };
         addToCartAndReserve(itemData, itemsToReserve);
     };
-    // ##################### FIM DA CORREÇÃO ######################
 
     const validator = () => {
         const totalSelected = Object.values(selectedQuantities).reduce((sum, qty) => sum + qty, 0);
@@ -289,23 +298,17 @@ export function openComboModal(comboId) {
     });
 }
 
-// #################### INÍCIO DA ATUALIZAÇÃO DA FUNÇÃO ####################
 export function isItemEffectivelyOutOfStock(item) {
     if (!item) return true;
     
-    // Se o status do item for `false` (inativo), ele está sempre esgotado para o cliente.
     if (item.status === false) return true;
 
     const stock = getAvailableStock(item);
-    // Se um item é apenas um "container" (não é vendido por si só)
     if (item.children && item.children.length > 0 && !item.sell_parent_product) {
-        // Ele está esgotado se TODAS as suas opções de filhos estiverem esgotadas.
         return item.children.every(child => isItemEffectivelyOutOfStock(state.allProductsFlat.find(p => p.id === child.id)));
     }
-    // Para todos os outros casos, a decisão é baseada na quantidade de estoque.
     return stock <= 0;
 }
-// ##################### FIM DA ATUALIZAÇÃO DA FUNÇÃO ######################
 
 export function isComboEffectivelyOutOfStock(combo) {
     if (!combo || !combo.products) return true;
@@ -329,11 +332,13 @@ export function getAvailableStock(item) {
 }
 
 function addToCartAndReserve(itemData, itemsToReserve) {
+    console.log('[Socket.IO] 📤 Emitindo "reserve_stock" para:', itemsToReserve);
     dom.addToCartBtn.disabled = true;
     dom.addToCartBtn.textContent = 'Reservando...';
     dom.modalFeedback.textContent = '';
 
     const successHandler = () => {
+        console.log('[Socket.IO] ✅ "reservation_success" recebido.');
         socket.off('reservation_failure', failureHandler);
         state.cart.push({ ...itemData, cart_id: `cart_${Date.now()}` });
         renderCart();
@@ -341,6 +346,7 @@ function addToCartAndReserve(itemData, itemsToReserve) {
     };
 
     const failureHandler = ({ message }) => {
+        console.error(`[Socket.IO] ❌ "reservation_failure" recebido: ${message}`);
         socket.off('reservation_success', successHandler);
         dom.modalFeedback.textContent = `Erro: ${message}`;
     };
@@ -356,9 +362,6 @@ function addToCartAndReserve(itemData, itemsToReserve) {
     socket.emit('reserve_stock', itemsToReserve);
 }
 
-
-// --- Funções de Manipulação do Carrinho (para delegação de eventos) ---
-
 export function adjustItemGroupQuantity(cartIndex, amount) {
     const itemGroup = state.cart[cartIndex];
     if (!itemGroup) return;
@@ -372,7 +375,6 @@ export function adjustItemGroupQuantity(cartIndex, amount) {
     const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
     const isOneToOne = parentProduct && parentProduct.force_one_to_one_complement;
 
-    // Lógica de ajuste para itens "1 para 1"
     if (isOneToOne) {
         if (amount > 0) {
             showErrorModal('Ação Indisponível', 'Para adicionar mais itens com complementos obrigatórios, adicione um novo item a partir do cardápio.');
@@ -403,7 +405,6 @@ export function adjustItemGroupQuantity(cartIndex, amount) {
         }
     }
     
-    // Lógica de ajuste para combos e itens normais
     let itemsToUpdate = [];
     if (itemGroup.is_combo) {
         if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
@@ -434,7 +435,6 @@ export function adjustItemGroupQuantity(cartIndex, amount) {
 }
 
 export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
-    // Esta função é para complementos não-obrigatórios, não precisa de alteração.
     const itemGroup = state.cart[cartIndex];
     if (!itemGroup || !itemGroup.selected_items) return;
 
