@@ -118,6 +118,8 @@
             e.preventDefault();
             errorMessage.textContent = "";
 
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // Tenta "desbloquear" o contexto de áudio com uma interação do utilizador.
             try {
                 const audioUnlock = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
                 await audioUnlock.play();
@@ -125,6 +127,7 @@
             } catch (err) {
                 console.warn('Não foi possível pré-ativar o áudio.');
             }
+            // ##################### FIM DA CORREÇÃO ######################
             
             const email = emailInput.value;
             const password = passwordInput.value;

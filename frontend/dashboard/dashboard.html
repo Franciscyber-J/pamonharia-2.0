@@ -307,13 +307,9 @@
 
             const dashboardContent = document.getElementById('dashboard-content');
             const pageTitle = document.getElementById('page-title');
-            const soundStatusBtn = document.getElementById('sound-status');
             const PLACEHOLDER_IMG_60 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%2260%22%20height%3D%2260%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%229%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESem%20Foto%3C%2Ftext%3E%3C%2Fsvg%3E';
             const PLACEHOLDER_IMG_200 = 'data:image/svg+xml;charset=UTF-8,%3Csvg%20width%3D%22200%22%20height%3D%22200%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Crect%20width%3D%22200%22%20height%3D%22200%22%20fill%3D%22%232d3748%22%2F%3E%3Ctext%20x%3D%2250%25%22%20y%3D%2250%25%22%20font-family%3D%22Poppins%2C%20sans-serif%22%20font-size%3D%2214%22%20fill%3D%22%2394A3B8%22%20dy%3D%22.3em%22%20text-anchor%3D%22middle%22%3ESelecionar%20Imagem%3C%2Ftext%3E%3C%2Fsvg%3E';
             
-            let notificationAudio;
-            let isSoundEnabled = true;
-
             const apiFetch = globalApiFetch;
             
             window.openProductModal = openProductModal;
@@ -324,7 +320,15 @@
             window.showCustomConfirm = showCustomConfirm;
             window.createProductRow = createProductRow; 
             window.toggleChildren = toggleChildren;
-            window.fetchAndRenderOrders = fetchAndRenderOrders; 
+            window.fetchAndRenderOrders = fetchAndRenderOrders;
+            window.updateOrderStatus = async (orderId, newStatus) => { 
+                stopNotification(); 
+                try { 
+                    await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) }); 
+                } catch (error) { 
+                    console.error(`Falha ao atualizar status:`, error); 
+                } 
+            };
 
             function renderPedidosPage() {
                 pageTitle.textContent = 'Painel de Pedidos';
@@ -383,30 +387,18 @@
                 const statusMap = { 'Aguardando Pagamento': 'col-novo', 'Pago': 'col-novo', 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto-para-entrega', 'Finalizado': 'col-finalizado', 'Cancelado': 'col-cancelado' };
                 const columnId = statusMap[order.status];
                 if (!columnId) {
-                    console.warn(`[Dashboard] Não foi possível encontrar coluna para o status: ${order.status}`);
                     return;
                 }
                 const column = document.getElementById(columnId);
                 if (column) {
-                    console.log(`[Dashboard] Adicionando/Atualizando card para o pedido #${order.id} na coluna #${columnId}`);
                     const existingCard = document.getElementById(`order-${order.id}`);
                     if(existingCard) {
-                        console.log(`[Dashboard] Card do pedido #${order.id} já existe, será removido e recriado.`);
                         existingCard.remove();
                     }
                     const card = createOrderCard(order);
                     if (prepend) column.prepend(card);
                     else column.appendChild(card);
-                    console.log(`[Dashboard] Card para o pedido #${order.id} inserido com sucesso.`);
-                } else {
-                    console.error(`[Dashboard] A coluna com ID #${columnId} não foi encontrada no DOM.`);
                 }
-            };
-
-            function moveOrderCard(orderId, newStatus) {
-                const card = document.getElementById(`order-${orderId}`);
-                if (card) card.remove();
-                fetchAndRenderOrders();
             };
             
             function flattenProductsWithParentInfo(products) {
@@ -430,49 +422,108 @@
             };
             
             const socket = io(API_BASE_URL_GLOBAL);
+            let notificationAudio;
+            let isSoundEnabled = true;
 
-            const updateSoundStatusButton = () => { if (soundStatusBtn) { soundStatusBtn.textContent = isSoundEnabled ? '🔊 Som Ligado' : '🔇 Som Desligado'; soundStatusBtn.classList.toggle('sound-on', isSoundEnabled); soundStatusBtn.classList.toggle('sound-off', !isSoundEnabled); } };
-            const setupAudioPlayer = (soundUrl) => { if (soundUrl) { notificationAudio = new Audio(soundUrl); notificationAudio.loop = true; } else { notificationAudio = null; } updateSoundStatusButton(); }
+            const updateSoundStatusButton = () => { 
+                const soundBtn = document.getElementById('sound-status');
+                if (soundBtn) { 
+                    soundBtn.textContent = isSoundEnabled ? '🔊 Som Ligado' : '🔇 Som Desligado'; 
+                    soundBtn.classList.toggle('sound-on', isSoundEnabled); 
+                    soundBtn.classList.toggle('sound-off', !isSoundEnabled); 
+                } 
+            };
+            
+            const setupAudioPlayer = (soundUrl) => {
+                if (soundUrl) {
+                    notificationAudio = new Audio(soundUrl);
+                    notificationAudio.loop = true;
+                } else {
+                    notificationAudio = null;
+                }
+                updateSoundStatusButton();
+            };
+            
             const playNotification = () => { 
                 if (isSoundEnabled && notificationAudio) {
                     console.log('[Dashboard] 🎵 A tentar tocar o som de notificação...');
-                    notificationAudio.play().catch(e => console.warn("Não foi possível tocar o som de notificação:", e.message));
-                } else {
-                    console.log(`[Dashboard] Som de notificação não será tocado (Habilitado: ${isSoundEnabled}, Áudio Carregado: ${!!notificationAudio})`);
+                    // Verifica se o áudio está pronto para tocar
+                    if (notificationAudio.readyState >= 2) {
+                        notificationAudio.play().catch(e => console.warn("Erro ao tocar som:", e.message));
+                    } else {
+                        // Se não estiver pronto, espera pelo evento 'canplaythrough'
+                        notificationAudio.addEventListener('canplaythrough', () => {
+                            notificationAudio.play().catch(e => console.warn("Erro ao tocar som (após espera):", e.message));
+                        }, { once: true });
+                    }
                 }
-            }
-            const stopNotification = () => { if (notificationAudio) { notificationAudio.pause(); notificationAudio.currentTime = 0; } }
+            };
 
-            soundStatusBtn.addEventListener('click', () => { isSoundEnabled = !isSoundEnabled; updateSoundStatusButton(); if (!isSoundEnabled) { stopNotification(); } });
+            const stopNotification = () => { 
+                if (notificationAudio) { 
+                    notificationAudio.pause(); 
+                    notificationAudio.currentTime = 0; 
+                } 
+            };
             
-            socket.on('connect', () => console.log('[Dashboard] ✅ Socket.IO conectado.'));
+            document.getElementById('sound-status').addEventListener('click', () => { 
+                isSoundEnabled = !isSoundEnabled; 
+                updateSoundStatusButton(); 
+                if (!isSoundEnabled) { 
+                    stopNotification(); 
+                } 
+            });
+
+            socket.on('connect', () => {
+                console.log('[Dashboard] ✅ Socket.IO conectado.');
+            });
 
             socket.on('new_order', (order) => { 
                 console.log('[Dashboard] ✨ Novo pedido recebido via Socket.IO:', order);
-                if(order.status === 'Novo' || order.status === 'Pago' || order.status === 'Aguardando Pagamento') { 
-                    playNotification();
+                playNotification();
+                if (document.querySelector('.orders-panel')) {
+                    fetchAndRenderOrders();
                 } 
-                if (document.querySelector('.orders-panel')) { 
-                    fetchAndRenderOrders(); 
-                } 
-                socket.emit('force_inventory_reload'); 
             });
 
-            socket.on('order_status_updated', ({ id, status }) => { moveOrderCard(id, status); });
-            socket.on('history_cleared', () => { fetchAndRenderOrders(); });
-            socket.on('stock_update', (liveInventory) => { for (const productId in liveInventory) { document.querySelectorAll(`.product-row[data-id='${productId}']`).forEach(productRow => { const stockInput = productRow.querySelector('.stock-input'); if (stockInput && document.activeElement !== stockInput) { stockInput.value = liveInventory[productId]; } }); } });
+            socket.on('order_status_updated', ({ id, status }) => {
+                console.log(`[Dashboard] 🔄 Status do pedido #${id} atualizado para ${status}. A recarregar.`);
+                if (document.querySelector('.orders-panel')) {
+                    fetchAndRenderOrders();
+                }
+            });
+
+            socket.on('history_cleared', () => {
+                if (document.querySelector('.orders-panel')) {
+                    fetchAndRenderOrders();
+                }
+            });
+
+            socket.on('stock_update', (liveInventory) => { 
+                let needsReRender = false;
+                for (const productId in liveInventory) {
+                    const product = allProductsFlat.find(p => p.id == productId);
+                    if (product && product.stock_quantity !== liveInventory[productId]) {
+                        product.stock_quantity = liveInventory[productId];
+                        needsReRender = true;
+                    }
+                }
+                if (needsReRender) {
+                    console.log('[Dashboard] Dados de estoque atualizados. A re-renderizar a vista de produtos se estiver ativa.');
+                    const currentPage = document.querySelector('nav a.active')?.id.split('-')[1];
+                    if (currentPage === 'produtos') { renderProdutosPageContent(); }
+                    else if (currentPage === 'complementos') { renderComplementosPageContent(); }
+                }
+            });
             
             socket.on('data_updated', async () => {
                 if (isProgrammaticallyUpdating) {
                     isProgrammaticallyUpdating = false; 
                     return;
                 }
-                console.log('[Dashboard] 🔄 Recebido "data_updated". Recarregando e renderizando a tabela de produtos...');
                 await refreshCurrentProductView();
             });
-
-            window.updateOrderStatus = async (orderId, newStatus) => { stopNotification(); try { await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) }); } catch (error) { console.error(`Falha ao atualizar status:`, error); } };
-
+            
             function renderProdutosPage() {
                 pageTitle.textContent = 'Produtos Principais';
                 dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`;
@@ -894,7 +945,15 @@
             document.getElementById('combo-image-input').addEventListener('change', (event) => { const preview = document.getElementById('combo-image-preview'); const prompt = document.getElementById('combo-upload-prompt'); if (event.target.files[0]) { const reader = new FileReader(); reader.onload = (e) => { preview.src = e.target.result; prompt.style.display = 'none'; }; reader.readAsDataURL(event.target.files[0]); } });
             document.getElementById('logout-button').addEventListener('click', () => { localStorage.removeItem('authToken'); window.location.href = '/dashboard/login.html'; });
             
-            const initializeSoundSystem = async () => { try { const settings = await apiFetch('/settings'); setupAudioPlayer(settings.notification_sound_url); document.body.addEventListener('click', () => { if (notificationAudio && notificationAudio.paused) { notificationAudio.play().then(() => notificationAudio.pause()).catch(()=>{}); } }, { once: true }); } catch (error) { setupAudioPlayer(null); } };
+            const initializeSoundSystem = async () => {
+                try {
+                    const settings = await apiFetch('/settings');
+                    setupAudioPlayer(settings.notification_sound_url);
+                } catch (error) {
+                    console.error("Não foi possível carregar as configurações de som.", error);
+                    setupAudioPlayer(null);
+                }
+            };
             
             const main = async () => {
                 await Promise.all([ fetchAllProducts(), initializeSoundSystem() ]);

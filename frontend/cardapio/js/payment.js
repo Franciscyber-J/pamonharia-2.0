@@ -2,9 +2,7 @@
 console.log('[payment.js] Módulo iniciado.');
 import { state } from './main.js';
 // #################### INÍCIO DA CORREÇÃO ####################
-// A importação de toggleCartModal foi removida daqui, pois não é usada.
-// A lógica de UI é tratada por ui.js ou main.js.
-import { dom, showErrorModal } from './ui.js';
+import { dom, showErrorModal, showSuccessScreen } from './ui.js';
 // ##################### FIM DA CORREÇÃO ######################
 import { apiFetch } from './api.js';
 import { clearCart } from './cart.js';
@@ -93,9 +91,12 @@ async function handleCardFormSubmit(event) {
         dom.paymentProcessingOverlay.style.display = 'none';
 
         if (paymentResponse.status === 'approved') {
-            dom.cartWrapper.style.display = 'none';
-            dom.successMessage.style.display = 'block';
-            dom.successMessage.innerHTML = `<h3>Pagamento Aprovado!</h3><p>Pedido #${state.currentOrder.id} confirmado.</p>`;
+            // #################### INÍCIO DA CORREÇÃO ####################
+            showSuccessScreen(
+                'Pagamento Aprovado!',
+                `O seu pedido #${state.currentOrder.id} foi confirmado com sucesso e já está em preparação.`
+            );
+            // ##################### FIM DA CORREÇÃO ######################
             clearCart();
         } else {
             showErrorModal('Pagamento Recusado', `Status: ${paymentResponse.status}. Motivo: ${paymentResponse.message || 'Verifique os dados do cartão.'}`);

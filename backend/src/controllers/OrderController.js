@@ -4,7 +4,15 @@ const connection = require('../database/connection');
 module.exports = {
   async index(request, response) {
     console.log('[OrderController] Buscando lista de pedidos.');
-    const activeOrders = await connection('orders').whereNotIn('status', ['Finalizado', 'Cancelado']).select('*').orderBy('created_at', 'asc');
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // Filtra para não mostrar pedidos que estão aguardando pagamento no painel principal.
+    // Eles só devem aparecer quando o status for alterado para 'Pago' via webhook.
+    const activeOrders = await connection('orders')
+      .whereNotIn('status', ['Finalizado', 'Cancelado', 'Aguardando Pagamento'])
+      .select('*')
+      .orderBy('created_at', 'asc');
+    // ##################### FIM DA CORREÇÃO ######################
+      
     const finishedOrders = await connection('orders').where('status', 'Finalizado').select('*').orderBy('updated_at', 'desc').limit(20);
     const rejectedOrders = await connection('orders').where('status', 'Cancelado').select('*').orderBy('updated_at', 'desc').limit(20);
     return response.json({ activeOrders, finishedOrders, rejectedOrders });
@@ -42,13 +50,11 @@ module.exports = {
         return createdOrder;
       });
 
-      // #################### INÍCIO DA CORREÇÃO ####################
       // Garante que, para pagamentos na entrega, o evento 'new_order' seja emitido para o dashboard.
       if (newOrderData.payment_method === 'on_delivery') {
         request.io.emit('new_order', newOrderData);
         console.log(`[Socket.IO] 🚀 Evento "new_order" (pagamento na entrega) emitido para o dashboard.`);
       }
-      // ##################### FIM DA CORREÇÃO ######################
 
       return response.status(201).json(newOrderData);
     } catch (error) {

@@ -2,7 +2,7 @@
 console.log('[main.js] Módulo iniciado.');
 import { apiFetch, fetchAndRenderAllData } from './api.js';
 import { initializeCart, getCart, clearCart } from './cart.js';
-import { dom, initializeUI, updateStoreStatus, renderItems, renderCart, showErrorModal } from './ui.js';
+import { dom, initializeUI, updateStoreStatus, renderItems, renderCart, showErrorModal, showSuccessScreen } from './ui.js';
 import { initializeCardPaymentForm } from './payment.js';
 
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -46,11 +46,16 @@ async function main() {
 }
 
 socket.on('connect', () => console.log(`[Socket.IO] ✅ Conectado ao servidor em ${API_BASE_URL}.`));
+
+// #################### INÍCIO DA CORREÇÃO ####################
 socket.on('stock_update', (inventory) => {
     console.log('[Socket.IO] 📥 Recebido "stock_update":', inventory);
     state.liveStockState = inventory;
-    renderItems();
+    // Força a re-renderização dos itens para refletir o novo estado do estoque visualmente
+    renderItems(); 
 });
+// ##################### FIM DA CORREÇÃO ######################
+
 socket.on('data_updated', async () => {
     console.log('[Socket.IO] 🔄 Recebido "data_updated". A recarregar todos os dados.');
     await fetchAndRenderAllData();
@@ -63,7 +68,12 @@ async function handleOrderSubmit(e) {
     e.preventDefault();
     console.log('[Order] ➡️ Iniciando submissão de pedido.');
     const paymentMethod = document.querySelector('input[name="payment-method"]:checked').value;
-    const totalPrice = state.cart.reduce((acc, item) => acc + (item.total_value || 0), 0);
+    const deliveryFee = state.storeSettings.delivery_fee || 0;
+    const isDelivery = document.querySelector('input[name="delivery-type"]:checked').value === 'delivery';
+    
+    let subtotal = state.cart.reduce((acc, item) => acc + (item.total_value || 0), 0);
+    const finalDeliveryFee = isDelivery ? parseFloat(deliveryFee) : 0;
+    const totalPrice = subtotal + finalDeliveryFee;
 
     if (paymentMethod === 'online' && totalPrice < 1.00) {
         showErrorModal('Valor Baixo Para Pagamento Online', 'O valor mínimo para pagamentos online é de R$ 1,00.');
@@ -105,8 +115,10 @@ async function handleOrderSubmit(e) {
         try {
             state.currentOrder = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(state.orderData) });
             console.log('[Order] ✅ Pedido criado com sucesso:', state.currentOrder);
-            dom.cartWrapper.style.display = 'none';
-            dom.successMessage.style.display = 'block';
+            showSuccessScreen(
+                'Obrigado pelo seu pedido!',
+                'Ele já foi enviado para a nossa cozinha e em breve chegará até você.'
+            );
             clearCart();
         } catch (error) {
             console.error('[Order] ❌ Falha ao criar pedido:', error);

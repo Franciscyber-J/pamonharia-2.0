@@ -1,9 +1,7 @@
+// frontend/cardapio/js/ui.js
 import { state, handleOnlinePaymentSelection } from './main.js';
-// #################### INÍCIO DA CORREÇÃO ####################
-// A importação de 'handleQuantityChange' foi REMOVIDA.
 import { openProductWithOptionsModal, openComboModal, addToCartSimple, clearCart, adjustItemGroupQuantity, adjustCartItemQuantity, removeItemGroup, calculateTotals, isComboEffectivelyOutOfStock, isItemEffectivelyOutOfStock } from './cart.js';
-import { handleBackToCart, handleBackToPaymentSelection, initializeCardPaymentForm } from './payment.js';
-// ##################### FIM DA CORREÇÃO ######################
+import { handleBackToCart, handleBackToPaymentSelection } from './payment.js';
 
 export const dom = {
     productsGrid: document.getElementById('products-grid'),
@@ -244,6 +242,57 @@ export function setupModal(config) {
     if (config.onOpen) config.onOpen();
 }
 
+/**
+ * Exibe a tela de sucesso do pedido de forma segura,
+ * preservando o botão de "Novo Pedido".
+ * @param {string} title - O título da mensagem (ex: "Obrigado pelo seu pedido!").
+ * @param {string} message - O corpo da mensagem.
+ */
+export function showSuccessScreen(title, message) {
+    // Esconde a interface do carrinho/checkout
+    dom.cartWrapper.style.display = 'none';
+
+    // Atualiza o conteúdo da mensagem de sucesso sem substituir o HTML inteiro
+    const successTitleEl = dom.successMessage.querySelector('h3');
+    const successParagraphEl = dom.successMessage.querySelector('p');
+
+    if (successTitleEl) successTitleEl.textContent = title;
+    if (successParagraphEl) successParagraphEl.textContent = message;
+
+    // Exibe o container da mensagem de sucesso
+    dom.successMessage.style.display = 'block';
+}
+
+/**
+ * Reseta completamente a interface para permitir um novo pedido.
+ */
+function resetForNewOrder() {
+    console.log('[UI] Resetando a interface para um novo pedido.');
+    
+    dom.successMessage.style.display = 'none';
+    dom.cartWrapper.style.display = 'block';
+    
+    dom.orderForm.style.display = 'block';
+
+    dom.onlinePaymentMethodSelection.style.display = 'none';
+    dom.customPaymentContainer.style.display = 'none';
+    dom.pixPaymentContainer.style.display = 'none';
+    
+    dom.orderForm.reset();
+
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // Redefine o botão de submissão para o seu estado inicial.
+    dom.submitOrderBtn.disabled = true; // Desabilitado porque o carrinho está vazio.
+    dom.submitOrderBtn.textContent = 'Finalizar Pedido';
+    // ##################### FIM DA CORREÇÃO ######################
+    
+    const deliveryEvent = new Event('change', { bubbles: true });
+    document.querySelector('input[name="delivery-type"]').dispatchEvent(deliveryEvent);
+
+    renderCart();
+}
+
+
 export function initializeUI() {
     console.log('[UI] 🎨 Inicializando a Interface do Utilizador e os listeners.');
     const savedTheme = localStorage.getItem('pamonharia-theme');
@@ -324,24 +373,4 @@ function applyTheme(theme) {
 
 function toggleErrorModal(show) {
     dom.errorModal.style.display = show ? 'flex' : 'none';
-}
-
-function resetForNewOrder() {
-    console.log('[UI] Resetando a interface para um novo pedido.');
-    
-    dom.successMessage.style.display = 'none';
-    dom.cartWrapper.style.display = 'block';
-    
-    dom.orderForm.style.display = 'block';
-
-    dom.onlinePaymentMethodSelection.style.display = 'none';
-    dom.customPaymentContainer.style.display = 'none';
-    dom.pixPaymentContainer.style.display = 'none';
-
-    dom.orderForm.reset();
-    dom.submitOrderBtn.disabled = true;
-    dom.submitOrderBtn.textContent = 'Finalizar Pedido';
-
-    const event = new Event('change', { bubbles: true });
-    document.querySelector('input[name="delivery-type"]').dispatchEvent(event);
 }

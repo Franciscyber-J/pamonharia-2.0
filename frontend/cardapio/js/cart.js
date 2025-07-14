@@ -1,10 +1,8 @@
 import { state, socket } from './main.js';
 import { dom, renderCart, setupModal, showErrorModal } from './ui.js';
 
-// #################### INÍCIO DA CORREÇÃO ####################
 // Esta função é interna ao módulo do carrinho e não precisa ser exportada.
 function handleQuantityChange(target, selectedState, validator, item, options = {}) {
-// ##################### FIM DA CORREÇÃO ######################
     const itemId = parseInt(target.dataset.itemId);
     const isIncrement = target.textContent === '+';
 
@@ -42,28 +40,15 @@ export function getCart() {
     return state.cart;
 }
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// A lógica de emitir 'release_stock' foi REMOVIDA desta função.
+// A função agora APENAS limpa o carrinho do lado do cliente.
 export function clearCart() {
-    console.log('[Cart] 🧹 Limpando carrinho e devolvendo estoque.');
-    const allItemsToRelease = state.cart.flatMap(itemGroup => {
-        let items = [];
-        const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
-        if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
-            const multiplier = (itemGroup.is_combo || (parentProduct && parentProduct.force_one_to_one_complement)) ? itemGroup.quantity : 1;
-            items = itemGroup.selected_items.map(sub => ({ id: sub.id, quantity: sub.quantity * multiplier }));
-        }
-        if (parentProduct && (parentProduct.sell_parent_product || (itemGroup.selected_items && itemGroup.selected_items.length === 0))) {
-            items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
-        }
-        return items;
-    }).filter(i => i && i.id && i.quantity > 0);
-
-    if (allItemsToRelease.length > 0) {
-        console.log('[Socket.IO] 📤 Emitindo "release_stock" para:', allItemsToRelease);
-        socket.emit('release_stock', allItemsToRelease);
-    }
+    console.log('[Cart] 🧹 Limpando o estado do carrinho localmente.');
     state.cart = [];
-    renderCart();
+    renderCart(); // renderCart já atualiza o localStorage.
 }
+// ##################### FIM DA CORREÇÃO ######################
 
 export function calculateTotals() {
     let subtotal = 0;
