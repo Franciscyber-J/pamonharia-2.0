@@ -4,14 +4,12 @@ const connection = require('../database/connection');
 module.exports = {
   async index(request, response) {
     console.log('[OrderController] Buscando lista de pedidos.');
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // Filtra para não mostrar pedidos que estão aguardando pagamento no painel principal.
-    // Eles só devem aparecer quando o status for alterado para 'Pago' via webhook.
+    // CORREÇÃO: Pedidos com status 'Pago' agora são incluídos na busca de pedidos ativos,
+    // para que apareçam na coluna "Novos Pedidos" no dashboard.
     const activeOrders = await connection('orders')
-      .whereNotIn('status', ['Finalizado', 'Cancelado', 'Aguardando Pagamento'])
+      .whereIn('status', ['Novo', 'Pago', 'Em Preparo', 'Pronto para Entrega'])
       .select('*')
       .orderBy('created_at', 'asc');
-    // ##################### FIM DA CORREÇÃO ######################
       
     const finishedOrders = await connection('orders').where('status', 'Finalizado').select('*').orderBy('updated_at', 'desc').limit(20);
     const rejectedOrders = await connection('orders').where('status', 'Cancelado').select('*').orderBy('updated_at', 'desc').limit(20);
@@ -50,7 +48,6 @@ module.exports = {
         return createdOrder;
       });
 
-      // Garante que, para pagamentos na entrega, o evento 'new_order' seja emitido para o dashboard.
       if (newOrderData.payment_method === 'on_delivery') {
         request.io.emit('new_order', newOrderData);
         console.log(`[Socket.IO] 🚀 Evento "new_order" (pagamento na entrega) emitido para o dashboard.`);
@@ -67,9 +64,8 @@ module.exports = {
     try {
       console.log('[OrderController] Limpando histórico de pedidos (Finalizados, Cancelados e Abandonados).');
       const cutoffDate = new Date();
-      cutoffDate.setHours(cutoffDate.getHours() - 2); // Define o tempo limite para 2 horas atrás
+      cutoffDate.setHours(cutoffDate.getHours() - 2); 
 
-      // Apaga pedidos Finalizados, Cancelados, OU pedidos Aguardando Pagamento mais antigos que o tempo limite
       await connection('orders')
         .whereIn('status', ['Finalizado', 'Cancelado'])
         .orWhere(function() {

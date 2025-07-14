@@ -7,7 +7,14 @@ import { initializeCardPaymentForm } from './payment.js';
 
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_BASE_URL = IS_LOCAL ? 'http://localhost:10000' : 'https://pamonhariasaborosa.expertbr.com';
-export const socket = io(API_BASE_URL);
+
+// #################### INÍCIO DA CORREÇÃO ####################
+// Força o uso exclusivo de WebSockets para uma conexão mais estável
+export const socket = io(API_BASE_URL, {
+    transports: ['websocket']
+});
+// ##################### FIM DA CORREÇÃO ######################
+
 
 export const state = {
     cart: [],
@@ -46,15 +53,14 @@ async function main() {
 }
 
 socket.on('connect', () => console.log(`[Socket.IO] ✅ Conectado ao servidor em ${API_BASE_URL}.`));
+socket.on('disconnect', () => console.log(`[Socket.IO] 🔌 Desconectado do servidor.`));
+socket.on('connect_error', (err) => console.error('[Socket.IO] ❌ Erro de conexão:', err.message));
 
-// #################### INÍCIO DA CORREÇÃO ####################
 socket.on('stock_update', (inventory) => {
     console.log('[Socket.IO] 📥 Recebido "stock_update":', inventory);
     state.liveStockState = inventory;
-    // Força a re-renderização dos itens para refletir o novo estado do estoque visualmente
     renderItems(); 
 });
-// ##################### FIM DA CORREÇÃO ######################
 
 socket.on('data_updated', async () => {
     console.log('[Socket.IO] 🔄 Recebido "data_updated". A recarregar todos os dados.');

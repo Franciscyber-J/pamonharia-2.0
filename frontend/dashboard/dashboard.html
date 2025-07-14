@@ -15,7 +15,7 @@
 <body>
     <div class="background-bubbles"></div>
     <script>
-        const token = localStorage.getItem('authToken');
+        const token = sessionStorage.getItem('authToken');
         if (!token) {
             window.location.href = '/dashboard/login.html';
         }
@@ -170,7 +170,7 @@
             console.log(`[Config] Ambiente detectado: ${IS_LOCAL ? 'Local' : 'Produção'}. API URL: ${API_BASE_URL_GLOBAL}`);
             
             const globalApiFetch = async (endpoint, options = {}) => {
-                const currentToken = localStorage.getItem('authToken');
+                const currentToken = sessionStorage.getItem('authToken');
                 if (!currentToken) {
                     window.location.href = '/dashboard/login.html';
                     return;
@@ -186,7 +186,7 @@
                     const response = await fetch(`${API_BASE_URL_GLOBAL}/api${endpoint}`, options);
                     
                     if (response.status === 401) {
-                        localStorage.removeItem('authToken');
+                        sessionStorage.removeItem('authToken');
                         window.location.href = '/dashboard/login.html';
                         throw new Error('Token inválido ou expirado.');
                     }
@@ -219,7 +219,7 @@
             window.handleStockSave = async (button) => {
                 const row = button.closest('.product-row');
                 const stockInput = row.querySelector('.stock-input');
-                const productId = row.dataset.id;
+                const productId = parseInt(row.dataset.id);
                 const feedbackSpan = row.querySelector('.stock-feedback');
 
                 if (stockInput && !stockInput.disabled) {
@@ -228,6 +228,12 @@
                     
                     try {
                         await globalApiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify({ stock_quantity: quantity }) });
+                        
+                        const productInState = allProductsFlat.find(p => p.id === productId);
+                        if (productInState) {
+                            productInState.stock_quantity = quantity;
+                        }
+
                         if(feedbackSpan) { feedbackSpan.textContent = 'Salvo!'; feedbackSpan.className = 'stock-feedback success show'; setTimeout(() => { if(feedbackSpan) feedbackSpan.className = 'stock-feedback'; }, 2000); }
                     } catch (error) {
                         if(feedbackSpan) { feedbackSpan.textContent = 'Falhou!'; feedbackSpan.className = 'stock-feedback error show'; setTimeout(() => { if(feedbackSpan) feedbackSpan.className = 'stock-feedback'; }, 3000); }
@@ -421,9 +427,12 @@
                 } catch (error) { console.error("Não foi possível carregar os produtos.", error); }
             };
             
-            const socket = io(API_BASE_URL_GLOBAL);
+            const socket = io(API_BASE_URL_GLOBAL, {
+                transports: ['websocket']
+            });
             let notificationAudio;
             let isSoundEnabled = true;
+            let isAudioUnlocked = false;
 
             const updateSoundStatusButton = () => { 
                 const soundBtn = document.getElementById('sound-status');
@@ -445,17 +454,11 @@
             };
             
             const playNotification = () => { 
-                if (isSoundEnabled && notificationAudio) {
+                if (isSoundEnabled && notificationAudio && isAudioUnlocked) {
                     console.log('[Dashboard] 🎵 A tentar tocar o som de notificação...');
-                    // Verifica se o áudio está pronto para tocar
-                    if (notificationAudio.readyState >= 2) {
-                        notificationAudio.play().catch(e => console.warn("Erro ao tocar som:", e.message));
-                    } else {
-                        // Se não estiver pronto, espera pelo evento 'canplaythrough'
-                        notificationAudio.addEventListener('canplaythrough', () => {
-                            notificationAudio.play().catch(e => console.warn("Erro ao tocar som (após espera):", e.message));
-                        }, { once: true });
-                    }
+                    notificationAudio.play().catch(e => console.warn("Erro ao tocar som:", e.message));
+                } else if (!isAudioUnlocked) {
+                     console.warn('[Dashboard] 🔔 Notificação recebida, mas o áudio ainda está bloqueado. O utilizador precisa de interagir.');
                 }
             };
 
@@ -466,7 +469,18 @@
                 } 
             };
             
-            document.getElementById('sound-status').addEventListener('click', () => { 
+            document.getElementById('sound-status').addEventListener('click', () => {
+                if (!isAudioUnlocked && notificationAudio) {
+                    notificationAudio.muted = true;
+                    notificationAudio.play().then(() => {
+                        notificationAudio.pause();
+                        notificationAudio.currentTime = 0;
+                        notificationAudio.muted = false;
+                        isAudioUnlocked = true;
+                        console.log('[Dashboard] 🔊 Contexto de áudio desbloqueado com sucesso!');
+                    }).catch(e => console.error('Falha ao desbloquear o áudio:', e));
+                }
+
                 isSoundEnabled = !isSoundEnabled; 
                 updateSoundStatusButton(); 
                 if (!isSoundEnabled) { 
@@ -482,7 +496,7 @@
                 console.log('[Dashboard] ✨ Novo pedido recebido via Socket.IO:', order);
                 playNotification();
                 if (document.querySelector('.orders-panel')) {
-                    fetchAndRenderOrders();
+                    addOrderCard(order, true);
                 } 
             });
 
@@ -499,20 +513,22 @@
                 }
             });
 
-            socket.on('stock_update', (liveInventory) => { 
-                let needsReRender = false;
+            socket.on('stock_update', (liveInventory) => {
+                console.log('[Dashboard] 📥 Stock update recebido:', liveInventory);
                 for (const productId in liveInventory) {
-                    const product = allProductsFlat.find(p => p.id == productId);
-                    if (product && product.stock_quantity !== liveInventory[productId]) {
-                        product.stock_quantity = liveInventory[productId];
-                        needsReRender = true;
+                    const productInData = allProductsFlat.find(p => p.id == productId);
+                    if (productInData) {
+                        productInData.stock_quantity = liveInventory[productId];
                     }
-                }
-                if (needsReRender) {
-                    console.log('[Dashboard] Dados de estoque atualizados. A re-renderizar a vista de produtos se estiver ativa.');
-                    const currentPage = document.querySelector('nav a.active')?.id.split('-')[1];
-                    if (currentPage === 'produtos') { renderProdutosPageContent(); }
-                    else if (currentPage === 'complementos') { renderComplementosPageContent(); }
+                    const row = document.querySelector(`.product-row[data-id='${productId}']`);
+                    if (row) {
+                        const stockInput = row.querySelector('.stock-input');
+                        const newStock = liveInventory[productId];
+                        if (stockInput && stockInput.value != newStock) {
+                            console.log(`[Dashboard] Atualizando UI do estoque para o produto ${productId}: ${stockInput.value} -> ${newStock}`);
+                            stockInput.value = newStock ?? '';
+                        }
+                    }
                 }
             });
             
@@ -943,7 +959,11 @@
             document.getElementById('combo-modal-overlay').addEventListener('click', (e) => { if(e.target.id === 'combo-modal-overlay') closeComboModal(); });
             document.getElementById('product-image-input').addEventListener('change', (event) => { const preview = document.getElementById('product-image-preview'); const prompt = document.getElementById('product-upload-prompt'); if (event.target.files[0]) { const reader = new FileReader(); reader.onload = (e) => { preview.src = e.target.result; prompt.style.display = 'none'; }; reader.readAsDataURL(event.target.files[0]); } });
             document.getElementById('combo-image-input').addEventListener('change', (event) => { const preview = document.getElementById('combo-image-preview'); const prompt = document.getElementById('combo-upload-prompt'); if (event.target.files[0]) { const reader = new FileReader(); reader.onload = (e) => { preview.src = e.target.result; prompt.style.display = 'none'; }; reader.readAsDataURL(event.target.files[0]); } });
-            document.getElementById('logout-button').addEventListener('click', () => { localStorage.removeItem('authToken'); window.location.href = '/dashboard/login.html'; });
+            
+            document.getElementById('logout-button').addEventListener('click', () => { 
+                sessionStorage.removeItem('authToken'); 
+                window.location.href = '/dashboard/login.html'; 
+            });
             
             const initializeSoundSystem = async () => {
                 try {
