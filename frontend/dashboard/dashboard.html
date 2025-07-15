@@ -226,31 +226,59 @@
                 }
             };
 
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // ARQUITETO: Função refatorada para usar classList e garantir a exibição correta do feedback.
             window.handleStockSave = async (button) => {
                 const row = button.closest('.product-row');
                 const stockInput = row.querySelector('.stock-input');
                 const productId = parseInt(row.dataset.id);
                 const feedbackSpan = row.querySelector('.stock-feedback');
 
-                if (stockInput && !stockInput.disabled) {
-                    const quantity = parseInt(stockInput.value);
-                    if (feedbackSpan) { feedbackSpan.textContent = 'Salvando...'; feedbackSpan.className = 'stock-feedback show'; }
-                    
-                    try {
-                        await globalApiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify({ stock_quantity: quantity }) });
-                        
-                        const productInState = allProductsFlat.find(p => p.id === productId);
-                        if (productInState) {
-                            productInState.stock_quantity = quantity;
-                        }
+                if (!stockInput || stockInput.disabled || !feedbackSpan) {
+                    return;
+                }
 
-                        if(feedbackSpan) { feedbackSpan.textContent = 'Salvo!'; feedbackSpan.className = 'stock-feedback success show'; setTimeout(() => { if(feedbackSpan) feedbackSpan.className = 'stock-feedback'; }, 2000); }
-                    } catch (error) {
-                        if(feedbackSpan) { feedbackSpan.textContent = 'Falhou!'; feedbackSpan.className = 'stock-feedback error show'; setTimeout(() => { if(feedbackSpan) feedbackSpan.className = 'stock-feedback'; }, 3000); }
+                // Limpa estados anteriores para evitar sobreposições
+                feedbackSpan.classList.remove('show', 'success', 'error');
+                feedbackSpan.textContent = '';
+
+                // 1. Mostra "Salvando..."
+                feedbackSpan.textContent = 'Salvando...';
+                feedbackSpan.classList.add('show');
+                
+                try {
+                    await globalApiFetch(`/products/${productId}/stock`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ stock_quantity: parseInt(stockInput.value) })
+                    });
+                    
+                    const productInState = allProductsFlat.find(p => p.id === productId);
+                    if (productInState) {
+                        productInState.stock_quantity = parseInt(stockInput.value);
                     }
+
+                    // 2. Em caso de sucesso, mostra "Salvo!"
+                    feedbackSpan.textContent = 'Salvo!';
+                    feedbackSpan.classList.add('success');
+
+                    // 3. Agenda o desaparecimento da mensagem
+                    setTimeout(() => {
+                        feedbackSpan.classList.remove('show', 'success');
+                    }, 3000);
+
+                } catch (error) {
+                    // Em caso de erro, mostra "Falhou!"
+                    feedbackSpan.textContent = 'Falhou!';
+                    feedbackSpan.classList.add('error');
+                    
+                    // Agenda o desaparecimento da mensagem de erro
+                    setTimeout(() => {
+                        feedbackSpan.classList.remove('show', 'error');
+                    }, 3000);
                 }
             };
-
+            // ##################### FIM DA CORREÇÃO ######################
+            
             window.handleStockEnableToggle = async (checkbox) => {
                 const row = checkbox.closest('.product-row');
                 const productId = row.dataset.id;
@@ -678,8 +706,6 @@
                 renderComplementosPageContent();
             };
             
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // Função createProductRow corrigida para usar uma classe em vez de um evento inline.
             function createProductRow(product, isChild = false, isSynced = false) {
                 const stock_quantity = product.stock_quantity ?? '';
                 const isActuallyDisabled = (isChild && isSynced) || (!product.stock_enabled);
@@ -687,7 +713,6 @@
                 
                 let parentControls = '';
                 if (!isChild && product.is_main_product) {
-                    // Adicionada a classe 'stock-sync-toggle' e removido o 'onchange'
                     parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" class="stock-sync-toggle" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
                 }
 
@@ -703,15 +728,14 @@
                 if (isParentContainerOnly) {
                     stockControlsCell = `<td style="font-size: 0.8rem; color: var(--text-secondary); font-style: italic; text-align: center; vertical-align: middle;">Gerenciado pelos<br>complementos</td>`;
                 } else {
-                    stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" onchange="window.handleStockEnableToggle(this)" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" onclick="window.handleStockAdjust(this, -1)" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.handleStockSave(this); this.blur(); }" ${stock_controls_disabled}><button class="stock-btn stock-increase" onclick="window.handleStockAdjust(this, 1)" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" onclick="window.handleStockSave(this)" ${stock_controls_disabled}>Salvar</button>${pausePlayButton}</div></td>`;
+                    stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" onchange="window.handleStockEnableToggle(this)" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" onclick="window.handleStockAdjust(this, -1)" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.handleStockSave(this); this.blur(); }" ${stock_controls_disabled}><button class="stock-btn stock-increase" onclick="window.handleStockAdjust(this, 1)" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" onclick="window.handleStockSave(this)" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span>${pausePlayButton}</div></td>`;
                 }
                 
                 const actionButtons = `<div class="actions-container"><button class="btn-icon btn-actions-menu" onclick="window.toggleActionsMenu(event)">⋮</button><div class="actions-menu"><a href="#" onclick="event.preventDefault(); window.openProductModal(${product.id})">Editar</a><a href="#" onclick="event.preventDefault(); window.duplicateProduct(${product.id})">Duplicar</a><a href="#" class="danger" onclick="event.preventDefault(); window.deleteProduct(${product.id})">Apagar</a></div></div>`;
                 
                 return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">${dragHandle}<td><div class="product-name-cell">${toggleButton} ${isChild ? '<span class="child-indicator">↳</span>' : ''} <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail"><span>${product.name}</span></div>${parentControls}</td><td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td><td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>${stockControlsCell}<td class="action-buttons-cell">${actionButtons}</td></tr>`;
             };
-            // ##################### FIM DA CORREÇÃO ######################
-
+            
             function toggleChildren(btn, parentId) { btn.classList.toggle('expanded'); document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`).forEach(row => { row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row'; }); };
             
             function openProductModal(id = null, isMainProduct = true) {
@@ -1008,10 +1032,7 @@
             const handleNavigation = (e) => { e.preventDefault(); document.querySelector('nav a.active')?.classList.remove('active'); const link = e.currentTarget; link.classList.add('active'); const pageKey = link.id.split('-')[1]; if (pages[pageKey]) pages[pageKey](); };
             Object.values(navLinks).forEach(link => link.addEventListener('click', handleNavigation));
             
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // Event listener centralizado para delegação de eventos
             dashboardContent.addEventListener('change', async (event) => {
-                // Manipulador para o toggle de sincronização de estoque
                 if (event.target.classList.contains('stock-sync-toggle')) {
                     const checkbox = event.target;
                     const row = checkbox.closest('.product-row');
@@ -1033,7 +1054,6 @@
                     }
                 }
             });
-            // ##################### FIM DA CORREÇÃO ######################
 
             document.getElementById('product-form').addEventListener('submit', saveProduct);
             document.getElementById('product-cancel-button').addEventListener('click', closeProductModal);
