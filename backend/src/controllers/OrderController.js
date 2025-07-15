@@ -4,8 +4,6 @@ const connection = require('../database/connection');
 module.exports = {
   async index(request, response) {
     console.log('[OrderController] Buscando lista de pedidos.');
-    // CORREÇÃO: Pedidos com status 'Pago' agora são incluídos na busca de pedidos ativos,
-    // para que apareçam na coluna "Novos Pedidos" no dashboard.
     const activeOrders = await connection('orders')
       .whereIn('status', ['Novo', 'Pago', 'Em Preparo', 'Pronto para Entrega'])
       .select('*')
@@ -21,7 +19,11 @@ module.exports = {
     const { status } = request.body;
     console.log(`[OrderController] Atualizando status do pedido ${id} para: ${status}`);
     await connection('orders').where('id', id).update({ status, updated_at: new Date() });
-    request.io.emit('order_status_updated', { id: Number(id), status });
+    
+    // #################### INÍCIO DA CORREÇÃO ####################
+    request.eventBus.broadcastStatusUpdate(Number(id), status);
+    // ##################### FIM DA CORREÇÃO ######################
+
     return response.status(204).send();
   },
 
@@ -48,10 +50,11 @@ module.exports = {
         return createdOrder;
       });
 
-      if (newOrderData.payment_method === 'on_delivery') {
-        request.io.emit('new_order', newOrderData);
-        console.log(`[Socket.IO] 🚀 Evento "new_order" (pagamento na entrega) emitido para o dashboard.`);
+      // #################### INÍCIO DA CORREÇÃO ####################
+      if (newOrderData.status === 'Novo') {
+        request.eventBus.broadcastNewOrder(newOrderData);
       }
+      // ##################### FIM DA CORREÇÃO ######################
 
       return response.status(201).json(newOrderData);
     } catch (error) {
@@ -62,18 +65,16 @@ module.exports = {
 
   async clearHistory(request, response) {
     try {
-      console.log('[OrderController] Limpando histórico de pedidos (Finalizados, Cancelados e Abandonados).');
-      const cutoffDate = new Date();
-      cutoffDate.setHours(cutoffDate.getHours() - 2); 
-
+      console.log('[OrderController] Limpando histórico de pedidos.');
       await connection('orders')
         .whereIn('status', ['Finalizado', 'Cancelado'])
-        .orWhere(function() {
-          this.where('status', 'Aguardando Pagamento').andWhere('created_at', '<', cutoffDate)
-        })
+        .orWhere('status', 'Aguardando Pagamento') // Limpa também os abandonados
         .del();
       
-      request.io.emit('history_cleared');
+      // #################### INÍCIO DA CORREÇÃO ####################
+      request.eventBus.broadcastHistoryCleared();
+      // ##################### FIM DA CORREÇÃO ######################
+
       return response.status(204).send();
     } catch (error) {
       console.error('[OrderController] ❌ ERRO AO LIMPAR HISTÓRICO:', error);

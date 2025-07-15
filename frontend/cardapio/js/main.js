@@ -8,13 +8,9 @@ import { initializeCardPaymentForm } from './payment.js';
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_BASE_URL = IS_LOCAL ? 'http://localhost:10000' : 'https://pamonhariasaborosa.expertbr.com';
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// Força o uso exclusivo de WebSockets para uma conexão mais estável
 export const socket = io(API_BASE_URL, {
     transports: ['websocket']
 });
-// ##################### FIM DA CORREÇÃO ######################
-
 
 export const state = {
     cart: [],
@@ -125,7 +121,7 @@ async function handleOrderSubmit(e) {
                 'Obrigado pelo seu pedido!',
                 'Ele já foi enviado para a nossa cozinha e em breve chegará até você.'
             );
-            clearCart();
+            clearCart(false);
         } catch (error) {
             console.error('[Order] ❌ Falha ao criar pedido:', error);
             showErrorModal('Falha no Pedido', `Não foi possível criar seu pedido. Detalhe: ${error.message || 'Erro desconhecido'}`);

@@ -75,14 +75,13 @@ module.exports = {
         await connection('orders').where('id', order_id).update(orderUpdateData);
         
         const updatedOrder = await connection('orders').where('id', order_id).first();
-        request.io.emit('order_status_updated', { id: updatedOrder.id, status: updatedOrder.status });
         
         // #################### INÍCIO DA CORREÇÃO ####################
-        // O evento de 'new_order' só é emitido aqui se o pagamento for aprovado IMEDIATAMENTE.
-        // Se ficar pendente, o webhook tratará disso.
-        if (orderUpdateData.status === 'Pago') {
-            console.log(`[PaymentController] Pagamento aprovado instantaneamente. Emitindo 'new_order' para o pedido #${updatedOrder.id}`);
-            request.io.emit('new_order', updatedOrder);
+        // Usa o eventBus para garantir a emissão de eventos
+        request.eventBus.broadcastStatusUpdate(updatedOrder.id, updatedOrder.status);
+        
+        if (updatedOrder.status === 'Pago') {
+            request.eventBus.broadcastNewOrder(updatedOrder);
         }
         // ##################### FIM DA CORREÇÃO ######################
 
@@ -143,14 +142,13 @@ module.exports = {
           
           const updatedOrder = await connection('orders').where('id', order_id).first();
           if (updatedOrder) {
-              request.io.emit('order_status_updated', { id: updatedOrder.id, status: updatedOrder.status });
-              console.log(`[Webhook] Pedido ${order_id} atualizado para status '${updatedOrder.status}'. Evento 'order_status_updated' emitido.`);
-              
               // #################### INÍCIO DA CORREÇÃO ####################
-              // Agora, a responsabilidade de notificar um novo pedido PAGO online é do webhook.
-              if (paymentDetails.status === 'approved') {
-                  request.io.emit('new_order', updatedOrder);
-                  console.log(`[Webhook] Pagamento aprovado via webhook. Evento 'new_order' emitido para o pedido ${order_id}.`);
+              // Usa o eventBus para garantir a emissão de eventos a partir do webhook
+              const { eventBus } = request;
+              eventBus.broadcastStatusUpdate(updatedOrder.id, updatedOrder.status);
+              
+              if (updatedOrder.status === 'Pago') {
+                  eventBus.broadcastNewOrder(updatedOrder);
               }
               // ##################### FIM DA CORREÇÃO ######################
           }

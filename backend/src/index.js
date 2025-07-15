@@ -35,34 +35,51 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
-  // #################### INÍCIO DA ARQUITETURA PROFISSIONAL DE ESTADO ####################
-
-  // O liveInventory é a ÚNICA FONTE DA VERDADE para o estado do estoque em tempo real.
+  // #################### INÍCIO DA ARQUITETURA DE EVENTOS ####################
   let liveInventory = {};
 
-  // O triggerInventoryReload agora é uma função interna, usada apenas para recarregar
-  // o estado completo em casos específicos (como uma alteração de produto no dashboard).
   const triggerFullInventoryReload = async () => {
     try {
-        console.log('[SocketIO-Server] RECARREGANDO inventário completo da base de dados...');
-        const productsWithStock = await connection('products').where('stock_enabled', true).select('id', 'stock_quantity', 'name');
+        console.log('[EventBus] Recarregando inventário completo da base de dados...');
+        const productsWithStock = await connection('products').where('stock_enabled', true).select('id', 'stock_quantity');
         const newInventory = {};
         productsWithStock.forEach(p => { newInventory[p.id] = p.stock_quantity; });
         liveInventory = newInventory;
-        broadcastLiveInventory(); // Transmite o estado novo e completo
-        console.log(`[SocketIO-Server] ✅ Inventário completo recarregado e transmitido.`);
-    } catch (error) { console.error('[SocketIO-Server] ❌ Erro ao recarregar o inventário:', error); }
+        io.emit('stock_update', liveInventory);
+        console.log(`[EventBus] ✅ Inventário completo recarregado e transmitido.`);
+    } catch (error) { console.error('[EventBus] ❌ Erro ao recarregar o inventário:', error); }
+  };
+
+  // O EventBus centraliza todas as emissões de Socket.IO
+  const eventBus = {
+    broadcastNewOrder: (order) => {
+      console.log(`[EventBus] 🚀 Transmitindo evento 'new_order' para o pedido #${order.id}`);
+      io.emit('new_order', order);
+    },
+    broadcastStatusUpdate: (orderId, status) => {
+      console.log(`[EventBus] 🔄 Transmitindo evento 'order_status_updated' para o pedido #${orderId} com status ${status}`);
+      io.emit('order_status_updated', { id: orderId, status });
+    },
+    broadcastHistoryCleared: () => {
+      console.log(`[EventBus] 🧹 Transmitindo evento 'history_cleared'`);
+      io.emit('history_cleared');
+    },
+    broadcastDataUpdated: () => {
+      console.log('[EventBus] 🔄 Transmitindo evento geral "data_updated"');
+      io.emit('data_updated');
+    }
   };
   
-  // Injeta o 'io' e o 'trigger' em todas as requisições da API
+  // Injeta o 'eventBus' e outras funções em todas as requisições da API
   app.use((request, response, next) => {
-    request.io = io;
-    // O nome da função exposta é mais explícito agora
-    request.triggerInventoryReload = triggerFullInventoryReload; 
+    request.eventBus = eventBus;
+    request.triggerInventoryReload = triggerFullInventoryReload;
+    request.io = io; // Mantemos o 'io' para compatibilidade com o stock
     return next();
   });
+  // ##################### FIM DA ARQUITETURA DE EVENTOS ######################
 
-  // 1. Roteamento da API: Todas as rotas de API são prefixadas com /api
+  // 1. Roteamento da API
   app.use('/api', apiRoutes);
 
   // 2. Roteamento de Ficheiros Estáticos
@@ -79,13 +96,29 @@ async function startServer() {
     res.sendFile(path.resolve(__dirname, '..', '..', 'frontend', 'cardapio', 'index.html'));
   });
   
-  // Lógica de Sockets e Inventário Otimizada
-  function broadcastLiveInventory() {
-    console.log('[SocketIO-Server] 📡 Emitindo evento "stock_update" para todos os clientes com os dados:', liveInventory);
-    io.emit('stock_update', liveInventory);
-  }
+  // Lógica de Sockets e Inventário
+  io.on('connection', (socket) => {
+    console.log(`[SocketIO-Server] ➡️ Cliente conectado: ${socket.id}`);
+    socket.emit('stock_update', liveInventory);
 
-  // Função centralizada para alterar o estoque. Agora, ela atualiza a memória PRIMEIRO.
+    socket.on('reserve_stock', async (itemsToReserve) => {
+        try {
+            await handleStockChange(itemsToReserve, 'decrement');
+            socket.emit('reservation_success');
+        } catch (error) {
+            socket.emit('reservation_failure', { message: error.message });
+        }
+    });
+
+    socket.on('release_stock', async (itemsToRelease) => {
+        await handleStockChange(itemsToRelease, 'increment');
+    });
+
+    socket.on('disconnect', () => {
+        console.log(`[SocketIO-Server] ⬅️ Cliente desconectado: ${socket.id}`);
+    });
+  });
+  
   async function handleStockChange(items, operation) {
       try {
           const stockChanges = new Map();
@@ -126,13 +159,11 @@ async function startServer() {
           } catch(err) {
             await trx.rollback();
             console.error(`[SocketIO-Server] ❌ Falha na transação de estoque, revertendo. Erro:`, err.message);
-            // Se a transação falhar, recarregamos o inventário da DB para garantir a consistência.
             await triggerFullInventoryReload(); 
-            throw err; // Propaga o erro para o chamador
+            throw err;
           }
           
-          // Transmite o estado do inventário atualizado em memória IMEDIATAMENTE.
-          broadcastLiveInventory(); 
+          io.emit('stock_update', liveInventory);
           return { success: true };
 
       } catch (error) {
@@ -141,34 +172,8 @@ async function startServer() {
       }
   };
 
-  io.on('connection', (socket) => {
-    console.log(`[SocketIO-Server] ➡️ Cliente conectado: ${socket.id}`);
-    // Envia o estado atual do inventário assim que um cliente conecta.
-    socket.emit('stock_update', liveInventory);
-
-    socket.on('reserve_stock', async (itemsToReserve) => {
-        try {
-            await handleStockChange(itemsToReserve, 'decrement');
-            socket.emit('reservation_success');
-        } catch (error) {
-            socket.emit('reservation_failure', { message: error.message });
-        }
-    });
-
-    socket.on('release_stock', async (itemsToRelease) => {
-        await handleStockChange(itemsToRelease, 'increment');
-    });
-
-    socket.on('disconnect', () => {
-        console.log(`[SocketIO-Server] ⬅️ Cliente desconectado: ${socket.id}`);
-    });
-  });
-
-  // ##################### FIM DA ARQUITETURA PROFISSIONAL DE ESTADO #####################
-
   const PORT = process.env.PORT || 10000;
   server.listen(PORT, async () => {
-    // A carga inicial do inventário a partir da base de dados.
     await triggerFullInventoryReload();
     console.log('----------------------------------------------------');
     console.log('✅ Servidor Backend da Pamonharia 2.0 ONLINE');

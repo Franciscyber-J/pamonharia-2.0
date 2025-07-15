@@ -1,9 +1,7 @@
 // frontend/cardapio/js/payment.js
 console.log('[payment.js] Módulo iniciado.');
 import { state } from './main.js';
-// #################### INÍCIO DA CORREÇÃO ####################
 import { dom, showErrorModal, showSuccessScreen } from './ui.js';
-// ##################### FIM DA CORREÇÃO ######################
 import { apiFetch } from './api.js';
 import { clearCart } from './cart.js';
 
@@ -91,13 +89,11 @@ async function handleCardFormSubmit(event) {
         dom.paymentProcessingOverlay.style.display = 'none';
 
         if (paymentResponse.status === 'approved') {
-            // #################### INÍCIO DA CORREÇÃO ####################
             showSuccessScreen(
                 'Pagamento Aprovado!',
                 `O seu pedido #${state.currentOrder.id} foi confirmado com sucesso e já está em preparação.`
             );
-            // ##################### FIM DA CORREÇÃO ######################
-            clearCart();
+            clearCart(false);
         } else {
             showErrorModal('Pagamento Recusado', `Status: ${paymentResponse.status}. Motivo: ${paymentResponse.message || 'Verifique os dados do cartão.'}`);
         }

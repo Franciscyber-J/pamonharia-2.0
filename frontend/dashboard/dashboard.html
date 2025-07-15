@@ -161,6 +161,16 @@
             </div>
         </div>
     </div>
+    
+    <div id="audio-unlock-modal-overlay" class="confirm-modal-overlay" style="display: none;">
+        <div class="confirm-modal-content">
+            <h3>Notificações Sonoras</h3>
+            <p>Para garantir que você ouça os novos pedidos, por favor, ative o som.</p>
+            <div class="confirm-modal-buttons">
+                <button id="audio-unlock-confirm" class="btn btn-primary">Ativar Som</button>
+            </div>
+        </div>
+    </div>
 
 
     <script>
@@ -326,11 +336,94 @@
             window.showCustomConfirm = showCustomConfirm;
             window.createProductRow = createProductRow; 
             window.toggleChildren = toggleChildren;
-            window.fetchAndRenderOrders = fetchAndRenderOrders;
+
+            // --- SISTEMA DE NOTIFICAÇÃO E ÁUDIO ---
+            let notificationAudio;
+            let isSoundEnabled = true;
+            let isAudioUnlocked = false;
+
+            const updateSoundStatusButton = () => { 
+                const soundBtn = document.getElementById('sound-status');
+                if (soundBtn) { 
+                    soundBtn.textContent = isSoundEnabled ? '🔊 Som Ligado' : '🔇 Som Desligado'; 
+                    soundBtn.classList.toggle('sound-on', isSoundEnabled); 
+                    soundBtn.classList.toggle('sound-off', !isSoundEnabled); 
+                } 
+            };
+            
+            const setupAudioPlayer = (soundUrl) => {
+                if (soundUrl) {
+                    notificationAudio = new Audio(soundUrl);
+                    notificationAudio.loop = true;
+                } else {
+                    notificationAudio = null;
+                }
+                updateSoundStatusButton();
+            };
+            
+            const unlockAudio = async () => {
+                if (isAudioUnlocked || !notificationAudio) {
+                    isAudioUnlocked = true;
+                    return true;
+                }
+                try {
+                    await notificationAudio.play();
+                    notificationAudio.pause();
+                    notificationAudio.currentTime = 0;
+                    isAudioUnlocked = true;
+                    console.log('[Dashboard] 🔊 Contexto de áudio desbloqueado com sucesso!');
+                    return true;
+                } catch (e) {
+                    console.warn('[Dashboard] 🔔 Falha ao tentar desbloquear o áudio. O utilizador precisa de interagir.');
+                    return false;
+                }
+            };
+            
+            const playNotification = (orderId) => { 
+                if (isSoundEnabled && notificationAudio && isAudioUnlocked) {
+                    console.log(`[Dashboard] 🎵 A tentar tocar o som de notificação para o pedido #${orderId}...`);
+                    notificationAudio.play().catch(e => console.warn("Erro ao tocar som:", e.message));
+                    const orderCard = document.getElementById(`order-${orderId}`);
+                    if (orderCard) {
+                        orderCard.classList.add('is-playing-sound');
+                    }
+                }
+            };
+
+            const stopNotification = () => { 
+                if (notificationAudio) { 
+                    notificationAudio.pause(); 
+                    notificationAudio.currentTime = 0; 
+                } 
+                document.querySelectorAll('.order-card.is-playing-sound').forEach(card => card.classList.remove('is-playing-sound'));
+            };
+            
+            const showAudioUnlockModal = () => {
+                const modal = document.getElementById('audio-unlock-modal-overlay');
+                const confirmBtn = document.getElementById('audio-unlock-confirm');
+                modal.style.display = 'flex';
+                confirmBtn.onclick = async () => {
+                    await unlockAudio();
+                    modal.style.display = 'none';
+                };
+            };
+
+            document.getElementById('sound-status').addEventListener('click', async () => {
+                const unlocked = await unlockAudio();
+                if (!unlocked) return;
+
+                isSoundEnabled = !isSoundEnabled; 
+                updateSoundStatusButton(); 
+                if (!isSoundEnabled) { 
+                    stopNotification(); 
+                } 
+            });
+
+            // --- LÓGICA DE GESTÃO DE PEDIDOS ---
             window.updateOrderStatus = async (orderId, newStatus) => { 
-                stopNotification(); 
+                stopNotification();
                 try { 
-                    await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) }); 
+                    await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
                 } catch (error) { 
                     console.error(`Falha ao atualizar status:`, error); 
                 } 
@@ -363,28 +456,42 @@
                 try {
                     const { activeOrders, finishedOrders, rejectedOrders } = await apiFetch('/orders');
                     document.querySelectorAll('.order-list').forEach(list => list.innerHTML = '');
-                    activeOrders.forEach(order => addOrderCard(order, true));
-                    finishedOrders.forEach(order => addOrderCard(order, false));
-                    rejectedOrders.forEach(order => addOrderCard(order, false));
-                     console.log("[Dashboard] Renderização de pedidos concluída.");
+                    [...activeOrders, ...finishedOrders, ...rejectedOrders].forEach(order => addOrderCard(order, false));
+                    console.log("[Dashboard] Renderização de pedidos concluída.");
+                    
+                    if (!isAudioUnlocked && notificationAudio) {
+                        showAudioUnlockModal();
+                    }
                 } catch (error) { console.error("Erro ao buscar pedidos:", error); }
             };
-
+            
             function createOrderCard(order) {
                 const card = document.createElement('div');
                 card.className = 'order-card';
                 card.id = `order-${order.id}`;
+                card.onclick = () => stopNotification();
+
                 let paymentTag = '';
-                if (order.status === 'Pago' || order.payment_status === 'approved') { paymentTag = `<span class="order-tag payment-paid">PAGO</span>`; } 
+                if (order.status === 'Pago' || order.payment_status === 'approved') { paymentTag = `<span class="order-tag payment-paid">PAGO ONLINE</span>`; } 
                 else if (order.payment_method === 'on_delivery') { paymentTag = `<span class="order-tag payment-on-delivery">PAGAR NA ENTREGA</span>`; } 
-                else if (order.status === 'Aguardando Pagamento') { paymentTag = `<span class="order-tag payment-pending">AGUARDANDO PAGAMENTO</span>`; }
+                else if (order.status === 'Aguardando Pagamento') { paymentTag = `<span class="order-tag payment-pending">AGUARDANDO PAG.</span>`; }
+                
                 const deliveryTypeTag = order.client_address === 'Retirada no local' ? `<span class="order-tag delivery-pickup">RETIRADA</span>` : `<span class="order-tag delivery-delivery">ENTREGA</span>`;
-                const actionMap = { 'Aguardando Pagamento': `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`, 'Pago': `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`, 'Novo': `<button onclick="updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar</button><button onclick="updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`, 'Em Preparo': `<button onclick="updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto</button>`, 'Pronto para Entrega': `<button onclick="updateOrderStatus(${order.id}, 'Finalizado')">Finalizado</button>` };
+                
+                const actionMap = { 
+                    'Aguardando Pagamento': `<button onclick="window.updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`, 
+                    'Pago': `<button onclick="window.updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar Pedido</button>`, 
+                    'Novo': `<button onclick="window.updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar Pedido</button><button onclick="window.updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`, 
+                    'Em Preparo': `<button onclick="window.updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto</button>`, 
+                    'Pronto para Entrega': `<button onclick="window.updateOrderStatus(${order.id}, 'Finalizado')">Finalizado</button>` 
+                };
                 const actionsHtml = actionMap[order.status] || '';
+                
                 const displayAddress = order.client_address === 'Retirada no Local' ? '<strong>Retirada no Local</strong>' : order.client_address;
                 const paymentStatusTranslations = { 'approved': 'Aprovado', 'pending': 'Pendente', 'in_process': 'Processando', 'rejected': 'Rejeitado', 'cancelled': 'Cancelado', 'refunded': 'Devolvido', 'charged_back': 'Estornado' };
-                const translatedStatus = paymentStatusTranslations[order.payment_status] || order.payment_status || 'Pendente';
-                const paymentInfo = order.payment_id ? `<p class="order-details">Pgto. Online: ${translatedStatus}</p>` : '';
+                const translatedStatus = paymentStatusTranslations[order.payment_status] || order.payment_status || 'N/A';
+                const paymentInfo = order.payment_id ? `<p class="order-details">Pgto. Online: ${translatedStatus} (ID: ${order.payment_id})</p>` : '';
+
                 card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.',',')}</span></div><div class="order-tags">${paymentTag}${deliveryTypeTag}</div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Contacto:</strong> ${order.client_phone || 'Não informado'}</p><p><strong>Destino:</strong> ${displayAddress}</p>${paymentInfo}</div><div class="order-card-actions">${actionsHtml}</div>`;
                 return card;
             };
@@ -392,21 +499,100 @@
             function addOrderCard(order, prepend = true) {
                 const statusMap = { 'Aguardando Pagamento': 'col-novo', 'Pago': 'col-novo', 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto-para-entrega', 'Finalizado': 'col-finalizado', 'Cancelado': 'col-cancelado' };
                 const columnId = statusMap[order.status];
-                if (!columnId) {
-                    return;
-                }
+                if (!columnId) return;
+                
                 const column = document.getElementById(columnId);
                 if (column) {
                     const existingCard = document.getElementById(`order-${order.id}`);
-                    if(existingCard) {
-                        existingCard.remove();
-                    }
+                    if(existingCard) existingCard.remove();
+                    
                     const card = createOrderCard(order);
                     if (prepend) column.prepend(card);
                     else column.appendChild(card);
                 }
             };
             
+            // --- SOCKET.IO LISTENERS ---
+            const socket = io(API_BASE_URL_GLOBAL, {
+                transports: ['websocket']
+            });
+
+            socket.on('connect', () => { console.log('[Dashboard] ✅ Socket.IO conectado.'); });
+            socket.on('disconnect', () => { console.log('[Dashboard] 🔌 Socket.IO desconectado.'); });
+            socket.on('connect_error', (err) => console.error('[Dashboard] ❌ Erro de conexão Socket.IO:', err.message));
+
+            socket.on('new_order', (order) => { 
+                console.log(`[Dashboard] ✨ Novo pedido #${order.id} recebido via Socket.IO:`, order);
+                if (document.querySelector('.orders-panel')) {
+                    addOrderCard(order, true);
+                    playNotification(order.id);
+                } 
+            });
+
+            socket.on('order_status_updated', ({ id, status }) => {
+                console.log(`[Dashboard] 🔄 Status do pedido #${id} atualizado para ${status}. Movendo o card.`);
+                const orderCard = document.getElementById(`order-${id}`);
+                if (orderCard) {
+                    apiFetch(`/orders`).then(({ activeOrders, finishedOrders, rejectedOrders }) => {
+                        const updatedOrder = [...activeOrders, ...finishedOrders, ...rejectedOrders].find(o => o.id === id);
+                        if(updatedOrder) addOrderCard(updatedOrder, true);
+                    });
+                }
+            });
+
+            socket.on('history_cleared', () => {
+                console.log('[Dashboard] 🧹 Histórico de pedidos limpo. Recarregando a página de pedidos.');
+                if (document.querySelector('.orders-panel')) {
+                    fetchAndRenderOrders();
+                }
+            });
+
+            socket.on('stock_update', (liveInventory) => {
+                console.log('[Dashboard] 📥 Stock update recebido:', liveInventory);
+                // #################### INÍCIO DA CORREÇÃO ####################
+            // Itera sobre o inventário recebido para atualizar o estado e a UI.
+            for (const productId in liveInventory) {
+                const newStock = liveInventory[productId];
+
+                // 1. Atualiza o estado na lista "flat" (usada para renderizar complementos, etc.)
+                const productInFlatList = allProductsFlat.find(p => p.id == productId);
+                if (productInFlatList) {
+                    productInFlatList.stock_quantity = newStock;
+                }
+
+                // 2. Atualiza o estado na lista aninhada `allProducts` (usada para renderizar a página principal)
+                allProducts.forEach(parent => {
+                    if (parent.id == productId) {
+                        parent.stock_quantity = newStock;
+                    }
+                    if (parent.children) {
+                        const childProduct = parent.children.find(c => c.id == productId);
+                        if (childProduct) {
+                            childProduct.stock_quantity = newStock;
+                        }
+                    }
+                });
+
+                // 3. Atualiza a UI (o input visual) se a página estiver visível.
+                const row = document.querySelector(`.product-row[data-id='${productId}']`);
+                if (row) {
+                    const stockInput = row.querySelector('.stock-input');
+                    if (stockInput && stockInput.value != newStock) {
+                        stockInput.value = newStock ?? '';
+                    }
+                }
+            }
+            // ##################### FIM DA CORREÇÃO ######################
+        });
+            
+            socket.on('data_updated', async () => {
+                if (isProgrammaticallyUpdating) {
+                    isProgrammaticallyUpdating = false; 
+                    return;
+                }
+                await refreshCurrentProductView();
+            });
+
             function flattenProductsWithParentInfo(products) {
                 let flatList = [];
                 products.forEach(p => {
@@ -426,120 +612,7 @@
                     allProductsFlat = flattenProductsWithParentInfo(allProducts);
                 } catch (error) { console.error("Não foi possível carregar os produtos.", error); }
             };
-            
-            const socket = io(API_BASE_URL_GLOBAL, {
-                transports: ['websocket']
-            });
-            let notificationAudio;
-            let isSoundEnabled = true;
-            let isAudioUnlocked = false;
 
-            const updateSoundStatusButton = () => { 
-                const soundBtn = document.getElementById('sound-status');
-                if (soundBtn) { 
-                    soundBtn.textContent = isSoundEnabled ? '🔊 Som Ligado' : '🔇 Som Desligado'; 
-                    soundBtn.classList.toggle('sound-on', isSoundEnabled); 
-                    soundBtn.classList.toggle('sound-off', !isSoundEnabled); 
-                } 
-            };
-            
-            const setupAudioPlayer = (soundUrl) => {
-                if (soundUrl) {
-                    notificationAudio = new Audio(soundUrl);
-                    notificationAudio.loop = true;
-                } else {
-                    notificationAudio = null;
-                }
-                updateSoundStatusButton();
-            };
-            
-            const playNotification = () => { 
-                if (isSoundEnabled && notificationAudio && isAudioUnlocked) {
-                    console.log('[Dashboard] 🎵 A tentar tocar o som de notificação...');
-                    notificationAudio.play().catch(e => console.warn("Erro ao tocar som:", e.message));
-                } else if (!isAudioUnlocked) {
-                     console.warn('[Dashboard] 🔔 Notificação recebida, mas o áudio ainda está bloqueado. O utilizador precisa de interagir.');
-                }
-            };
-
-            const stopNotification = () => { 
-                if (notificationAudio) { 
-                    notificationAudio.pause(); 
-                    notificationAudio.currentTime = 0; 
-                } 
-            };
-            
-            document.getElementById('sound-status').addEventListener('click', () => {
-                if (!isAudioUnlocked && notificationAudio) {
-                    notificationAudio.muted = true;
-                    notificationAudio.play().then(() => {
-                        notificationAudio.pause();
-                        notificationAudio.currentTime = 0;
-                        notificationAudio.muted = false;
-                        isAudioUnlocked = true;
-                        console.log('[Dashboard] 🔊 Contexto de áudio desbloqueado com sucesso!');
-                    }).catch(e => console.error('Falha ao desbloquear o áudio:', e));
-                }
-
-                isSoundEnabled = !isSoundEnabled; 
-                updateSoundStatusButton(); 
-                if (!isSoundEnabled) { 
-                    stopNotification(); 
-                } 
-            });
-
-            socket.on('connect', () => {
-                console.log('[Dashboard] ✅ Socket.IO conectado.');
-            });
-
-            socket.on('new_order', (order) => { 
-                console.log('[Dashboard] ✨ Novo pedido recebido via Socket.IO:', order);
-                playNotification();
-                if (document.querySelector('.orders-panel')) {
-                    addOrderCard(order, true);
-                } 
-            });
-
-            socket.on('order_status_updated', ({ id, status }) => {
-                console.log(`[Dashboard] 🔄 Status do pedido #${id} atualizado para ${status}. A recarregar.`);
-                if (document.querySelector('.orders-panel')) {
-                    fetchAndRenderOrders();
-                }
-            });
-
-            socket.on('history_cleared', () => {
-                if (document.querySelector('.orders-panel')) {
-                    fetchAndRenderOrders();
-                }
-            });
-
-            socket.on('stock_update', (liveInventory) => {
-                console.log('[Dashboard] 📥 Stock update recebido:', liveInventory);
-                for (const productId in liveInventory) {
-                    const productInData = allProductsFlat.find(p => p.id == productId);
-                    if (productInData) {
-                        productInData.stock_quantity = liveInventory[productId];
-                    }
-                    const row = document.querySelector(`.product-row[data-id='${productId}']`);
-                    if (row) {
-                        const stockInput = row.querySelector('.stock-input');
-                        const newStock = liveInventory[productId];
-                        if (stockInput && stockInput.value != newStock) {
-                            console.log(`[Dashboard] Atualizando UI do estoque para o produto ${productId}: ${stockInput.value} -> ${newStock}`);
-                            stockInput.value = newStock ?? '';
-                        }
-                    }
-                }
-            });
-            
-            socket.on('data_updated', async () => {
-                if (isProgrammaticallyUpdating) {
-                    isProgrammaticallyUpdating = false; 
-                    return;
-                }
-                await refreshCurrentProductView();
-            });
-            
             function renderProdutosPage() {
                 pageTitle.textContent = 'Produtos Principais';
                 dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`;

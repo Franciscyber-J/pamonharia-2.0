@@ -40,28 +40,29 @@ export function getCart() {
     return state.cart;
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// A função agora emite 'release_stock' antes de limpar o carrinho localmente.
-export function clearCart() {
+export function clearCart(releaseStock = true) {
     if (state.cart.length === 0) return;
 
-    console.log('[Cart] 🧹 Calculando itens para devolver ao estoque antes de limpar.');
-    const itemsToRelease = [];
-    state.cart.forEach(itemGroup => {
-        const items = getItemsToReleaseFromGroup(itemGroup);
-        itemsToRelease.push(...items);
-    });
+    if (releaseStock) {
+        console.log('[Cart] 🧹 Calculando itens para devolver ao estoque antes de limpar.');
+        const itemsToRelease = [];
+        state.cart.forEach(itemGroup => {
+            const items = getItemsToReleaseFromGroup(itemGroup);
+            itemsToRelease.push(...items);
+        });
 
-    if (itemsToRelease.length > 0) {
-        console.log('[Socket.IO] 📤 Emitindo "release_stock" para o carrinho inteiro:', itemsToRelease);
-        socket.emit('release_stock', itemsToRelease);
+        if (itemsToRelease.length > 0) {
+            console.log('[Socket.IO] 📤 Emitindo "release_stock" para o carrinho inteiro:', itemsToRelease);
+            socket.emit('release_stock', itemsToRelease);
+        }
+    } else {
+        console.log('[Cart] 🧹 Carrinho finalizado com sucesso. Limpando localmente sem devolver ao estoque.');
     }
 
     console.log('[Cart] Limpando o estado do carrinho localmente.');
     state.cart = [];
-    renderCart(); // renderCart já atualiza o localStorage.
+    renderCart();
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 
 export function calculateTotals() {
@@ -479,27 +480,21 @@ export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
     }
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// Função auxiliar para calcular os itens a serem devolvidos de um grupo
 function getItemsToReleaseFromGroup(itemGroup) {
     const items = [];
     const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
     const isLockedGroup = itemGroup.is_combo || (parentProduct && parentProduct.force_one_to_one_complement);
     const multiplier = isLockedGroup ? itemGroup.quantity : 1;
 
-    // Adiciona os sub-itens (complementos, itens de combo)
     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
         itemGroup.selected_items.forEach(sub => {
-            // A quantidade do sub-item já está correta, mas em grupos travados, multiplicamos pela quantidade do grupo
             items.push({ id: sub.id, quantity: sub.quantity * multiplier });
         });
     }
 
-    // Adiciona o produto pai, se aplicável
     if (parentProduct && parentProduct.sell_parent_product) {
         items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
     } else if (!parentProduct || (!parentProduct.sell_parent_product && !itemGroup.is_combo && itemGroup.selected_items.length === 0)) {
-        // Caso de item simples sem complementos
         items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
     }
     
@@ -511,7 +506,6 @@ export function removeItemGroup(cartIndex) {
     const itemToRemove = state.cart[cartIndex];
     if (!itemToRemove) return;
 
-    // Usa a função auxiliar para obter a lista de itens a serem liberados
     const itemsToRelease = getItemsToReleaseFromGroup(itemToRemove);
 
     if (itemsToRelease.length > 0) {
@@ -522,4 +516,3 @@ export function removeItemGroup(cartIndex) {
     state.cart.splice(cartIndex, 1);
     renderCart();
 }
-// ##################### FIM DA CORREÇÃO ######################
