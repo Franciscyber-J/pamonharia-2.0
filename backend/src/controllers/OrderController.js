@@ -20,9 +20,7 @@ module.exports = {
     console.log(`[OrderController] Atualizando status do pedido ${id} para: ${status}`);
     await connection('orders').where('id', id).update({ status, updated_at: new Date() });
     
-    // #################### INÍCIO DA CORREÇÃO ####################
-    request.eventBus.broadcastStatusUpdate(Number(id), status);
-    // ##################### FIM DA CORREÇÃO ######################
+    request.io.emit('order_status_updated', { id: Number(id), status });
 
     return response.status(204).send();
   },
@@ -30,31 +28,46 @@ module.exports = {
   async create(request, response) {
     try {
       const { client_name, client_phone, client_address, total_price, items, payment_method } = request.body;
-      const initialStatus = payment_method === 'online' ? 'Aguardando Pagamento' : 'Novo';
+      
+      const isNewOnDeliveryOrder = payment_method === 'on_delivery';
+      const initialStatus = isNewOnDeliveryOrder ? 'Novo' : 'Aguardando Pagamento';
 
       const newOrderData = await connection.transaction(async (trx) => {
-        const [order_id_obj] = await trx('orders').insert({ client_name, client_phone, client_address, total_price, status: initialStatus, payment_method }).returning('id');
+        const [order_id_obj] = await trx('orders').insert({
+          client_name,
+          client_phone,
+          client_address,
+          total_price,
+          status: initialStatus,
+          payment_method
+        }).returning('id');
+
         const order_id = order_id_obj.id;
-        const orderItemsToInsert = items.map(item => ({
-            order_id: order_id,
-            product_id: item.is_combo ? null : item.id,
-            combo_id: item.is_combo ? item.id : null,
-            item_name: item.name,
-            quantity: item.quantity,
-            unit_price: item.price,
-            item_details: JSON.stringify(item.selected_items || [])
-        }));
-        if (orderItemsToInsert.length > 0) { await trx('order_items').insert(orderItemsToInsert); }
+
+        if (items && items.length > 0) {
+          const orderItemsToInsert = items.map(item => ({
+              order_id: order_id,
+              product_id: item.is_combo ? null : item.id,
+              combo_id: item.is_combo ? item.id : null,
+              item_name: item.name,
+              quantity: item.quantity,
+              unit_price: item.price,
+              item_details: JSON.stringify(item.selected_items || [])
+          }));
+          await trx('order_items').insert(orderItemsToInsert);
+        }
+
         const createdOrder = await trx('orders').where('id', order_id).first();
         console.log(`[OrderController] ✅ Pedido ${order_id} criado com sucesso com status "${initialStatus}".`);
         return createdOrder;
       });
 
-      // #################### INÍCIO DA CORREÇÃO ####################
-      if (newOrderData.status === 'Novo') {
-        request.eventBus.broadcastNewOrder(newOrderData);
+      // #################### INÍCIO DA CORREÇÃO DEFINITIVA ####################
+      if (isNewOnDeliveryOrder) {
+        console.log(`[OrderController] 🚀 Emitindo evento 'new_order' para o pedido #${newOrderData.id}`);
+        request.io.emit('new_order', newOrderData);
       }
-      // ##################### FIM DA CORREÇÃO ######################
+      // ##################### FIM DA CORREÇÃO DEFINITIVA ######################
 
       return response.status(201).json(newOrderData);
     } catch (error) {
@@ -68,13 +81,10 @@ module.exports = {
       console.log('[OrderController] Limpando histórico de pedidos.');
       await connection('orders')
         .whereIn('status', ['Finalizado', 'Cancelado'])
-        .orWhere('status', 'Aguardando Pagamento') // Limpa também os abandonados
         .del();
       
-      // #################### INÍCIO DA CORREÇÃO ####################
-      request.eventBus.broadcastHistoryCleared();
-      // ##################### FIM DA CORREÇÃO ######################
-
+      request.io.emit('history_cleared');
+      
       return response.status(204).send();
     } catch (error) {
       console.error('[OrderController] ❌ ERRO AO LIMPAR HISTÓRICO:', error);

@@ -4,6 +4,10 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
+    "dev": "cross-env NODE_ENV=development nodemon src/index.js",
+    "knex:migrate": "knex migrate:latest",
+    "knex:seed": "knex seed:run",
+    "db:clean": "knex migrate:rollback --all",
     "knex:prod": "knex --knexfile knexfile.js --env production",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -14,6 +18,7 @@
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "cloudinary": "^2.7.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.0.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
@@ -22,5 +27,9 @@
     "pg": "^8.16.3",
     "pg-connection-string": "^2.9.1",
     "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "nodemon": "^3.1.0"
   }
 }

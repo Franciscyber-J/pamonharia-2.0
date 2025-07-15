@@ -1,7 +1,7 @@
 // backend/src/controllers/PaymentController.js
-
 const { MercadoPagoConfig, Payment } = require('mercadopago');
 const connection = require('../database/connection');
+const { eventBus } = require('../index'); // Importa o eventBus central
 
 const client = new MercadoPagoConfig({ 
   accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN 
@@ -76,14 +76,11 @@ module.exports = {
         
         const updatedOrder = await connection('orders').where('id', order_id).first();
         
-        // #################### INÍCIO DA CORREÇÃO ####################
-        // Usa o eventBus para garantir a emissão de eventos
-        request.eventBus.broadcastStatusUpdate(updatedOrder.id, updatedOrder.status);
+        eventBus.broadcastStatusUpdate(updatedOrder.id, updatedOrder.status);
         
         if (updatedOrder.status === 'Pago') {
-            request.eventBus.broadcastNewOrder(updatedOrder);
+            eventBus.broadcastNewOrder(updatedOrder);
         }
-        // ##################### FIM DA CORREÇÃO ######################
 
         if (payment_method_id === 'pix') {
             return response.json({
@@ -142,15 +139,11 @@ module.exports = {
           
           const updatedOrder = await connection('orders').where('id', order_id).first();
           if (updatedOrder) {
-              // #################### INÍCIO DA CORREÇÃO ####################
-              // Usa o eventBus para garantir a emissão de eventos a partir do webhook
-              const { eventBus } = request;
               eventBus.broadcastStatusUpdate(updatedOrder.id, updatedOrder.status);
               
               if (updatedOrder.status === 'Pago') {
                   eventBus.broadcastNewOrder(updatedOrder);
               }
-              // ##################### FIM DA CORREÇÃO ######################
           }
         }
       } catch (error) {

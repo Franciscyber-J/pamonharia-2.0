@@ -2,7 +2,6 @@
 require('dotenv').config();
 const { parse } = require('pg-connection-string');
 
-// Configuração base partilhada entre ambientes
 const baseConfig = {
   client: 'pg',
   migrations: {
@@ -28,14 +27,16 @@ if (process.env.DATABASE_URL) {
     password: dbConfig.password,
     database: dbConfig.database,
     ssl: { rejectUnauthorized: false },
-    family: 4 // A correção do IPv4 agora está no sítio certo
   };
 }
 
 module.exports = {
   development: {
     ...baseConfig,
-    connection: process.env.DATABASE_URL,
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // Usa a variável DATABASE_URL para o ambiente de produção
+    connection: process.env.DEV_DATABASE_URL, // variavel de ambiente de desenvolvimento
+    // ##################### FIM DA CORREÇÃO ######################
   },
 
   production: {

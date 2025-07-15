@@ -458,7 +458,6 @@
                     document.querySelectorAll('.order-list').forEach(list => list.innerHTML = '');
                     [...activeOrders, ...finishedOrders, ...rejectedOrders].forEach(order => addOrderCard(order, false));
                     console.log("[Dashboard] Renderização de pedidos concluída.");
-                    
                     if (!isAudioUnlocked && notificationAudio) {
                         showAudioUnlockModal();
                     }
@@ -542,54 +541,32 @@
 
             socket.on('history_cleared', () => {
                 console.log('[Dashboard] 🧹 Histórico de pedidos limpo. Recarregando a página de pedidos.');
-                if (document.querySelector('.orders-panel')) {
-                    fetchAndRenderOrders();
-                }
+                if (document.querySelector('.orders-panel')) { fetchAndRenderOrders(); }
             });
 
             socket.on('stock_update', (liveInventory) => {
                 console.log('[Dashboard] 📥 Stock update recebido:', liveInventory);
-                // #################### INÍCIO DA CORREÇÃO ####################
-            // Itera sobre o inventário recebido para atualizar o estado e a UI.
-            for (const productId in liveInventory) {
-                const newStock = liveInventory[productId];
-
-                // 1. Atualiza o estado na lista "flat" (usada para renderizar complementos, etc.)
-                const productInFlatList = allProductsFlat.find(p => p.id == productId);
-                if (productInFlatList) {
-                    productInFlatList.stock_quantity = newStock;
-                }
-
-                // 2. Atualiza o estado na lista aninhada `allProducts` (usada para renderizar a página principal)
-                allProducts.forEach(parent => {
-                    if (parent.id == productId) {
-                        parent.stock_quantity = newStock;
-                    }
-                    if (parent.children) {
-                        const childProduct = parent.children.find(c => c.id == productId);
-                        if (childProduct) {
-                            childProduct.stock_quantity = newStock;
+                for (const productId in liveInventory) {
+                    const newStock = liveInventory[productId];
+                    const productInFlatList = allProductsFlat.find(p => p.id == productId);
+                    if (productInFlatList) { productInFlatList.stock_quantity = newStock; }
+                    allProducts.forEach(parent => {
+                        if (parent.id == productId) { parent.stock_quantity = newStock; }
+                        if (parent.children) {
+                            const childProduct = parent.children.find(c => c.id == productId);
+                            if (childProduct) { childProduct.stock_quantity = newStock; }
                         }
-                    }
-                });
-
-                // 3. Atualiza a UI (o input visual) se a página estiver visível.
-                const row = document.querySelector(`.product-row[data-id='${productId}']`);
-                if (row) {
-                    const stockInput = row.querySelector('.stock-input');
-                    if (stockInput && stockInput.value != newStock) {
-                        stockInput.value = newStock ?? '';
+                    });
+                    const row = document.querySelector(`.product-row[data-id='${productId}']`);
+                    if (row) {
+                        const stockInput = row.querySelector('.stock-input');
+                        if (stockInput && stockInput.value != newStock) { stockInput.value = newStock ?? ''; }
                     }
                 }
-            }
-            // ##################### FIM DA CORREÇÃO ######################
-        });
+            });
             
             socket.on('data_updated', async () => {
-                if (isProgrammaticallyUpdating) {
-                    isProgrammaticallyUpdating = false; 
-                    return;
-                }
+                if (isProgrammaticallyUpdating) { isProgrammaticallyUpdating = false; return; }
                 await refreshCurrentProductView();
             });
 
@@ -701,20 +678,26 @@
                 renderComplementosPageContent();
             };
             
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // Função createProductRow corrigida para usar uma classe em vez de um evento inline.
             function createProductRow(product, isChild = false, isSynced = false) {
                 const stock_quantity = product.stock_quantity ?? '';
                 const isActuallyDisabled = (isChild && isSynced) || (!product.stock_enabled);
                 const stock_controls_disabled = isActuallyDisabled ? 'disabled' : '';
+                
                 let parentControls = '';
                 if (!isChild && product.is_main_product) {
-                    parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" onchange="globalApiFetch('/products/${product.id}', { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: this.checked }) }).then(window.refreshCurrentProductView)" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
+                    // Adicionada a classe 'stock-sync-toggle' e removido o 'onchange'
+                    parentControls = `<div class="parent-controls"><label class="toggle-switch"><input type="checkbox" class="stock-sync-toggle" ${product.stock_sync_enabled ? 'checked' : ''}><span class="slider"></span></label><span>Sincronizar estoque com complementos</span></div>`;
                 }
+
                 const hasChildren = !isChild && product.children && product.children.length > 0;
                 const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="window.toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
                 const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
                 const pausePlayButton = product.status 
                     ? `<button class="btn-icon btn-status-toggle paused" onclick="window.toggleProductStatus(${product.id}, false)" title="Pausar item">||</button>`
                     : `<button class="btn-icon btn-status-toggle playing" onclick="window.toggleProductStatus(${product.id}, true)" title="Ativar item">▶</button>`;
+                
                 let stockControlsCell = '';
                 const isParentContainerOnly = !isChild && hasChildren && !product.sell_parent_product;
                 if (isParentContainerOnly) {
@@ -722,9 +705,12 @@
                 } else {
                     stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" onchange="window.handleStockEnableToggle(this)" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" onclick="window.handleStockAdjust(this, -1)" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" onkeydown="if(event.key==='Enter'){ event.preventDefault(); window.handleStockSave(this); this.blur(); }" ${stock_controls_disabled}><button class="stock-btn stock-increase" onclick="window.handleStockAdjust(this, 1)" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" onclick="window.handleStockSave(this)" ${stock_controls_disabled}>Salvar</button>${pausePlayButton}</div></td>`;
                 }
+                
                 const actionButtons = `<div class="actions-container"><button class="btn-icon btn-actions-menu" onclick="window.toggleActionsMenu(event)">⋮</button><div class="actions-menu"><a href="#" onclick="event.preventDefault(); window.openProductModal(${product.id})">Editar</a><a href="#" onclick="event.preventDefault(); window.duplicateProduct(${product.id})">Duplicar</a><a href="#" class="danger" onclick="event.preventDefault(); window.deleteProduct(${product.id})">Apagar</a></div></div>`;
+                
                 return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">${dragHandle}<td><div class="product-name-cell">${toggleButton} ${isChild ? '<span class="child-indicator">↳</span>' : ''} <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail"><span>${product.name}</span></div>${parentControls}</td><td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td><td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>${stockControlsCell}<td class="action-buttons-cell">${actionButtons}</td></tr>`;
             };
+            // ##################### FIM DA CORREÇÃO ######################
 
             function toggleChildren(btn, parentId) { btn.classList.toggle('expanded'); document.querySelectorAll(`.product-row.is-child[data-parent-id='${parentId}']`).forEach(row => { row.style.display = row.style.display === 'table-row' ? 'none' : 'table-row'; }); };
             
@@ -1021,6 +1007,34 @@
             const pages = { pedidos: renderPedidosPage, produtos: renderProdutosPage, complementos: renderComplementosPage, combos: renderCombosPage, configuracoes: renderSettingsPage };
             const handleNavigation = (e) => { e.preventDefault(); document.querySelector('nav a.active')?.classList.remove('active'); const link = e.currentTarget; link.classList.add('active'); const pageKey = link.id.split('-')[1]; if (pages[pageKey]) pages[pageKey](); };
             Object.values(navLinks).forEach(link => link.addEventListener('click', handleNavigation));
+            
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // Event listener centralizado para delegação de eventos
+            dashboardContent.addEventListener('change', async (event) => {
+                // Manipulador para o toggle de sincronização de estoque
+                if (event.target.classList.contains('stock-sync-toggle')) {
+                    const checkbox = event.target;
+                    const row = checkbox.closest('.product-row');
+                    if (!row) return;
+
+                    const productId = row.dataset.id;
+                    const isEnabled = checkbox.checked;
+
+                    try {
+                        await globalApiFetch(`/products/${productId}`, {
+                            method: 'PUT',
+                            body: JSON.stringify({ stock_sync_enabled: isEnabled })
+                        });
+                        await refreshCurrentProductView();
+                    } catch (error) {
+                        console.error(`Falha ao atualizar a sincronização de estoque para o produto ${productId}:`, error);
+                        alert('Não foi possível atualizar a configuração de sincronização.');
+                        checkbox.checked = !isEnabled;
+                    }
+                }
+            });
+            // ##################### FIM DA CORREÇÃO ######################
+
             document.getElementById('product-form').addEventListener('submit', saveProduct);
             document.getElementById('product-cancel-button').addEventListener('click', closeProductModal);
             document.getElementById('product-modal-close-btn').addEventListener('click', closeProductModal);
