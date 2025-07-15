@@ -1,6 +1,12 @@
 import { state } from './main.js';
 
-const API_BASE_URL = 'https://pamonhariasaborosa.expertbr.com';
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Corrigido para determinar dinamicamente a URL da API com base no ambiente.
+// Isso resolve o erro de CORS ao garantir que o frontend de desenvolvimento
+// comunique com o backend de desenvolvimento.
+const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const API_BASE_URL = IS_LOCAL ? 'http://localhost:10000' : 'https://pamonhariasaborosa.expertbr.com';
+// ##################### FIM DA CORREÇÃO ######################
 
 /**
  * Função centralizada para fazer requisições à API.
@@ -57,7 +63,6 @@ export async function fetchAndRenderAllData() {
     };
     recursiveFlattenAndMap(productsResponse);
 
-    // #################### INÍCIO DA CORREÇÃO ####################
     // Processa os combos, mesclando os dados dos produtos para preservar o price_modifier.
     combosResponse.forEach(c => {
         if (c.products) {
@@ -69,7 +74,6 @@ export async function fetchAndRenderAllData() {
             });
         }
     });
-    // ##################### FIM DA CORREÇÃO ######################
 
     state.allItems = [...combosResponse.map(c => ({...c, is_combo: true})), ...productsResponse];
 }
