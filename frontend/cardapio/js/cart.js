@@ -111,7 +111,6 @@ export function openProductWithOptionsModal(productId) {
     let selectedItemsInModal = {};
     let bodyHtml = '';
 
-    // ARQUITETO: Garantimos que o objeto de estado do modal começa limpo e explícito.
     if (product.sell_parent_product) {
         selectedItemsInModal[product.id] = product.force_one_to_one_complement ? 1 : 1;
     }
@@ -137,19 +136,27 @@ export function openProductWithOptionsModal(productId) {
         });
     }
 
+    // #################### INÍCIO DA CORREÇÃO ####################
     const onSave = () => {
         let selected_items_details = [];
         let itemsToReserve = [];
         let finalPrice = 0;
         let finalQuantity = 1;
+        let totalQuantityForStockDeduction = 0;
 
-        const parentQty = selectedItemsInModal[product.id] || 0;
-        
-        if (product.sell_parent_product && parentQty > 0) {
-            itemsToReserve.push({ id: product.id, quantity: parentQty });
-            finalPrice += parseFloat(product.price || 0) * parentQty;
+        // A. Lida com o produto pai
+        if (product.sell_parent_product) {
+            const parentQty = selectedItemsInModal[product.id] || 0;
+            if (parentQty > 0) {
+                finalPrice += parseFloat(product.price || 0) * parentQty;
+                // Apenas o pai conta para o stock se ele for vendido separadamente
+                if(product.stock_enabled) {
+                    totalQuantityForStockDeduction += parentQty;
+                }
+            }
         }
 
+        // B. Lida com os complementos (filhos)
         if (product.children && product.children.length > 0) {
             product.children.forEach(childProduct => {
                 const quantity = selectedItemsInModal[childProduct.id] || 0;
@@ -157,17 +164,33 @@ export function openProductWithOptionsModal(productId) {
                     const fullChildDetails = state.allProductsFlat.find(p => p.id === childProduct.id);
                     if (fullChildDetails) {
                         selected_items_details.push({ id: fullChildDetails.id, name: fullChildDetails.name, quantity: quantity, price: fullChildDetails.price });
-                        itemsToReserve.push({ id: fullChildDetails.id, quantity: quantity });
                         finalPrice += parseFloat(fullChildDetails.price || 0) * quantity;
+                        
+                        // Se o pai não é vendido, então cada filho conta para a dedução de stock do pai
+                        if (!product.sell_parent_product && product.stock_enabled) {
+                             totalQuantityForStockDeduction += quantity;
+                        }
                     }
                 }
             });
         }
         
+        // C. Constrói o pedido de reserva de stock com o ID correto (o do pai)
+        if (totalQuantityForStockDeduction > 0) {
+            itemsToReserve.push({ id: product.id, quantity: totalQuantityForStockDeduction });
+        }
+    
+        // D. Finaliza os dados para o item do carrinho
         if (product.force_one_to_one_complement) {
-            finalQuantity = parentQty;
+            finalQuantity = selectedItemsInModal[product.id] || 0;
         }
 
+        if (itemsToReserve.length === 0 && selected_items_details.length === 0) {
+            dom.modalFeedback.textContent = 'Nenhum item selecionado.';
+            setTimeout(() => dom.modalFeedback.textContent = '', 3000);
+            return;
+        }
+        
         const itemData = {
             original_id: product.id,
             name: product.name,
@@ -181,6 +204,7 @@ export function openProductWithOptionsModal(productId) {
         
         addToCartAndReserve(itemData, itemsToReserve);
     };
+    // ##################### FIM DA CORREÇÃO ######################
 
     const validator = () => {
         const totalSelected = Object.values(selectedItemsInModal).reduce((sum, qty) => sum + qty, 0);
@@ -457,20 +481,29 @@ export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
 function getItemsToReleaseFromGroup(itemGroup) {
     const items = [];
     const multiplier = itemGroup.quantity || 1;
-    
-    if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
-        itemGroup.selected_items.forEach(sub => {
-            items.push({ id: sub.id, quantity: sub.quantity * multiplier });
-        });
-    }
-
     const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
 
-    if (!itemGroup.is_combo) {
-        const isSimpleProduct = !itemGroup.selected_items || itemGroup.selected_items.length === 0;
-        if (isSimpleProduct || (parentProduct && parentProduct.sell_parent_product)) {
-            items.push({ id: itemGroup.original_id, quantity: multiplier });
+    if (!parentProduct) return [];
+
+    // Se o produto pai não é vendido, o stock é controlado pelos filhos, mas deduzido do pai.
+    if (!parentProduct.sell_parent_product && parentProduct.stock_enabled) {
+        let totalChildrenQuantity = 0;
+        if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
+            itemGroup.selected_items.forEach(sub => {
+                totalChildrenQuantity += sub.quantity;
+            });
         }
+        if (totalChildrenQuantity > 0) {
+            items.push({ id: parentProduct.id, quantity: totalChildrenQuantity * multiplier });
+        }
+    } 
+    // Se o produto pai é vendido (e tem stock), o stock dele é que conta.
+    else if (parentProduct.sell_parent_product && parentProduct.stock_enabled) {
+        items.push({ id: parentProduct.id, quantity: multiplier });
+    }
+    // Para produtos simples
+    else if ((!itemGroup.selected_items || itemGroup.selected_items.length === 0) && parentProduct.stock_enabled) {
+         items.push({ id: itemGroup.original_id, quantity: multiplier });
     }
     
     return items.filter(i => i.id && i.quantity > 0);
