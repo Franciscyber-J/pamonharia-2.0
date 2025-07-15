@@ -111,14 +111,14 @@ export function openProductWithOptionsModal(productId) {
     let selectedItemsInModal = {};
     let bodyHtml = '';
 
-    // ARQUITETO: Garantimos que o objeto de estado do modal começa limpo.
+    // ARQUITETO: Garantimos que o objeto de estado do modal começa limpo e explícito.
     if (product.sell_parent_product) {
-        selectedItemsInModal[product.id] = product.force_one_to_one_complement ? 1 : 0;
+        selectedItemsInModal[product.id] = product.force_one_to_one_complement ? 1 : 1;
     }
 
     if (product.children && product.children.length > 0) {
         product.children.forEach(child => {
-            selectedItemsInModal[child.id] = 0; // Inicializa todos os filhos possíveis com 0.
+            selectedItemsInModal[child.id] = 0;
         });
     }
 
@@ -145,14 +145,11 @@ export function openProductWithOptionsModal(productId) {
 
         const parentQty = selectedItemsInModal[product.id] || 0;
         
-        // ARQUITETO: Lógica de reserva totalmente explícita e segura.
-        // 1. Processa o produto PAI, se ele foi selecionado.
         if (product.sell_parent_product && parentQty > 0) {
             itemsToReserve.push({ id: product.id, quantity: parentQty });
             finalPrice += parseFloat(product.price || 0) * parentQty;
         }
 
-        // 2. Processa APENAS os filhos conhecidos do produto.
         if (product.children && product.children.length > 0) {
             product.children.forEach(childProduct => {
                 const quantity = selectedItemsInModal[childProduct.id] || 0;
@@ -393,33 +390,8 @@ export function adjustItemGroupQuantity(cartIndex, amount) {
         return;
     }
     
-    const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
-    const isOneToOne = parentProduct && parentProduct.force_one_to_one_complement;
-
-    if (isOneToOne) {
-        if (amount > 0) {
-            showErrorModal('Ação Indisponível', 'Para adicionar mais itens com complementos obrigatórios, adicione um novo item a partir do cardápio.');
-            return;
-        } 
-        else if (amount < 0) {
-            const itemsToRelease = getItemsToReleaseFromGroup(itemGroup);
-            const singleItemGroup = { ...itemGroup, quantity: 1 };
-            const itemsToReleaseSingle = getItemsToReleaseFromGroup(singleItemGroup);
-
-            socket.emit('release_stock', itemsToReleaseSingle);
-            
-            itemGroup.quantity = newQuantity;
-            itemGroup.total_value -= itemGroup.price; // Subtrai o preço de uma unidade
-            
-            renderCart();
-            return;
-        }
-    }
-    
-    let itemsToUpdate = [];
     const singleItemGroup = { ...itemGroup, quantity: 1 };
-    itemsToUpdate = getItemsToReleaseFromGroup(singleItemGroup);
-
+    const itemsToUpdate = getItemsToReleaseFromGroup(singleItemGroup);
 
     if (amount > 0) {
         socket.emit('reserve_stock', itemsToUpdate, (response) => {
@@ -467,12 +439,11 @@ export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
 
     let newTotalValue = 0;
     const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
-    if (parentProduct && parentProduct.sell_parent_product) {
-        const parentQuantity = itemGroup.selected_items.reduce((sum, si) => sum + si.quantity, 0);
-        newTotalValue += parseFloat(parentProduct.price) * parentQuantity;
+    if (parentProduct.sell_parent_product) {
+        newTotalValue += parseFloat(parentProduct.price || 0) * itemGroup.quantity;
     }
     itemGroup.selected_items.forEach(si => {
-        newTotalValue += parseFloat(si.price) * si.quantity;
+        newTotalValue += parseFloat(si.price) * si.quantity * itemGroup.quantity;
     });
     itemGroup.total_value = newTotalValue;
 
@@ -483,12 +454,10 @@ export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
     }
 }
 
-// ARQUITETO: Função final corrigida para calcular a devolução de forma precisa.
 function getItemsToReleaseFromGroup(itemGroup) {
     const items = [];
     const multiplier = itemGroup.quantity || 1;
-
-    // 1. Adiciona os sub-itens (se houver) à lista para devolução.
+    
     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
         itemGroup.selected_items.forEach(sub => {
             items.push({ id: sub.id, quantity: sub.quantity * multiplier });
@@ -497,11 +466,9 @@ function getItemsToReleaseFromGroup(itemGroup) {
 
     const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
 
-    // 2. Se o grupo NO CARRINHO não for um combo e tiver um 'original_id',
-    //    ele representa um produto principal que pode ter ou não estoque próprio.
-    if (!itemGroup.is_combo && itemGroup.original_id) {
-         // 3. Verifica se o produto principal é vendido (tem preço próprio e estoque)
-        if (parentProduct && parentProduct.sell_parent_product) {
+    if (!itemGroup.is_combo) {
+        const isSimpleProduct = !itemGroup.selected_items || itemGroup.selected_items.length === 0;
+        if (isSimpleProduct || (parentProduct && parentProduct.sell_parent_product)) {
             items.push({ id: itemGroup.original_id, quantity: multiplier });
         }
     }
