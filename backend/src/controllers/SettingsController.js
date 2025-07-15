@@ -1,6 +1,7 @@
 // backend/src/controllers/SettingsController.js
 const connection = require('../database/connection');
 const cloudinary = require('cloudinary').v2;
+const { getIO } = require('../socket-manager');
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -9,9 +10,10 @@ cloudinary.config({
   secure: true,
 });
 
-const emitDataUpdated = (request) => {
+const emitDataUpdated = () => {
   console.log('[Socket.IO] Emitindo evento "data_updated" para todos os clientes do cardápio.');
-  request.io.emit('data_updated');
+  const io = getIO();
+  io.emit('data_updated');
 };
 
 module.exports = {
@@ -39,7 +41,7 @@ module.exports = {
     
     console.log('[SettingsController] Configurações atualizadas no banco de dados.');
 
-    emitDataUpdated(request);
+    emitDataUpdated();
     
     return response.status(200).json({ message: 'Settings updated successfully.' });
   },
@@ -53,9 +55,7 @@ module.exports = {
     );
     return response.json({ timestamp, signature });
   },
-
-  // #################### INÍCIO DA CORREÇÃO ####################
-  // Nova função para fornecer as chaves públicas necessárias para o frontend.
+  
   getPaymentSettings(request, response) {
     console.log('[SettingsController] Fornecendo chave pública do Mercado Pago para o frontend.');
     const publicKey = process.env.MERCADO_PAGO_PUBLIC_KEY;
@@ -69,5 +69,4 @@ module.exports = {
       mercadoPagoPublicKey: publicKey,
     });
   }
-  // ##################### FIM DA CORREÇÃO ######################
 };

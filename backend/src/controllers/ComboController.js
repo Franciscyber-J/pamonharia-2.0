@@ -1,10 +1,13 @@
 // backend/src/controllers/ComboController.js
 const connection = require('../database/connection');
+const { getIO } = require('../socket-manager');
 
-// NOVA FUNÇÃO AUXILIAR PARA EMITIR ATUALIZAÇÕES
-const emitDataUpdated = (request) => {
+// FUNÇÃO AUXILIAR PARA EMITIR ATUALIZAÇÕES
+// ARQUITETO: Corrigido para usar o socket-manager, garantindo emissão confiável.
+const emitDataUpdated = () => {
   console.log('[Socket.IO] Emitindo evento "data_updated" para todos os clientes do cardápio.');
-  request.io.emit('data_updated');
+  const io = getIO();
+  io.emit('data_updated');
 };
 
 module.exports = {
@@ -81,7 +84,7 @@ module.exports = {
         }
       });
       
-      emitDataUpdated(request); 
+      emitDataUpdated(); 
       
       return response.status(201).json({ message: 'Combo criado com sucesso.' });
     } catch (error) {
@@ -112,7 +115,7 @@ module.exports = {
         }
       });
       
-      emitDataUpdated(request); 
+      emitDataUpdated(); 
       
       return response.json({ message: 'Combo atualizado com sucesso.' });
     } catch (error) {
@@ -128,7 +131,7 @@ module.exports = {
       return response.status(404).json({ error: 'Combo não encontrado.' });
     }
     
-    emitDataUpdated(request); 
+    emitDataUpdated(); 
     
     return response.status(204).send();
   },
@@ -147,9 +150,7 @@ module.exports = {
       });
       console.log('[ComboController] Combos reordenados com sucesso.');
       
-      // #################### INÍCIO DA CORREÇÃO ####################
-      emitDataUpdated(request); // EMITE O EVENTO PARA ATUALIZAR OS CARDÁPIOS
-      // ##################### FIM DA CORREÇÃO ######################
+      emitDataUpdated();
       
       return response.status(200).json({ message: 'Combos reordenados com sucesso.' });
     } catch (error) {

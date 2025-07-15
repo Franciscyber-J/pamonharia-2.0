@@ -111,10 +111,20 @@ export function openProductWithOptionsModal(productId) {
     let selectedItemsInModal = {};
     let bodyHtml = '';
 
+    // ARQUITETO: Garantimos que o objeto de estado do modal começa limpo.
+    if (product.sell_parent_product) {
+        selectedItemsInModal[product.id] = product.force_one_to_one_complement ? 1 : 0;
+    }
+
+    if (product.children && product.children.length > 0) {
+        product.children.forEach(child => {
+            selectedItemsInModal[child.id] = 0; // Inicializa todos os filhos possíveis com 0.
+        });
+    }
+
     if (product.sell_parent_product) {
         const isParentOutOfStock = isItemEffectivelyOutOfStock(product);
-        const initialQty = product.force_one_to_one_complement ? 1 : 0;
-        selectedItemsInModal[product.id] = initialQty;
+        const initialQty = selectedItemsInModal[product.id] || 0;
         bodyHtml += `<div class="modal-parent-item"><span>${product.name} (Base)</span><div class="quantity-control"><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${product.id}">${initialQty}</span><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
     }
 
@@ -132,42 +142,33 @@ export function openProductWithOptionsModal(productId) {
         let itemsToReserve = [];
         let finalPrice = 0;
         let finalQuantity = 1;
-        const parentQty = selectedItemsInModal[product.id] || 0;
 
+        const parentQty = selectedItemsInModal[product.id] || 0;
+        
+        // ARQUITETO: Lógica de reserva totalmente explícita e segura.
+        // 1. Processa o produto PAI, se ele foi selecionado.
+        if (product.sell_parent_product && parentQty > 0) {
+            itemsToReserve.push({ id: product.id, quantity: parentQty });
+            finalPrice += parseFloat(product.price || 0) * parentQty;
+        }
+
+        // 2. Processa APENAS os filhos conhecidos do produto.
+        if (product.children && product.children.length > 0) {
+            product.children.forEach(childProduct => {
+                const quantity = selectedItemsInModal[childProduct.id] || 0;
+                if (quantity > 0) {
+                    const fullChildDetails = state.allProductsFlat.find(p => p.id === childProduct.id);
+                    if (fullChildDetails) {
+                        selected_items_details.push({ id: fullChildDetails.id, name: fullChildDetails.name, quantity: quantity, price: fullChildDetails.price });
+                        itemsToReserve.push({ id: fullChildDetails.id, quantity: quantity });
+                        finalPrice += parseFloat(fullChildDetails.price || 0) * quantity;
+                    }
+                }
+            });
+        }
+        
         if (product.force_one_to_one_complement) {
             finalQuantity = parentQty;
-            finalPrice += parseFloat(product.price || 0) * parentQty;
-            itemsToReserve.push({ id: product.id, quantity: parentQty });
-            
-            for (const [id, quantity] of Object.entries(selectedItemsInModal)) {
-                if (quantity > 0 && id != product.id) {
-                    const selectedItem = state.allProductsFlat.find(i => i.id == id);
-                    if (selectedItem) {
-                        for (let i = 0; i < quantity; i++) {
-                            selected_items_details.push({ id: selectedItem.id, name: selectedItem.name, quantity: 1, price: selectedItem.price });
-                            finalPrice += parseFloat(selectedItem.price || 0);
-                            itemsToReserve.push({ id: selectedItem.id, quantity: 1 });
-                        }
-                    }
-                }
-            }
-        } else {
-            if (product.sell_parent_product && parentQty > 0) {
-                selected_items_details.push({ id: product.id, name: product.name, quantity: parentQty, price: product.price });
-                itemsToReserve.push({ id: product.id, quantity: parentQty });
-                finalPrice += parseFloat(product.price || 0) * parentQty;
-            }
-
-            for (const [id, quantity] of Object.entries(selectedItemsInModal)) {
-                if (quantity > 0 && id != product.id) {
-                    const selectedItem = state.allProductsFlat.find(i => i.id == id);
-                    if (selectedItem) {
-                        selected_items_details.push({ id: selectedItem.id, name: selectedItem.name, quantity: quantity, price: selectedItem.price });
-                        finalPrice += parseFloat(selectedItem.price || 0) * quantity;
-                        itemsToReserve.push({ id: selectedItem.id, quantity: quantity });
-                    }
-                }
-            }
         }
 
         const itemData = {
@@ -180,6 +181,7 @@ export function openProductWithOptionsModal(productId) {
             selected_items: selected_items_details,
             image_url: product.image_url
         };
+        
         addToCartAndReserve(itemData, itemsToReserve);
     };
 
@@ -190,7 +192,12 @@ export function openProductWithOptionsModal(productId) {
 
         if (product.force_one_to_one_complement) {
             const parentQty = selectedItemsInModal[product.id] || 0;
-            const totalComplementsQty = Object.entries(selectedItemsInModal).filter(entry => entry[0] != product.id).reduce((sum, entry) => sum + entry[1], 0);
+            let totalComplementsQty = 0;
+            if (product.children) {
+                product.children.forEach(child => {
+                    totalComplementsQty += (selectedItemsInModal[child.id] || 0);
+                });
+            }
             
             isValid = (parentQty === totalComplementsQty) && parentQty > 0;
             dom.modalFeedback.textContent = !isValid && parentQty > 0 ? `Selecione ${parentQty - totalComplementsQty} complemento(s) restante(s).` : '';
@@ -211,7 +218,13 @@ export function openProductWithOptionsModal(productId) {
                     isComplement: e.target.dataset.isComplement === 'true',
                     oneToOneRuleActive: product.force_one_to_one_complement,
                     getParentQty: () => selectedItemsInModal[product.id] || 0,
-                    getTotalComplementsQty: () => Object.entries(selectedItemsInModal).filter(entry => entry[0] != product.id).reduce((sum, entry) => sum + entry[1], 0)
+                    getTotalComplementsQty: () => {
+                        let total = 0;
+                        if (product.children) {
+                            product.children.forEach(child => total += (selectedItemsInModal[child.id] || 0));
+                        }
+                        return total;
+                    }
                 };
                 handleQuantityChange(e.target, selectedItemsInModal, validator, option, changeOptions);
             }
@@ -337,23 +350,20 @@ export function getAvailableStock(item) {
     return Infinity;
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// Função refatorada para usar o padrão de acknowledgement (callback)
 function addToCartAndReserve(itemData, itemsToReserve) {
     console.log('[Socket.IO] 📤 Emitindo "reserve_stock" com callback para:', itemsToReserve);
     dom.addToCartBtn.disabled = true;
     dom.addToCartBtn.textContent = 'Reservando...';
     dom.modalFeedback.textContent = '';
 
-    // Timeout para evitar que a interface fique presa indefinidamente
     const reservationTimeout = setTimeout(() => {
         dom.addToCartBtn.disabled = false;
         dom.addToCartBtn.textContent = 'Adicionar ao Carrinho';
         dom.modalFeedback.textContent = 'Erro de comunicação. Tente novamente.';
-    }, 10000); // 10 segundos
+    }, 10000);
 
     socket.emit('reserve_stock', itemsToReserve, (response) => {
-        clearTimeout(reservationTimeout); // Cancela o timeout pois recebemos uma resposta
+        clearTimeout(reservationTimeout);
         console.log('[Socket.IO] ACK recebido para "reserve_stock":', response);
         
         dom.addToCartBtn.disabled = false;
@@ -371,7 +381,6 @@ function addToCartAndReserve(itemData, itemsToReserve) {
         }
     });
 }
-// ##################### FIM DA CORREÇÃO #####################
 
 
 export function adjustItemGroupQuantity(cartIndex, amount) {
@@ -393,24 +402,14 @@ export function adjustItemGroupQuantity(cartIndex, amount) {
             return;
         } 
         else if (amount < 0) {
-            const itemsToRelease = [{ id: itemGroup.original_id, quantity: 1 }];
+            const itemsToRelease = getItemsToReleaseFromGroup(itemGroup);
+            const singleItemGroup = { ...itemGroup, quantity: 1 };
+            const itemsToReleaseSingle = getItemsToReleaseFromGroup(singleItemGroup);
+
+            socket.emit('release_stock', itemsToReleaseSingle);
             
-            if (itemGroup.selected_items.length > 0) {
-                const complementToRemove = itemGroup.selected_items.pop();
-                itemsToRelease.push({ id: complementToRemove.id, quantity: 1 });
-            }
-
-            socket.emit('release_stock', itemsToRelease);
-
             itemGroup.quantity = newQuantity;
-            
-            let newTotalValue = parseFloat(parentProduct.price) * newQuantity;
-            itemGroup.selected_items.forEach(sub => {
-                newTotalValue += parseFloat(sub.price);
-            });
-            
-            itemGroup.total_value = newTotalValue;
-            itemGroup.price = newQuantity > 0 ? newTotalValue / newQuantity : 0;
+            itemGroup.total_value -= itemGroup.price; // Subtrai o preço de uma unidade
             
             renderCart();
             return;
@@ -418,32 +417,26 @@ export function adjustItemGroupQuantity(cartIndex, amount) {
     }
     
     let itemsToUpdate = [];
-    if (itemGroup.is_combo) {
-        if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
-            itemGroup.selected_items.forEach(sub => {
-                itemsToUpdate.push({ id: sub.id, quantity: sub.quantity });
-            });
-        }
-    } else {
-         itemsToUpdate.push({ id: itemGroup.original_id, quantity: 1 });
-    }
+    const singleItemGroup = { ...itemGroup, quantity: 1 };
+    itemsToUpdate = getItemsToReleaseFromGroup(singleItemGroup);
+
 
     if (amount > 0) {
-        for (const item of itemsToUpdate) {
-            const stockCheckItem = state.allProductsFlat.find(p => p.id === item.id);
-            if (getAvailableStock(stockCheckItem) < item.quantity) {
-                showErrorModal('Estoque Insuficiente', `Não há estoque suficiente para adicionar mais um "${itemGroup.name}".`);
-                return;
+        socket.emit('reserve_stock', itemsToUpdate, (response) => {
+            if (response && response.success) {
+                itemGroup.quantity = newQuantity;
+                itemGroup.total_value = itemGroup.price * newQuantity;
+                renderCart();
+            } else {
+                showErrorModal('Estoque Insuficiente', `Não foi possível adicionar mais um "${itemGroup.name}".`);
             }
-        }
-        socket.emit('reserve_stock', itemsToUpdate);
+        });
     } else {
         socket.emit('release_stock', itemsToUpdate);
+        itemGroup.quantity = newQuantity;
+        itemGroup.total_value = itemGroup.price * newQuantity;
+        renderCart();
     }
-
-    itemGroup.quantity = newQuantity;
-    itemGroup.total_value = itemGroup.price * newQuantity;
-    renderCart();
 }
 
 export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
@@ -490,25 +483,27 @@ export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
     }
 }
 
+// ARQUITETO: Função final corrigida para calcular a devolução de forma precisa.
 function getItemsToReleaseFromGroup(itemGroup) {
     const items = [];
-    const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
-    const isLockedGroup = itemGroup.is_combo || (parentProduct && parentProduct.force_one_to_one_complement);
-    const multiplier = isLockedGroup ? itemGroup.quantity : 1;
+    const multiplier = itemGroup.quantity || 1;
 
+    // 1. Adiciona os sub-itens (se houver) à lista para devolução.
     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
         itemGroup.selected_items.forEach(sub => {
             items.push({ id: sub.id, quantity: sub.quantity * multiplier });
         });
     }
 
-    // Se o produto pai for vendido separadamente, adiciona a sua própria quantidade
-    if (parentProduct && parentProduct.sell_parent_product) {
-        items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
-    } 
-    // Se não for um combo e não tiver complementos (item simples), adiciona a sua quantidade
-    else if (!itemGroup.is_combo && (!itemGroup.selected_items || itemGroup.selected_items.length === 0)) {
-        items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
+    const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
+
+    // 2. Se o grupo NO CARRINHO não for um combo e tiver um 'original_id',
+    //    ele representa um produto principal que pode ter ou não estoque próprio.
+    if (!itemGroup.is_combo && itemGroup.original_id) {
+         // 3. Verifica se o produto principal é vendido (tem preço próprio e estoque)
+        if (parentProduct && parentProduct.sell_parent_product) {
+            items.push({ id: itemGroup.original_id, quantity: multiplier });
+        }
     }
     
     return items.filter(i => i.id && i.quantity > 0);

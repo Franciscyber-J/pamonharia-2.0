@@ -1,5 +1,6 @@
 // backend/src/controllers/OrderController.js
 const connection = require('../database/connection');
+const { getIO } = require('../socket-manager');
 
 module.exports = {
   async index(request, response) {
@@ -25,7 +26,8 @@ module.exports = {
       .returning('*');
 
     if (updatedOrder) {
-      request.io.emit('order_status_updated', { id: Number(id), status, order: updatedOrder });
+      const io = getIO();
+      io.emit('order_status_updated', { id: Number(id), status, order: updatedOrder });
     }
 
     return response.status(204).send();
@@ -70,7 +72,8 @@ module.exports = {
       // Se for um novo pedido na entrega, ele já está pronto para o dashboard.
       if (isNewOnDeliveryOrder) {
         console.log(`[OrderController] 🚀 Emitindo evento 'new_order' para o pedido #${newOrderData.id}`);
-        request.io.emit('new_order', newOrderData);
+        const io = getIO();
+        io.emit('new_order', newOrderData);
       }
 
       return response.status(201).json(newOrderData);
@@ -87,7 +90,8 @@ module.exports = {
         .whereIn('status', ['Finalizado', 'Cancelado'])
         .del();
       
-      request.io.emit('history_cleared');
+      const io = getIO();
+      io.emit('history_cleared');
       
       return response.status(204).send();
     } catch (error) {

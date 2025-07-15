@@ -1,5 +1,6 @@
 // backend/src/controllers/ProductController.js
 const connection = require('../database/connection');
+const { getIO } = require('../socket-manager');
 
 // Função auxiliar para buscar colunas de uma tabela, para evitar erros de inserção/atualização.
 async function getTableColumns(tableName) {
@@ -13,9 +14,12 @@ async function getTableColumns(tableName) {
 }
 
 // Função auxiliar para emitir o evento de atualização de dados para os clientes.
-const emitDataUpdated = (request) => {
+// ARQUITETO: A função agora busca a instância do IO diretamente do nosso manager central.
+// Isso garante que o evento será emitido de forma confiável, sem depender do objeto 'request'.
+const emitDataUpdated = () => {
   console.log('[Socket.IO] Emitindo evento "data_updated" para todos os clientes do cardápio.');
-  request.io.emit('data_updated');
+  const io = getIO();
+  io.emit('data_updated');
 };
 
 module.exports = {
@@ -84,7 +88,7 @@ module.exports = {
       }
       const [product] = await connection('products').insert(dataToInsert).returning('*');
       
-      emitDataUpdated(request);
+      emitDataUpdated();
       if (dataToInsert.stock_enabled) {
           await request.triggerInventoryReload();
       }
@@ -133,7 +137,7 @@ module.exports = {
         }
       });
       
-      emitDataUpdated(request);
+      emitDataUpdated();
       await request.triggerInventoryReload();
       
       return response.json({ message: 'Produto atualizado com sucesso.' });
@@ -149,7 +153,7 @@ module.exports = {
     const deleted_rows = await connection('products').where('id', id).delete();
     if (deleted_rows === 0) return response.status(404).json({ error: 'Produto não encontrado.' });
     
-    emitDataUpdated(request);
+    emitDataUpdated();
     await request.triggerInventoryReload();
     
     return response.status(204).send();
@@ -187,7 +191,7 @@ module.exports = {
       });
 
       // 3. Notifica todos os clientes sobre a mudança para recarregar os dados.
-      emitDataUpdated(request);
+      emitDataUpdated();
       
       // 4. Força o servidor a recarregar o inventário da base de dados.
       await request.triggerInventoryReload(); 
@@ -218,9 +222,7 @@ module.exports = {
       });
       console.log('[ProductController] Produtos reordenados com sucesso.');
       
-      // #################### INÍCIO DA CORREÇÃO ####################
-      emitDataUpdated(request); // EMITE O EVENTO PARA ATUALIZAR OS CARDÁPIOS
-      // ##################### FIM DA CORREÇÃO ######################
+      emitDataUpdated();
       
       return response.status(200).json({ message: 'Produtos reordenados com sucesso.' });
     } catch (error) {
@@ -259,7 +261,7 @@ module.exports = {
             }
         });
 
-        emitDataUpdated(request);
+        emitDataUpdated();
         await request.triggerInventoryReload();
 
         return response.status(201).json({ message: 'Produto duplicado com sucesso.' });

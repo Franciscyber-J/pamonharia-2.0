@@ -1,7 +1,7 @@
 // backend/src/controllers/PaymentController.js
 const { MercadoPagoConfig, Payment } = require('mercadopago');
 const connection = require('../database/connection');
-const { io } = require('../index'); // Importa a instância 'io' real
+const { getIO } = require('../socket-manager'); // ARQUITETO: Corrigido para usar o manager.
 
 const client = new MercadoPagoConfig({ 
   accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN 
@@ -68,6 +68,7 @@ module.exports = {
 
         const [updatedOrder] = await connection('orders').where('id', order_id).update(orderUpdateData).returning('*');
         
+        const io = getIO();
         io.emit('order_status_updated', { id: updatedOrder.id, status: updatedOrder.status, order: updatedOrder });
         
         if (updatedOrder.status === 'Pago') {
@@ -145,6 +146,7 @@ module.exports = {
                     
                     console.log(`[Webhook] Pedido ${order_id} atualizado para status: ${updatedOrder.status}.`);
 
+                    const io = getIO();
                     io.emit('order_status_updated', { id: updatedOrder.id, status: updatedOrder.status, order: updatedOrder });
                     
                     if (updatedOrder.status === 'Pago') {
