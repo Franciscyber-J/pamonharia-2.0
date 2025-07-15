@@ -1,7 +1,7 @@
 // backend/src/controllers/PaymentController.js
 const { MercadoPagoConfig, Payment } = require('mercadopago');
 const connection = require('../database/connection');
-const { eventBus } = require('../index'); // Importa o eventBus central
+const { io } = require('../index'); // Importa a instância 'io' real
 
 const client = new MercadoPagoConfig({ 
   accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN 
@@ -31,35 +31,29 @@ module.exports = {
             payer: {
                 email: payer.email,
             },
+            notification_url: `${process.env.BACKEND_URL}/api/payments/webhook`,
             external_reference: String(order_id),
         };
 
         if (payment_type === 'credit_card' || payment_type === 'debit_card') {
-            if (!token) {
-                return response.status(400).json({ error: 'O token do cartão é obrigatório para este tipo de pagamento.' });
-            }
+            if (!token) return response.status(400).json({ error: 'O token do cartão é obrigatório.' });
             paymentRequestBody.token = token;
             paymentRequestBody.installments = installments;
-            paymentRequestBody.issuer_id = issuer_id;
+            if(issuer_id) paymentRequestBody.issuer_id = issuer_id;
             
             if (payer.identification && payer.identification.type && payer.identification.number) {
                  paymentRequestBody.payer.identification = {
                     type: payer.identification.type,
                     number: payer.identification.number,
                 };
-            } else {
-                return response.status(400).json({ error: 'A identificação do pagador (CPF/CNPJ) é obrigatória para pagamentos com cartão.' });
             }
         }
         
         console.log(`[PaymentController] Enviando para o Mercado Pago para o pedido ${order_id}:`);
-        console.log(JSON.stringify(paymentRequestBody, null, 2));
         
-        const paymentResult = await payment.create({ body: paymentRequestBody }, {
-            idempotencyKey: idempotencyKey
-        });
+        const paymentResult = await payment.create({ body: paymentRequestBody, requestOptions: { idempotencyKey } });
         
-        console.log(`[PaymentController] Resposta do Mercado Pago recebida para o pedido ${order_id}.`);
+        console.log(`[PaymentController] Resposta do MP recebida para o pedido ${order_id}.`);
 
         const orderUpdateData = {
             payment_id: String(paymentResult.id),
@@ -72,14 +66,12 @@ module.exports = {
             orderUpdateData.status = 'Aguardando Pagamento';
         }
 
-        await connection('orders').where('id', order_id).update(orderUpdateData);
+        const [updatedOrder] = await connection('orders').where('id', order_id).update(orderUpdateData).returning('*');
         
-        const updatedOrder = await connection('orders').where('id', order_id).first();
-        
-        eventBus.broadcastStatusUpdate(updatedOrder.id, updatedOrder.status);
+        io.emit('order_status_updated', { id: updatedOrder.id, status: updatedOrder.status, order: updatedOrder });
         
         if (updatedOrder.status === 'Pago') {
-            eventBus.broadcastNewOrder(updatedOrder);
+            io.emit('new_order', updatedOrder);
         }
 
         if (payment_method_id === 'pix') {
@@ -91,14 +83,15 @@ module.exports = {
         } else {
             return response.json({
                 status: paymentResult.status,
+                status_detail: paymentResult.status_detail,
                 payment_id: paymentResult.id,
-                message: 'Pagamento processado com sucesso.'
+                message: 'Pagamento processado.'
             });
         }
 
     } catch (error) {
         console.error(`[PaymentController] Erro detalhado ao processar pagamento para o pedido ${order_id}:`, error);
-        const errorMessage = error.cause?.api_response?.data?.message || error.message || 'Erro desconhecido ao processar o pagamento.';
+        const errorMessage = error.cause?.error?.message || error.message || 'Erro desconhecido.';
         return response.status(500).json({ 
             error: 'Falha ao processar o pagamento.', 
             details: errorMessage
@@ -107,50 +100,66 @@ module.exports = {
   },
 
   async receiveWebhook(request, response) {
-    const { query, body } = request;
-    const topic = query.topic || query.type || body.topic;
-    
-    console.log(`[Webhook] Notificação recebida. Tópico: ${topic}`);
-    console.log('[Webhook] Corpo da requisição:', JSON.stringify(body, null, 2));
+    const { query } = request;
+    const topic = query.topic || query.type;
 
-    response.status(200).send('Webhook recebido.');
-
-    const paymentId = body.data?.id;
-
-    if (topic === 'payment' && paymentId) {
-      console.log(`[Webhook] Evento de pagamento identificado. ID do Pagamento: ${paymentId}. Iniciando processamento...`);
-      try {
-        const paymentDetails = await payment.get({ id: paymentId });
-        const order_id = paymentDetails.external_reference;
-
-        if (paymentDetails && order_id) {
-          console.log(`[Webhook] Processando pagamento ${paymentDetails.id} para o pedido ${order_id}. Status: ${paymentDetails.status}`);
-          
-          const orderToUpdate = { 
-            payment_id: String(paymentDetails.id), 
-            payment_status: paymentDetails.status 
-          };
-          
-          if (paymentDetails.status === 'approved') {
-            orderToUpdate.status = 'Pago';
-          }
-          
-          await connection('orders').where('id', order_id).update(orderToUpdate);
-          
-          const updatedOrder = await connection('orders').where('id', order_id).first();
-          if (updatedOrder) {
-              eventBus.broadcastStatusUpdate(updatedOrder.id, updatedOrder.status);
-              
-              if (updatedOrder.status === 'Pago') {
-                  eventBus.broadcastNewOrder(updatedOrder);
-              }
-          }
-        }
-      } catch (error) {
-        console.error(`[Webhook] Erro ao processar o pagamento ${paymentId} após o recebimento:`, error.message);
-      }
-    } else {
-      console.log('[Webhook] Evento ignorado (não é de pagamento ou não possui ID).');
+    if (!topic) {
+        console.log('[Webhook] Notificação recebida sem tópico. A ignorar.');
+        return response.status(200).send();
     }
+
+    console.log(`[Webhook] Notificação recebida. Tópico: ${topic}`);
+
+    try {
+        if (topic === 'payment') {
+            const paymentId = query.id || request.body.data?.id;
+            if (!paymentId) {
+                console.log('[Webhook] Evento de pagamento sem ID. A ignorar.');
+                return response.status(200).send();
+            }
+
+            console.log(`[Webhook] Evento de pagamento identificado. ID do Pagamento: ${paymentId}.`);
+            
+            const paymentDetails = await payment.get({ id: paymentId });
+            const order_id = paymentDetails.external_reference;
+            const currentStatus = paymentDetails.status;
+            
+            if (paymentDetails && order_id) {
+                console.log(`[Webhook] Processando pagamento ${paymentId} para pedido ${order_id}. Novo Status: ${currentStatus}`);
+                
+                const order = await connection('orders').where('id', order_id).first();
+                if (order && order.status !== 'Pago' && order.status !== 'Finalizado') {
+                    
+                    const orderUpdate = { 
+                        payment_id: String(paymentDetails.id), 
+                        payment_status: currentStatus 
+                    };
+
+                    if (currentStatus === 'approved') {
+                        orderUpdate.status = 'Pago';
+                    } else if (currentStatus === 'cancelled' || currentStatus === 'rejected') {
+                        orderUpdate.status = 'Cancelado';
+                    }
+                    
+                    const [updatedOrder] = await connection('orders').where('id', order_id).update(orderUpdate).returning('*');
+                    
+                    console.log(`[Webhook] Pedido ${order_id} atualizado para status: ${updatedOrder.status}.`);
+
+                    io.emit('order_status_updated', { id: updatedOrder.id, status: updatedOrder.status, order: updatedOrder });
+                    
+                    if (updatedOrder.status === 'Pago') {
+                        console.log(`[Webhook] Emitindo evento 'new_order' para o pedido pago #${updatedOrder.id}`);
+                        io.emit('new_order', updatedOrder);
+                    }
+                } else {
+                     console.log(`[Webhook] Pedido ${order_id} já está em um estado final ('${order?.status}') ou não foi encontrado. Nenhuma ação tomada.`);
+                }
+            }
+        }
+    } catch (error) {
+        console.error(`[Webhook] Erro ao processar notificação:`, error.message);
+    }
+    
+    response.status(200).send('ok');
   },
 };

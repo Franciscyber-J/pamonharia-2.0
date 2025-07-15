@@ -1,3 +1,4 @@
+// frontend/cardapio/js/cart.js
 import { state, socket } from './main.js';
 import { dom, renderCart, setupModal, showErrorModal } from './ui.js';
 
@@ -314,7 +315,10 @@ export function isItemEffectivelyOutOfStock(item) {
 
 export function isComboEffectivelyOutOfStock(combo) {
     if (!combo || !combo.products) return true;
-    const totalAvailableStock = combo.products.reduce((sum, product) => sum + getAvailableStock(state.allProductsFlat.find(p => p.id === product.id)), 0);
+    const totalAvailableStock = combo.products.reduce((sum, product) => {
+        const fullProduct = state.allProductsFlat.find(p => p.id === product.id);
+        return sum + (getAvailableStock(fullProduct) || 0);
+    }, 0);
     return totalAvailableStock < combo.total_items_limit;
 }
 
@@ -324,45 +328,51 @@ export function getAvailableStock(item) {
     if (parentId) {
         const parent = state.allProductsFlat.find(p => p.id === parentId);
         if (parent && parent.stock_sync_enabled && parent.stock_enabled) {
-            return state.liveStockState[parent.id] || 0;
+            return state.liveStockState[parent.id] ?? 0;
         }
     }
     if (item.stock_enabled) {
-        return state.liveStockState[item.id] || 0;
+        return state.liveStockState[item.id] ?? 0;
     }
     return Infinity;
 }
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// Função refatorada para usar o padrão de acknowledgement (callback)
 function addToCartAndReserve(itemData, itemsToReserve) {
-    console.log('[Socket.IO] 📤 Emitindo "reserve_stock" para:', itemsToReserve);
+    console.log('[Socket.IO] 📤 Emitindo "reserve_stock" com callback para:', itemsToReserve);
     dom.addToCartBtn.disabled = true;
     dom.addToCartBtn.textContent = 'Reservando...';
     dom.modalFeedback.textContent = '';
 
-    const successHandler = () => {
-        console.log('[Socket.IO] ✅ "reservation_success" recebido.');
-        socket.off('reservation_failure', failureHandler);
-        state.cart.push({ ...itemData, cart_id: `cart_${Date.now()}` });
-        renderCart();
-        dom.modal.style.display = 'none';
-    };
-
-    const failureHandler = ({ message }) => {
-        console.error(`[Socket.IO] ❌ "reservation_failure" recebido: ${message}`);
-        socket.off('reservation_success', successHandler);
-        dom.modalFeedback.textContent = `Erro: ${message}`;
-    };
-    
-    const finallyHandler = () => {
+    // Timeout para evitar que a interface fique presa indefinidamente
+    const reservationTimeout = setTimeout(() => {
         dom.addToCartBtn.disabled = false;
         dom.addToCartBtn.textContent = 'Adicionar ao Carrinho';
-    };
-    
-    socket.once('reservation_success', () => { successHandler(); finallyHandler(); });
-    socket.once('reservation_failure', (data) => { failureHandler(data); finallyHandler(); });
+        dom.modalFeedback.textContent = 'Erro de comunicação. Tente novamente.';
+    }, 10000); // 10 segundos
 
-    socket.emit('reserve_stock', itemsToReserve);
+    socket.emit('reserve_stock', itemsToReserve, (response) => {
+        clearTimeout(reservationTimeout); // Cancela o timeout pois recebemos uma resposta
+        console.log('[Socket.IO] ACK recebido para "reserve_stock":', response);
+        
+        dom.addToCartBtn.disabled = false;
+        dom.addToCartBtn.textContent = 'Adicionar ao Carrinho';
+
+        if (response && response.success) {
+            console.log('[Cart] Reserva de estoque bem-sucedida. Adicionando ao carrinho.');
+            state.cart.push({ ...itemData, cart_id: `cart_${Date.now()}` });
+            renderCart();
+            dom.modal.style.display = 'none';
+        } else {
+            const errorMessage = response?.message || 'Estoque insuficiente.';
+            console.error(`[Cart] Falha na reserva de estoque: ${errorMessage}`);
+            dom.modalFeedback.textContent = `Erro: ${errorMessage}`;
+        }
+    });
 }
+// ##################### FIM DA CORREÇÃO #####################
+
 
 export function adjustItemGroupQuantity(cartIndex, amount) {
     const itemGroup = state.cart[cartIndex];
@@ -492,9 +502,12 @@ function getItemsToReleaseFromGroup(itemGroup) {
         });
     }
 
+    // Se o produto pai for vendido separadamente, adiciona a sua própria quantidade
     if (parentProduct && parentProduct.sell_parent_product) {
         items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
-    } else if (!parentProduct || (!parentProduct.sell_parent_product && !itemGroup.is_combo && itemGroup.selected_items.length === 0)) {
+    } 
+    // Se não for um combo e não tiver complementos (item simples), adiciona a sua quantidade
+    else if (!itemGroup.is_combo && (!itemGroup.selected_items || itemGroup.selected_items.length === 0)) {
         items.push({ id: itemGroup.original_id, quantity: itemGroup.quantity });
     }
     

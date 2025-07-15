@@ -9,6 +9,14 @@ const path = require('path');
 const connection = require('./database/connection');
 const apiRoutes = require('./routes');
 
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: { origin: "*", methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] }
+});
+
+module.exports.io = io;
+
 async function startServer() {
     console.log('----------------------------------------------------');
     console.log('🚀 INICIANDO SERVIDOR DA PAMONHARIA 2.0...');
@@ -25,14 +33,12 @@ async function startServer() {
         process.exit(1);
     }
 
-    const app = express();
-    const server = http.createServer(app);
-    const io = new Server(server, {
-        cors: { origin: "*", methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] }
-    });
-
     app.use(cors());
-    app.use(express.json());
+    app.use(express.json({
+      verify: (req, res, buf) => {
+        req.rawBody = buf;
+      }
+    }));
 
     let liveInventory = {};
 
@@ -48,8 +54,6 @@ async function startServer() {
         } catch (error) { console.error('[Server] ❌ Erro ao recarregar o inventário:', error); }
     };
     
-    // Middleware para injetar o 'io' e o 'trigger' em todas as requisições da API.
-    // Esta é a abordagem padrão e robusta para evitar dependências circulares.
     app.use((request, response, next) => {
         request.io = io;
         request.triggerInventoryReload = triggerFullInventoryReload;
@@ -97,44 +101,46 @@ async function startServer() {
             try {
                 for (const [productId, totalQuantityChange] of stockChanges.entries()) {
                     const dbProduct = await trx('products').where('id', productId).first();
+                    if (!dbProduct) {
+                        console.warn(`[Stock] Produto ID ${productId} não encontrado na transação. A ignorar.`);
+                        continue;
+                    }
                     const currentStock = dbProduct.stock_quantity;
-                    let newStockValue;
-
+                    
                     if (operation === 'decrement') {
-                        if (currentStock < totalQuantityChange) {
+                        if (currentStock === null || currentStock < totalQuantityChange) {
                           throw new Error(`Estoque insuficiente para ${dbProduct.name}.`);
                         }
-                        newStockValue = currentStock - totalQuantityChange;
                         await trx('products').where('id', productId).decrement('stock_quantity', totalQuantityChange);
                     } else {
-                        newStockValue = currentStock + totalQuantityChange;
                         await trx('products').where('id', productId).increment('stock_quantity', totalQuantityChange);
                     }
-                    liveInventory[productId] = newStockValue;
+                    
+                    const productForSyncCheck = productsToSync.get(productId);
+                    if (productForSyncCheck) {
+                        const updatedParent = await trx('products').where('id', productId).first();
+                        const newStockValue = updatedParent.stock_quantity;
 
-                    // #################### INÍCIO DA CORREÇÃO DE SYNC NA VENDA ####################
-                    if (productsToSync.has(productId)) {
                         console.log(`[StockSync] Sincronizando filhos do produto #${productId} para o novo estoque: ${newStockValue}`);
-                        const children = await trx('products').where('parent_product_id', productId).select('id');
-                        if (children.length > 0) {
-                            const childrenIds = children.map(c => c.id);
-                            await trx('products').whereIn('id', childrenIds).update({ stock_quantity: newStockValue });
-                            childrenIds.forEach(childId => {
-                                liveInventory[childId] = newStockValue;
-                            });
-                        }
+                        await trx('products')
+                            .where('parent_product_id', productId)
+                            .update({ stock_quantity: newStockValue });
                     }
-                    // ##################### FIM DA CORREÇÃO DE SYNC NA VENDA ######################
                 }
                 await trx.commit();
             } catch(err) {
                 await trx.rollback();
                 console.error(`[Server] ❌ Falha na transação de estoque, revertendo. Erro:`, err.message);
-                await triggerFullInventoryReload(); 
+                await triggerFullInventoryReload();
                 throw err;
             }
             
-            io.emit('stock_update', liveInventory);
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // Após a transação bem-sucedida, recarrega o inventário inteiro e transmite.
+            // Isto garante que o estado do inventário está sempre consistente com a fonte da verdade (DB).
+            await triggerFullInventoryReload();
+            // ##################### FIM DA CORREÇÃO ######################
+            
             return { success: true };
 
         } catch (error) {
@@ -147,12 +153,19 @@ async function startServer() {
         console.log(`[Server] ➡️ Cliente conectado: ${socket.id}`);
         socket.emit('stock_update', liveInventory);
 
-        socket.on('reserve_stock', async (itemsToReserve) => {
+        socket.on('reserve_stock', async (itemsToReserve, callback) => {
+            console.log(`[Socket.IO] Recebido 'reserve_stock' do cliente ${socket.id}`);
             try {
                 await handleStockChange(itemsToReserve, 'decrement');
-                socket.emit('reservation_success');
+                console.log(`[Socket.IO] Reserva para ${socket.id} bem-sucedida. Enviando ACK de sucesso.`);
+                if (typeof callback === 'function') {
+                    callback({ success: true });
+                }
             } catch (error) {
-                socket.emit('reservation_failure', { message: error.message });
+                console.error(`[Socket.IO] Falha na reserva para ${socket.id}: ${error.message}. Enviando ACK de falha.`);
+                if (typeof callback === 'function') {
+                    callback({ success: false, message: error.message });
+                }
             }
         });
 
