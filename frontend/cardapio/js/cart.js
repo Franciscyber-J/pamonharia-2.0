@@ -137,6 +137,9 @@ export function openProductWithOptionsModal(productId) {
     }
 
     // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Lógica de 'onSave' e 'validator' completamente refatorada para ser robusta
+    // e respeitar todas as regras de negócio (`sell_parent_product` e `force_one_to_one_complement`).
+
     const onSave = () => {
         let selected_items_details = [];
         let itemsToReserve = [];
@@ -149,8 +152,7 @@ export function openProductWithOptionsModal(productId) {
             const parentQty = selectedItemsInModal[product.id] || 0;
             if (parentQty > 0) {
                 finalPrice += parseFloat(product.price || 0) * parentQty;
-                // Apenas o pai conta para o stock se ele for vendido separadamente
-                if(product.stock_enabled) {
+                if (product.stock_enabled) {
                     totalQuantityForStockDeduction += parentQty;
                 }
             }
@@ -175,7 +177,7 @@ export function openProductWithOptionsModal(productId) {
             });
         }
         
-        // C. Constrói o pedido de reserva de stock com o ID correto (o do pai)
+        // C. Constrói o pedido de reserva de stock com o ID correto (o do pai) e a quantidade correta
         if (totalQuantityForStockDeduction > 0) {
             itemsToReserve.push({ id: product.id, quantity: totalQuantityForStockDeduction });
         }
@@ -204,12 +206,12 @@ export function openProductWithOptionsModal(productId) {
         
         addToCartAndReserve(itemData, itemsToReserve);
     };
-    // ##################### FIM DA CORREÇÃO ######################
 
     const validator = () => {
         const totalSelected = Object.values(selectedItemsInModal).reduce((sum, qty) => sum + qty, 0);
         let isValid = totalSelected > 0;
         let buttonText = 'Adicionar ao Carrinho';
+        dom.modalFeedback.textContent = ''; // Limpa feedback anterior
 
         if (product.force_one_to_one_complement) {
             const parentQty = selectedItemsInModal[product.id] || 0;
@@ -220,14 +222,19 @@ export function openProductWithOptionsModal(productId) {
                 });
             }
             
-            isValid = (parentQty === totalComplementsQty) && parentQty > 0;
-            dom.modalFeedback.textContent = !isValid && parentQty > 0 ? `Selecione ${parentQty - totalComplementsQty} complemento(s) restante(s).` : '';
-            if (isValid) buttonText = `Adicionar ${parentQty} item(ns)`;
+            isValid = (parentQty > 0) && (parentQty === totalComplementsQty);
+            if (!isValid && parentQty > 0) {
+                dom.modalFeedback.textContent = `Selecione ${parentQty - totalComplementsQty} complemento(s) restante(s).`;
+            }
+            if (isValid) {
+                buttonText = `Adicionar ${parentQty} item(ns)`;
+            }
         }
         
         dom.addToCartBtn.textContent = buttonText;
         dom.addToCartBtn.disabled = !isValid;
     };
+    // ##################### FIM DA CORREÇÃO ######################
 
     setupModal({ title: `Montar ${product.name}`, description: 'Selecione os itens e quantidades desejadas.', body: bodyHtml, onSave, onOpen: validator });
     dom.modalBody.querySelectorAll('.quantity-control button[data-item-id]').forEach(button => {
@@ -289,7 +296,9 @@ export function openComboModal(comboId) {
                 finalPrice += parseFloat(comboProductInfo.price_modifier || 0) * quantity;
                 
                 selected_items.push({ id: product.id, name: product.name, quantity: quantity, price: product.price });
-                itemsToReserve.push({ id: product.id, quantity: quantity });
+                if (product.stock_enabled) {
+                    itemsToReserve.push({ id: product.id, quantity: quantity });
+                }
             }
         }
         
@@ -450,9 +459,13 @@ export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
             showErrorModal('Item Esgotado', `Desculpe, ${stockCheckItem.name} está esgotado.`);
             return;
         }
-        socket.emit('reserve_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
+        if (stockCheckItem.stock_enabled) {
+            socket.emit('reserve_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
+        }
     } else if (amount < 0 && subItem.quantity > 0) {
-        socket.emit('release_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
+        if (stockCheckItem.stock_enabled) {
+            socket.emit('release_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
+        }
     }
 
     if (newQuantity <= 0) {
@@ -485,25 +498,19 @@ function getItemsToReleaseFromGroup(itemGroup) {
 
     if (!parentProduct) return [];
 
-    // Se o produto pai não é vendido, o stock é controlado pelos filhos, mas deduzido do pai.
+    let totalStockDeduction = 0;
     if (!parentProduct.sell_parent_product && parentProduct.stock_enabled) {
-        let totalChildrenQuantity = 0;
         if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
             itemGroup.selected_items.forEach(sub => {
-                totalChildrenQuantity += sub.quantity;
+                totalStockDeduction += sub.quantity;
             });
         }
-        if (totalChildrenQuantity > 0) {
-            items.push({ id: parentProduct.id, quantity: totalChildrenQuantity * multiplier });
-        }
-    } 
-    // Se o produto pai é vendido (e tem stock), o stock dele é que conta.
-    else if (parentProduct.sell_parent_product && parentProduct.stock_enabled) {
-        items.push({ id: parentProduct.id, quantity: multiplier });
+    } else if (parentProduct.sell_parent_product && parentProduct.stock_enabled) {
+        totalStockDeduction = itemGroup.quantity;
     }
-    // Para produtos simples
-    else if ((!itemGroup.selected_items || itemGroup.selected_items.length === 0) && parentProduct.stock_enabled) {
-         items.push({ id: itemGroup.original_id, quantity: multiplier });
+
+    if (totalStockDeduction > 0) {
+        items.push({ id: parentProduct.id, quantity: totalStockDeduction });
     }
     
     return items.filter(i => i.id && i.quantity > 0);
