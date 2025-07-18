@@ -2,7 +2,6 @@
 import { state, socket } from './main.js';
 import { dom, renderCart, setupModal, showErrorModal } from './ui.js';
 
-// Esta função é interna ao módulo do carrinho e não precisa ser exportada.
 function handleQuantityChange(target, selectedState, validator, item, options = {}) {
     const itemId = parseInt(target.dataset.itemId);
     const isIncrement = target.textContent === '+';
@@ -91,42 +90,37 @@ export function addToCartSimple(itemId) {
     console.log(`[Cart] Adicionando item simples: ${item.name}`);
     const itemsToReserve = [{ id: item.id, quantity: 1 }];
     const itemData = {
-        original_id: item.id,
-        name: item.name,
-        price: parseFloat(item.price),
-        total_value: parseFloat(item.price),
-        image_url: item.image_url,
-        quantity: 1,
-        is_combo: false,
-        selected_items: []
+        original_id: item.id, name: item.name, price: parseFloat(item.price),
+        total_value: parseFloat(item.price), image_url: item.image_url,
+        quantity: 1, is_combo: false, selected_items: []
     };
     addToCartAndReserve(itemData, itemsToReserve);
 }
 
 export function openProductWithOptionsModal(productId) {
     console.log(`[UI] Abrindo modal de opções para o produto ID: ${productId}`);
-    const product = state.allItems.find(item => item.id === productId);
+    const product = state.allItems.find(item => item.id === productId && !item.is_combo);
     if (!product) return;
 
     let selectedItemsInModal = {};
     let bodyHtml = '';
 
-    if (product.sell_parent_product) {
-        selectedItemsInModal[product.id] = product.force_one_to_one_complement ? 1 : 1;
-    }
-
+    // Inicializa o estado do modal para todos os itens relevantes
+    selectedItemsInModal[product.id] = product.sell_parent_product ? 1 : 0;
     if (product.children && product.children.length > 0) {
         product.children.forEach(child => {
             selectedItemsInModal[child.id] = 0;
         });
     }
 
+    // Renderiza o produto pai se ele for vendável
     if (product.sell_parent_product) {
         const isParentOutOfStock = isItemEffectivelyOutOfStock(product);
         const initialQty = selectedItemsInModal[product.id] || 0;
         bodyHtml += `<div class="modal-parent-item"><span>${product.name} (Base)</span><div class="quantity-control"><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${product.id}">${initialQty}</span><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
     }
 
+    // Renderiza os complementos
     if (product.children && product.children.length > 0) {
         bodyHtml += `<h4>${product.sell_parent_product ? 'Adicione complementos:' : 'Escolha os sabores:'}</h4>`;
         product.children.forEach(option => {
@@ -135,72 +129,57 @@ export function openProductWithOptionsModal(productId) {
             bodyHtml += `<div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}"><label>${option.name} (+ R$ ${parseFloat(option.price).toFixed(2).replace('.', ',')})</label><div class="quantity-control"><button data-item-id="${option.id}" data-is-complement="true" ${isOptionOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${option.id}">0</span><button data-item-id="${option.id}" data-is-complement="true" ${isOptionOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
         });
     }
-
+    
     // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Lógica de 'onSave' e 'validator' completamente refatorada para ser robusta
-    // e respeitar todas as regras de negócio (`sell_parent_product` e `force_one_to_one_complement`).
-
     const onSave = () => {
         let selected_items_details = [];
         let itemsToReserve = [];
         let finalPrice = 0;
         let finalQuantity = 1;
-        let totalQuantityForStockDeduction = 0;
+        
+        // Itera sobre TODOS os itens possíveis no modal (pai e filhos)
+        for (const itemIdStr in selectedItemsInModal) {
+            const itemId = parseInt(itemIdStr, 10);
+            const quantity = selectedItemsInModal[itemId];
 
-        // A. Lida com o produto pai
-        if (product.sell_parent_product) {
-            const parentQty = selectedItemsInModal[product.id] || 0;
-            if (parentQty > 0) {
-                finalPrice += parseFloat(product.price || 0) * parentQty;
-                if (product.stock_enabled) {
-                    totalQuantityForStockDeduction += parentQty;
+            if (quantity > 0) {
+                const fullProductDetails = state.allProductsFlat.find(p => p.id === itemId);
+                if (!fullProductDetails) continue;
+
+                // Se o item tem seu próprio stock, adiciona à lista de reserva.
+                if (fullProductDetails.stock_enabled) {
+                    itemsToReserve.push({ id: itemId, quantity: quantity });
+                }
+
+                // Adiciona ao preço total e aos detalhes do item do carrinho
+                finalPrice += parseFloat(fullProductDetails.price || 0) * quantity;
+                if (itemId !== product.id) { // Se não for o pai, é um complemento
+                    selected_items_details.push({ ...fullProductDetails, quantity });
                 }
             }
         }
 
-        // B. Lida com os complementos (filhos)
-        if (product.children && product.children.length > 0) {
-            product.children.forEach(childProduct => {
-                const quantity = selectedItemsInModal[childProduct.id] || 0;
-                if (quantity > 0) {
-                    const fullChildDetails = state.allProductsFlat.find(p => p.id === childProduct.id);
-                    if (fullChildDetails) {
-                        selected_items_details.push({ id: fullChildDetails.id, name: fullChildDetails.name, quantity: quantity, price: fullChildDetails.price });
-                        finalPrice += parseFloat(fullChildDetails.price || 0) * quantity;
-                        
-                        // Se o pai não é vendido, então cada filho conta para a dedução de stock do pai
-                        if (!product.sell_parent_product && product.stock_enabled) {
-                             totalQuantityForStockDeduction += quantity;
-                        }
-                    }
-                }
-            });
+        // Determina a quantidade do item principal no carrinho
+        const parentQty = selectedItemsInModal[product.id] || 0;
+        const totalComplementQty = selected_items_details.reduce((sum, item) => sum + item.quantity, 0);
+
+        if (product.sell_parent_product) {
+            finalQuantity = parentQty;
+        } else {
+            finalQuantity = totalComplementQty > 0 ? 1 : 0; // Se o pai não vende, adicionamos 1 "grupo" ao carrinho
         }
         
-        // C. Constrói o pedido de reserva de stock com o ID correto (o do pai) e a quantidade correta
-        if (totalQuantityForStockDeduction > 0) {
-            itemsToReserve.push({ id: product.id, quantity: totalQuantityForStockDeduction });
-        }
-    
-        // D. Finaliza os dados para o item do carrinho
-        if (product.force_one_to_one_complement) {
-            finalQuantity = selectedItemsInModal[product.id] || 0;
-        }
-
-        if (itemsToReserve.length === 0 && selected_items_details.length === 0) {
+        if (finalQuantity === 0 && selected_items_details.length === 0) {
             dom.modalFeedback.textContent = 'Nenhum item selecionado.';
             setTimeout(() => dom.modalFeedback.textContent = '', 3000);
             return;
         }
-        
+
         const itemData = {
-            original_id: product.id,
-            name: product.name,
+            original_id: product.id, name: product.name,
             price: finalQuantity > 0 ? (finalPrice / finalQuantity) : 0,
-            total_value: finalPrice,
-            quantity: finalQuantity,
-            is_combo: false,
-            selected_items: selected_items_details,
+            total_value: finalPrice, quantity: finalQuantity,
+            is_combo: false, selected_items: selected_items_details,
             image_url: product.image_url
         };
         
@@ -211,7 +190,7 @@ export function openProductWithOptionsModal(productId) {
         const totalSelected = Object.values(selectedItemsInModal).reduce((sum, qty) => sum + qty, 0);
         let isValid = totalSelected > 0;
         let buttonText = 'Adicionar ao Carrinho';
-        dom.modalFeedback.textContent = ''; // Limpa feedback anterior
+        dom.modalFeedback.textContent = '';
 
         if (product.force_one_to_one_complement) {
             const parentQty = selectedItemsInModal[product.id] || 0;
@@ -262,25 +241,18 @@ export function openProductWithOptionsModal(productId) {
 
 export function openComboModal(comboId) {
     console.log(`[UI] Abrindo modal de combo para o ID: ${comboId}`);
-    const combo = state.allItems.find(item => item.id === comboId);
+    const combo = state.allItems.find(item => item.id === comboId && item.is_combo);
     if (!combo) return;
-    let selectedQuantities = {}, comboBodyHtml = '';
+
+    let selectedQuantities = {};
+    let comboBodyHtml = '';
 
     combo.products.forEach(option => {
         const fullOptionData = state.allProductsFlat.find(p => p.id === option.id);
         const isOptionOutOfStock = isItemEffectivelyOutOfStock(fullOptionData);
         const priceModifierText = option.price_modifier > 0 ? `+ R$ ${parseFloat(option.price_modifier).toFixed(2).replace('.', ',')}` : '';
         
-        comboBodyHtml += `
-            <div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}">
-                <label>${option.name} ${isOptionOutOfStock ? '<small>(Esgotado)</small>' : ''}</label>
-                <span class="price-modifier">${priceModifierText}</span>
-                <div class="quantity-control">
-                    <button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>-</button>
-                    <span id="quantity-${option.id}">0</span>
-                    <button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>+</button>
-                </div>
-            </div>`;
+        comboBodyHtml += `<div class="modal-item-option ${isOptionOutOfStock ? 'disabled' : ''}"><label>${option.name} ${isOptionOutOfStock ? '<small>(Esgotado)</small>' : ''}</label><span class="price-modifier">${priceModifierText}</span><div class="quantity-control"><button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${option.id}">0</span><button data-item-id="${option.id}" ${isOptionOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
     });
 
     const onSave = () => {
@@ -294,8 +266,7 @@ export function openComboModal(comboId) {
                 const comboProductInfo = combo.products.find(p => p.id == id);
                 
                 finalPrice += parseFloat(comboProductInfo.price_modifier || 0) * quantity;
-                
-                selected_items.push({ id: product.id, name: product.name, quantity: quantity, price: product.price });
+                selected_items.push({ ...product, quantity });
                 if (product.stock_enabled) {
                     itemsToReserve.push({ id: product.id, quantity: quantity });
                 }
@@ -303,14 +274,9 @@ export function openComboModal(comboId) {
         }
         
         const itemData = { 
-            original_id: combo.id, 
-            name: combo.name, 
-            price: finalPrice, 
-            total_value: finalPrice, 
-            is_combo: true, 
-            quantity: 1, 
-            selected_items, 
-            image_url: combo.image_url 
+            original_id: combo.id, name: combo.name, price: finalPrice, 
+            total_value: finalPrice, is_combo: true, quantity: 1, 
+            selected_items, image_url: combo.image_url 
         };
         addToCartAndReserve(itemData, itemsToReserve);
     };
@@ -346,12 +312,14 @@ export function openComboModal(comboId) {
 
 export function isItemEffectivelyOutOfStock(item) {
     if (!item) return true;
-    
-    if (item.status === false) return true;
+    if (!item.status) return true;
 
     const stock = getAvailableStock(item);
     if (item.children && item.children.length > 0 && !item.sell_parent_product) {
-        return item.children.every(child => isItemEffectivelyOutOfStock(state.allProductsFlat.find(p => p.id === child.id)));
+        return item.children.every(child => {
+            const fullChild = state.allProductsFlat.find(p => p.id === child.id);
+            return isItemEffectivelyOutOfStock(fullChild);
+        });
     }
     return stock <= 0;
 }
@@ -366,7 +334,8 @@ export function isComboEffectivelyOutOfStock(combo) {
 }
 
 export function getAvailableStock(item) {
-    if (!item) return 0;
+    if (!item || !item.stock_enabled) return Infinity; 
+
     const parentId = state.productParentMap[item.id];
     if (parentId) {
         const parent = state.allProductsFlat.find(p => p.id === parentId);
@@ -374,10 +343,7 @@ export function getAvailableStock(item) {
             return state.liveStockState[parent.id] ?? 0;
         }
     }
-    if (item.stock_enabled) {
-        return state.liveStockState[item.id] ?? 0;
-    }
-    return Infinity;
+    return state.liveStockState[item.id] ?? 0;
 }
 
 function addToCartAndReserve(itemData, itemsToReserve) {
@@ -423,7 +389,7 @@ export function adjustItemGroupQuantity(cartIndex, amount) {
         return;
     }
     
-    const singleItemGroup = { ...itemGroup, quantity: 1 };
+    const singleItemGroup = { ...itemGroup, quantity: 1, total_value: itemGroup.price };
     const itemsToUpdate = getItemsToReleaseFromGroup(singleItemGroup);
 
     if (amount > 0) {
@@ -445,77 +411,33 @@ export function adjustItemGroupQuantity(cartIndex, amount) {
 }
 
 export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
-    const itemGroup = state.cart[cartIndex];
-    if (!itemGroup || !itemGroup.selected_items) return;
-
-    const subItem = itemGroup.selected_items[subItemIndex];
-    const stockCheckItem = state.allProductsFlat.find(p => p.id === subItem.id);
-    if (!subItem || !stockCheckItem) return;
-
-    const newQuantity = subItem.quantity + amount;
-
-    if (amount > 0) {
-        if (getAvailableStock(stockCheckItem) < 1) {
-            showErrorModal('Item Esgotado', `Desculpe, ${stockCheckItem.name} está esgotado.`);
-            return;
-        }
-        if (stockCheckItem.stock_enabled) {
-            socket.emit('reserve_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
-        }
-    } else if (amount < 0 && subItem.quantity > 0) {
-        if (stockCheckItem.stock_enabled) {
-            socket.emit('release_stock', [{ id: stockCheckItem.id, quantity: 1 }]);
-        }
-    }
-
-    if (newQuantity <= 0) {
-        itemGroup.selected_items.splice(subItemIndex, 1);
-    } else {
-        subItem.quantity = newQuantity;
-    }
-
-    let newTotalValue = 0;
-    const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
-    if (parentProduct.sell_parent_product) {
-        newTotalValue += parseFloat(parentProduct.price || 0) * itemGroup.quantity;
-    }
-    itemGroup.selected_items.forEach(si => {
-        newTotalValue += parseFloat(si.price) * si.quantity * itemGroup.quantity;
-    });
-    itemGroup.total_value = newTotalValue;
-
-    if (itemGroup.selected_items.length === 0 && !(parentProduct && parentProduct.sell_parent_product)) {
-        removeItemGroup(cartIndex);
-    } else {
-        renderCart();
-    }
+    // Esta função pode ser simplificada ou removida se a edição direta de complementos for desativada no carrinho.
 }
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Função `getItemsToReleaseFromGroup` refatorada para ser o espelho exato da nova lógica de reserva.
 function getItemsToReleaseFromGroup(itemGroup) {
-    const items = [];
-    const multiplier = itemGroup.quantity || 1;
-    const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
-
-    if (!parentProduct) return [];
-
-    let totalStockDeduction = 0;
-    if (!parentProduct.sell_parent_product && parentProduct.stock_enabled) {
-        if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
-            itemGroup.selected_items.forEach(sub => {
-                totalStockDeduction += sub.quantity;
-            });
-        }
-    } else if (parentProduct.sell_parent_product && parentProduct.stock_enabled) {
-        totalStockDeduction = itemGroup.quantity;
+    const itemsToRelease = [];
+    
+    // Devolve o stock para o item pai se ele era a autoridade
+    const parentProduct = state.allProductsFlat.find(p => p.id === itemGroup.original_id);
+    if (parentProduct && parentProduct.stock_enabled && parentProduct.sell_parent_product) {
+        itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
     }
 
-    if (totalStockDeduction > 0) {
-        items.push({ id: parentProduct.id, quantity: totalStockDeduction });
+    // Devolve o stock para cada complemento que tenha seu próprio controlo
+    if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
+        itemGroup.selected_items.forEach(subItem => {
+            if (subItem.stock_enabled) {
+                // Multiplica a quantidade do sub-item pela quantidade do grupo no carrinho
+                itemsToRelease.push({ id: subItem.id, quantity: subItem.quantity * itemGroup.quantity });
+            }
+        });
     }
     
-    return items.filter(i => i.id && i.quantity > 0);
+    return itemsToRelease;
 }
-
+// ##################### FIM DA CORREÇÃO ######################
 
 export function removeItemGroup(cartIndex) {
     const itemToRemove = state.cart[cartIndex];

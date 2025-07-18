@@ -13,9 +13,6 @@ async function getTableColumns(tableName) {
   }
 }
 
-// Função auxiliar para emitir o evento de atualização de dados para os clientes.
-// ARQUITETO: A função agora busca a instância do IO diretamente do nosso manager central.
-// Isso garante que o evento será emitido de forma confiável, sem depender do objeto 'request'.
 const emitDataUpdated = () => {
   console.log('[Socket.IO] Emitindo evento "data_updated" para todos os clientes do cardápio.');
   const io = getIO();
@@ -118,15 +115,12 @@ module.exports = {
           await trx('products').where({ id }).update(dataToUpdate);
         }
         if (productData.children !== undefined) {
-          // Desvincula todos os filhos antigos
           await trx('products').where('parent_product_id', id).update({ parent_product_id: null });
-          // Vincula os novos filhos
           if (productData.children.length > 0) {
             const childrenIds = productData.children.map(child => child.id);
             await trx('products').whereIn('id', childrenIds).update({ parent_product_id: id });
           }
         }
-        // Se a sincronização de estoque foi ativada, sincroniza o estoque dos filhos imediatamente.
         if (dataToUpdate.stock_sync_enabled === true) {
           const parentProduct = await trx('products').where({ id }).first();
           if (parentProduct && parentProduct.stock_quantity !== null) {
@@ -159,7 +153,8 @@ module.exports = {
     return response.status(204).send();
   },
 
-  // Atualiza o estoque de um produto e propaga a alteração para os filhos, se necessário.
+  // #################### INÍCIO DA CORREÇÃO ####################
+  // ARQUITETO: Função `updateStock` refatorada para incluir a lógica de sincronização.
   async updateStock(request, response) {
     const { id } = request.params;
     const { stock_quantity, stock_enabled } = request.body;
@@ -206,6 +201,7 @@ module.exports = {
       return response.status(500).json({ error: 'Falha ao atualizar o estoque.' });
     }
   },
+  // ##################### FIM DA CORREÇÃO ######################
 
   // Reordena os produtos no cardápio.
   async reorder(request, response) {
