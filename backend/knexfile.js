@@ -2,6 +2,24 @@
 require('dotenv').config();
 const { parse } = require('pg-connection-string');
 
+// Função auxiliar para construir um objeto de conexão robusto a partir de uma string.
+// Inclui a configuração SSL essencial para a Supabase.
+const buildConnection = (connectionString) => {
+  if (!connectionString) {
+    // Lança um erro claro se a variável de ambiente não estiver definida.
+    throw new Error('A connection string da base de dados (DATABASE_URL ou DEV_DATABASE_URL) não foi encontrada no ficheiro .env.');
+  }
+  const dbConfig = parse(connectionString);
+  return {
+    host: dbConfig.host,
+    port: dbConfig.port,
+    user: dbConfig.user,
+    password: dbConfig.password,
+    database: dbConfig.database,
+    ssl: { rejectUnauthorized: false }, // Esta linha é a chave para a conexão bem-sucedida.
+  };
+};
+
 const baseConfig = {
   client: 'pg',
   migrations: {
@@ -16,31 +34,14 @@ const baseConfig = {
   }
 };
 
-// Constrói o objeto de conexão de produção dinamicamente
-let productionConnection = {};
-if (process.env.DATABASE_URL) {
-  const dbConfig = parse(process.env.DATABASE_URL);
-  productionConnection = {
-    host: dbConfig.host,
-    port: dbConfig.port,
-    user: dbConfig.user,
-    password: dbConfig.password,
-    database: dbConfig.database,
-    ssl: { rejectUnauthorized: false },
-  };
-}
-
 module.exports = {
   development: {
     ...baseConfig,
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // Usa a variável DATABASE_URL para o ambiente de produção
-    connection: process.env.DEV_DATABASE_URL, // variavel de ambiente de desenvolvimento
-    // ##################### FIM DA CORREÇÃO ######################
+    connection: buildConnection(process.env.DEV_DATABASE_URL),
   },
 
   production: {
     ...baseConfig,
-    connection: productionConnection,
+    connection: buildConnection(process.env.DATABASE_URL),
   }
 };
