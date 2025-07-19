@@ -66,18 +66,14 @@ client.on('disconnected', (reason) => {
     client.initialize();
 });
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Lógica de confirmação atualizada para o novo código curto em base-36.
 client.on('message', async (msg) => {
     if (msg.fromMe || !isBotReady) return;
 
-    // A nova RegEx busca por um código alfanumérico curto após a frase chave.
     const confirmationMatch = msg.body.match(/Código de Confirmação: *\*([a-z0-9]+)\*/i);
 
     if (confirmationMatch && confirmationMatch[1]) {
         try {
             const confirmationCode = confirmationMatch[1];
-            // Converte o código em base-36 de volta para um número (o ID do pedido).
             const orderId = parseInt(confirmationCode, 36);
             
             if (isNaN(orderId)) {
@@ -100,7 +96,6 @@ client.on('message', async (msg) => {
         }
     }
 });
-// ##################### FIM DA CORREÇÃO ######################
 
 // --- API INTERNA DO BOT ---
 const apiKeyMiddleware = (req, res, next) => {

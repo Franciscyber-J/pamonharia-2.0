@@ -260,8 +260,6 @@ export function resetForNewOrder() {
     renderCart();
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: O código de confirmação agora é o ID do pedido em base-36, muito mais curto.
 export function showWhatsAppConfirmationModal(storePhoneNumber, order) {
     const confirmModal = dom.confirmModal;
     const confirmMessage = dom.confirmModalMessage;
@@ -270,7 +268,6 @@ export function showWhatsAppConfirmationModal(storePhoneNumber, order) {
 
     confirmMessage.textContent = 'O seu pedido foi reservado. Para o enviar para a cozinha, por favor, clique em "Confirmar" para abrir o WhatsApp e enviar a mensagem de confirmação.';
     
-    // Converte o ID numérico para uma string em base-36 (0-9, a-z). Ex: 1000 -> "rs"
     const confirmationCode = order.id.toString(36);
 
     const message = `Olá! Quero confirmar o meu pedido.
@@ -296,7 +293,6 @@ _(Por favor, não edite esta mensagem.)_`;
 
     confirmModal.style.display = 'flex';
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 export function initializeUI() {
     console.log('[UI] 🎨 Inicializando a Interface do Utilizador e os listeners.');

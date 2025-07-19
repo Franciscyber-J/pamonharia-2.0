@@ -3,16 +3,14 @@ const connection = require('../database/connection');
 const { getIO } = require('../socket-manager');
 const axios = require('axios');
 
-// --- FUNÇÃO AUXILIAR PARA NOTIFICAR O BOT ---
 const notifyBot = async (phone, message) => {
     const botUrl = process.env.BOT_API_URL;
     if (!botUrl) {
         console.log('[BotNotify] URL do bot não configurada no .env. A saltar notificação.');
         return;
     }
-
     try {
-        console.log(`[BotNotify] A enviar notificação para o bot em ${botUrl}...`);
+        console.log(`[BotNotify] A enviar notificação para o bot em ${botUrl} para o número ${phone}`);
         await axios.post(`${botUrl}/send-message`, {
             phone,
             message
@@ -42,28 +40,29 @@ module.exports = {
 
     async updateStatus(request, response) {
         const { id } = request.params;
-        // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Extraímos o 'reason' do corpo da requisição.
         const { status: newStatus, reason } = request.body;
-        console.log(`[OrderController] Atualizando status do pedido ${id} para: ${newStatus}`);
+        console.log(`[OrderController] Pedido de atualização para pedido ${id}. Novo status: ${newStatus}, Motivo: ${reason || 'N/A'}`);
 
-        const currentOrder = await connection('orders').where('id', id).first();
-        if (!currentOrder) {
-            return response.status(404).json({ error: 'Pedido não encontrado.' });
-        }
+        try {
+            const currentOrder = await connection('orders').where('id', id).first();
+            if (!currentOrder) {
+                return response.status(404).json({ error: 'Pedido não encontrado.' });
+            }
 
-        const [updatedOrder] = await connection('orders')
-            .where('id', id)
-            .update({ status: newStatus, updated_at: new Date() })
-            .returning('*');
+            const [updatedOrder] = await connection('orders')
+                .where('id', id)
+                .update({ status: newStatus, updated_at: new Date() })
+                .returning('*');
 
-        if (updatedOrder) {
+            if (!updatedOrder) {
+                return response.status(404).json({ error: 'Falha ao atualizar o pedido.' });
+            }
+
             const io = getIO();
             io.emit('order_status_updated', { id: Number(id), status: newStatus, order: updatedOrder });
 
             if (updatedOrder.client_phone) {
                 let message = '';
-
                 if (currentOrder.status === 'Em Preparo' && newStatus === 'Finalizado' && updatedOrder.client_address === 'Retirada no local') {
                     message = `Boas notícias! 🎉 Seu pedido *#${updatedOrder.id}* já está pronto para ser retirado!`;
                 } else if (newStatus === 'Em Preparo') {
@@ -71,39 +70,32 @@ module.exports = {
                 } else if (newStatus === 'Pronto para Entrega') {
                     message = `Seu pedido *#${updatedOrder.id}* da Pamonharia já saiu para entrega! 🛵`;
                 } else if (newStatus === 'Cancelado') {
-                    // ARQUITETO: Mensagem de cancelamento agora usa o 'reason' fornecido.
-                    const defaultReason = "Para mais detalhes, por favor, entre em contato."
-                    message = `Olá! Infelizmente, o seu pedido *#${updatedOrder.id}* foi cancelado pelo seguinte motivo: *${reason || 'Indisponibilidade operacional'}*. ${!reason ? defaultReason : ''}`;
+                    const defaultReasonText = "Para mais detalhes, por favor, entre em contato com a loja.";
+                    const finalReason = reason ? `Motivo: *${reason}*.` : defaultReasonText;
+                    message = `Olá! Infelizmente, o seu pedido *#${updatedOrder.id}* foi cancelado. ${finalReason}`;
                 }
 
                 if (message) {
                     await notifyBot(updatedOrder.client_phone, message);
                 }
             }
-        }
-        // ##################### FIM DA CORREÇÃO ######################
+            return response.status(204).send();
 
-        return response.status(204).send();
+        } catch (error) {
+            console.error(`[OrderController] Erro crítico ao atualizar status do pedido ${id}:`, error);
+            return response.status(500).json({ error: 'Erro interno do servidor.' });
+        }
     },
 
     async create(request, response) {
         try {
             const { client_name, client_phone, client_address, total_price, items, payment_method } = request.body;
-
             const initialStatus = 'Novo';
-
             const newOrderData = await connection.transaction(async (trx) => {
                 const [order] = await trx('orders').insert({
-                    client_name,
-                    client_phone,
-                    client_address,
-                    total_price,
-                    status: initialStatus,
-                    payment_method
+                    client_name, client_phone, client_address, total_price, status: initialStatus, payment_method
                 }).returning('*');
-
                 const order_id = order.id;
-
                 if (items && items.length > 0) {
                     const orderItemsToInsert = items.map(item => ({
                         order_id: order_id,
@@ -116,14 +108,11 @@ module.exports = {
                     }));
                     await trx('order_items').insert(orderItemsToInsert);
                 }
-                
                 const fullOrderDetails = { ...order, items };
-                console.log(`[OrderController] ✅ Pré-pedido #${order_id} criado com status "${initialStatus}". Aguardando confirmação do cliente.`);
+                console.log(`[OrderController] ✅ Pré-pedido #${order_id} criado. Aguardando confirmação.`);
                 return fullOrderDetails;
             });
-
             return response.status(201).json(newOrderData);
-
         } catch (error) {
             console.error('[OrderController] ❌ ERRO AO CRIAR PRÉ-PEDIDO:', error.message, error.stack);
             return response.status(400).json({ error: 'Não foi possível registrar o pedido.' });
@@ -134,30 +123,21 @@ module.exports = {
         const { id } = request.params;
         const { whatsapp } = request.body;
         const apiKey = request.headers['x-api-key'];
-
         if (!apiKey || apiKey !== process.env.BOT_API_KEY) {
             return response.status(403).json({ error: 'Acesso não autorizado.' });
         }
-        
         try {
             const [order] = await connection('orders')
                 .where({ id: id, status: 'Novo' })
-                .update({
-                    client_phone: whatsapp
-                })
+                .update({ client_phone: whatsapp })
                 .returning('*');
-
             if (!order) {
                 console.log(`[OrderController] Tentativa de confirmar pedido #${id}, mas não foi encontrado ou já foi confirmado.`);
                 return response.status(404).json({ error: 'Pedido não encontrado ou já processado.' });
             }
-
-            console.log(`[OrderController] 🚀 Pedido #${id} confirmado pelo bot. Emitindo 'new_order' para o dashboard.`);
-            const io = getIO();
-            io.emit('new_order', order);
-
+            console.log(`[OrderController] 🚀 Pedido #${id} confirmado pelo bot. Emitindo 'new_order'.`);
+            getIO().emit('new_order', order);
             return response.status(200).json({ message: 'Pedido confirmado com sucesso.' });
-
         } catch (error) {
             console.error(`[OrderController] ❌ ERRO AO CONFIRMAR PEDIDO #${id}:`, error);
             return response.status(500).json({ error: 'Falha ao confirmar o pedido.' });
@@ -167,13 +147,8 @@ module.exports = {
     async clearHistory(request, response) {
         try {
             console.log('[OrderController] Limpando histórico de pedidos.');
-            await connection('orders')
-                .whereIn('status', ['Finalizado', 'Cancelado'])
-                .del();
-
-            const io = getIO();
-            io.emit('history_cleared');
-
+            await connection('orders').whereIn('status', ['Finalizado', 'Cancelado']).del();
+            getIO().emit('history_cleared');
             return response.status(204).send();
         } catch (error) {
             console.error('[OrderController] ❌ ERRO AO LIMPAR HISTÓRICO:', error);
