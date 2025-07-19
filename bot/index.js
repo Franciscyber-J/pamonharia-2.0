@@ -66,39 +66,43 @@ client.on('disconnected', (reason) => {
     client.initialize();
 });
 
-client.on('message_create', async (msg) => {
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Lógica de confirmação atualizada para o novo código curto em base-36.
+client.on('message', async (msg) => {
     if (msg.fromMe || !isBotReady) return;
 
-    const confirmationMatch = msg.body.match(/ID de Confirmação: _([A-Za-z0-9+/=]+)_/);
+    // A nova RegEx busca por um código alfanumérico curto após a frase chave.
+    const confirmationMatch = msg.body.match(/Código de Confirmação: *\*([a-z0-9]+)\*/i);
 
     if (confirmationMatch && confirmationMatch[1]) {
         try {
-            const encodedData = confirmationMatch[1];
-            // No Node.js, usamos Buffer para descodificar Base64
-            const decodedString = Buffer.from(encodedData, 'base64').toString('utf-8');
-            const orderData = JSON.parse(decodedString);
+            const confirmationCode = confirmationMatch[1];
+            // Converte o código em base-36 de volta para um número (o ID do pedido).
+            const orderId = parseInt(confirmationCode, 36);
             
-            log('INFO', 'Confirmation', `Recebida confirmação do cliente para o Pedido #${orderData.id}`);
+            if (isNaN(orderId)) {
+                throw new Error('Código de confirmação inválido.');
+            }
 
-            await axios.post(`${BACKEND_URL}/api/public/orders/${orderData.id}/confirm`, {
+            log('INFO', 'Confirmation', `Recebida confirmação do cliente para o Pedido #${orderId}`);
+
+            await axios.post(`${BACKEND_URL}/api/public/orders/${orderId}/confirm`, {
                 whatsapp: msg.from
             }, {
                 headers: { 'x-api-key': API_KEY }
             });
 
-            await msg.reply(`Perfeito, ${orderData.cliente}! ✅\n\nSeu pedido *#${orderData.id}* foi confirmado e já está a ser enviado para a nossa cozinha. Manter-te-ei atualizado por aqui!`);
+            await msg.reply(`Perfeito! ✅\n\nSeu pedido *#${orderId}* foi confirmado e já está sendo enviado para a nossa cozinha. Manteremos você atualizado por aqui!`);
 
         } catch (error) {
             log('ERROR', 'Confirmation', `Falha ao processar confirmação: ${error.message}`);
             await msg.reply('Ocorreu um erro ao tentar confirmar o seu pedido. Por favor, aguarde, um atendente irá verificar.');
         }
-        return;
     }
 });
-
+// ##################### FIM DA CORREÇÃO ######################
 
 // --- API INTERNA DO BOT ---
-
 const apiKeyMiddleware = (req, res, next) => {
     const providedKey = req.headers['x-api-key'];
     if (!providedKey || providedKey !== API_KEY) {

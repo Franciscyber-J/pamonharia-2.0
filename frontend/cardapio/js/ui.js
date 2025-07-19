@@ -53,11 +53,10 @@ export const dom = {
     floatingCartBtn: document.getElementById('floating-cart-btn'),
     floatingCartInfo: document.getElementById('floating-cart-info'),
     floatingCartTotal: document.getElementById('floating-cart-total'),
-    // Novo modal de confirmação
-    confirmModal: document.querySelector('.confirm-modal-overlay'),
-    confirmModalMessage: document.querySelector('.confirm-modal-message'),
-    confirmModalCancel: document.querySelector('.confirm-modal-cancel'),
-    confirmModalConfirm: document.querySelector('.confirm-modal-confirm'),
+    confirmModal: document.getElementById('confirm-modal'),
+    confirmModalMessage: document.getElementById('confirm-modal-message'),
+    confirmModalCancel: document.getElementById('confirm-modal-cancel'),
+    confirmModalConfirm: document.getElementById('confirm-modal-confirm'),
 };
 
 export function renderItems() {
@@ -252,40 +251,52 @@ export function resetForNewOrder() {
     dom.submitOrderBtn.disabled = true;
     dom.submitOrderBtn.textContent = 'Finalizar Pedido';
     
+    const newOrderBtn = dom.newOrderBtn;
+    newOrderBtn.textContent = 'Fazer Novo Pedido';
+    newOrderBtn.onclick = resetForNewOrder;
+    
     const deliveryEvent = new Event('change', { bubbles: true });
     document.querySelector('input[name="delivery-type"]:checked').dispatchEvent(deliveryEvent);
     renderCart();
 }
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: O código de confirmação agora é o ID do pedido em base-36, muito mais curto.
 export function showWhatsAppConfirmationModal(storePhoneNumber, order) {
-    dom.cartWrapper.style.display = 'none';
+    const confirmModal = dom.confirmModal;
+    const confirmMessage = dom.confirmModalMessage;
+    const confirmBtn = dom.confirmModalConfirm;
+    const cancelBtn = dom.confirmModalCancel;
 
-    // "Encriptação" simples para ofuscar os dados na URL
-    const confirmationData = { id: order.id };
-    const encodedData = btoa(JSON.stringify(confirmationData)); // Converte para Base64
+    confirmMessage.textContent = 'O seu pedido foi reservado. Para o enviar para a cozinha, por favor, clique em "Confirmar" para abrir o WhatsApp e enviar a mensagem de confirmação.';
+    
+    // Converte o ID numérico para uma string em base-36 (0-9, a-z). Ex: 1000 -> "rs"
+    const confirmationCode = order.id.toString(36);
 
-    const message = `Olá! Gostaria de confirmar meu pedido.
-Código de Confirmação: PA-${String(order.id).padStart(4, '0')}-${encodedData}
+    const message = `Olá! Quero confirmar o meu pedido.
+Código de Confirmação: *${confirmationCode}*
 
-_(Por favor, não edite esta mensagem para garantir a confirmação do seu pedido.)_`;
+_(Por favor, não edite esta mensagem.)_`;
 
     const whatsappUrl = `https://wa.me/${storePhoneNumber}?text=${encodeURIComponent(message)}`;
 
-    showSuccessScreen(
-        'Quase lá! Confirme no WhatsApp.',
-        'O seu pedido foi reservado. Para o enviar para a cozinha, por favor, clique no botão abaixo e envie a mensagem de confirmação que preparámos para si no WhatsApp.'
-    );
-    
-    const newOrderBtn = dom.successMessage.querySelector('#new-order-btn');
-    newOrderBtn.textContent = 'Confirmar Pedido via WhatsApp';
-    newOrderBtn.onclick = () => {
+    confirmBtn.onclick = () => {
         window.open(whatsappUrl, '_blank');
-        setTimeout(() => {
-            newOrderBtn.textContent = 'Fazer um Novo Pedido';
-            newOrderBtn.onclick = resetForNewOrder;
-        }, 500);
+        confirmModal.style.display = 'none';
+        showSuccessScreen(
+            'Quase lá!',
+            'Aguardando a sua confirmação no WhatsApp para enviar o pedido para a cozinha. Obrigado!'
+        );
+        clearCart(false); 
     };
+
+    cancelBtn.onclick = () => {
+        confirmModal.style.display = 'none';
+    };
+
+    confirmModal.style.display = 'flex';
 }
+// ##################### FIM DA CORREÇÃO ######################
 
 export function initializeUI() {
     console.log('[UI] 🎨 Inicializando a Interface do Utilizador e os listeners.');

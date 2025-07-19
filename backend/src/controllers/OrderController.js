@@ -42,30 +42,38 @@ module.exports = {
 
     async updateStatus(request, response) {
         const { id } = request.params;
-        const { status } = request.body;
-        console.log(`[OrderController] Atualizando status do pedido ${id} para: ${status}`);
+        // #################### INÍCIO DA CORREÇÃO ####################
+        // ARQUITETO: Extraímos o 'reason' do corpo da requisição.
+        const { status: newStatus, reason } = request.body;
+        console.log(`[OrderController] Atualizando status do pedido ${id} para: ${newStatus}`);
+
+        const currentOrder = await connection('orders').where('id', id).first();
+        if (!currentOrder) {
+            return response.status(404).json({ error: 'Pedido não encontrado.' });
+        }
 
         const [updatedOrder] = await connection('orders')
             .where('id', id)
-            .update({ status, updated_at: new Date() })
+            .update({ status: newStatus, updated_at: new Date() })
             .returning('*');
 
         if (updatedOrder) {
             const io = getIO();
-            io.emit('order_status_updated', { id: Number(id), status, order: updatedOrder });
+            io.emit('order_status_updated', { id: Number(id), status: newStatus, order: updatedOrder });
 
             if (updatedOrder.client_phone) {
                 let message = '';
-                if (status === 'Em Preparo') {
+
+                if (currentOrder.status === 'Em Preparo' && newStatus === 'Finalizado' && updatedOrder.client_address === 'Retirada no local') {
+                    message = `Boas notícias! 🎉 Seu pedido *#${updatedOrder.id}* já está pronto para ser retirado!`;
+                } else if (newStatus === 'Em Preparo') {
                     message = `Oba! Seu pedido *#${updatedOrder.id}* foi confirmado e já entrou em preparação! 🍳`;
-                } else if (status === 'Pronto para Entrega') {
-                    if (updatedOrder.client_address === 'Retirada no local') {
-                        message = `Boas notícias! 🎉 Seu pedido *#${updatedOrder.id}* já está pronto para ser retirado!`;
-                    } else {
-                        message = `Seu pedido *#${updatedOrder.id}* da Pamonharia já saiu para entrega! 🛵`;
-                    }
-                } else if (status === 'Cancelado') {
-                    message = `Olá! Infelizmente, não poderemos prosseguir com o seu pedido *#${updatedOrder.id}* no momento. Para mais detalhes, por favor, entre em contato.`;
+                } else if (newStatus === 'Pronto para Entrega') {
+                    message = `Seu pedido *#${updatedOrder.id}* da Pamonharia já saiu para entrega! 🛵`;
+                } else if (newStatus === 'Cancelado') {
+                    // ARQUITETO: Mensagem de cancelamento agora usa o 'reason' fornecido.
+                    const defaultReason = "Para mais detalhes, por favor, entre em contato."
+                    message = `Olá! Infelizmente, o seu pedido *#${updatedOrder.id}* foi cancelado pelo seguinte motivo: *${reason || 'Indisponibilidade operacional'}*. ${!reason ? defaultReason : ''}`;
                 }
 
                 if (message) {
@@ -73,6 +81,7 @@ module.exports = {
                 }
             }
         }
+        // ##################### FIM DA CORREÇÃO ######################
 
         return response.status(204).send();
     },
@@ -81,13 +90,12 @@ module.exports = {
         try {
             const { client_name, client_phone, client_address, total_price, items, payment_method } = request.body;
 
-            // Para o novo fluxo, o status inicial é sempre 'Novo' (Aguardando Confirmação do Cliente)
             const initialStatus = 'Novo';
 
             const newOrderData = await connection.transaction(async (trx) => {
                 const [order] = await trx('orders').insert({
                     client_name,
-                    client_phone, // Este telefone é o digitado, será atualizado na confirmação
+                    client_phone,
                     client_address,
                     total_price,
                     status: initialStatus,
@@ -99,8 +107,8 @@ module.exports = {
                 if (items && items.length > 0) {
                     const orderItemsToInsert = items.map(item => ({
                         order_id: order_id,
-                        product_id: item.is_combo ? null : item.id,
-                        combo_id: item.is_combo ? item.id : null,
+                        product_id: item.is_combo ? null : item.original_id,
+                        combo_id: item.is_combo ? item.original_id : null,
                         item_name: item.name,
                         quantity: item.quantity,
                         unit_price: item.price,
@@ -109,12 +117,11 @@ module.exports = {
                     await trx('order_items').insert(orderItemsToInsert);
                 }
                 
-                const fullOrderDetails = { ...order, items }; // Inclui os itens para o frontend gerar a mensagem
+                const fullOrderDetails = { ...order, items };
                 console.log(`[OrderController] ✅ Pré-pedido #${order_id} criado com status "${initialStatus}". Aguardando confirmação do cliente.`);
                 return fullOrderDetails;
             });
 
-            // NÃO emitimos 'new_order' aqui. A emissão só ocorrerá após a confirmação do bot.
             return response.status(201).json(newOrderData);
 
         } catch (error) {
@@ -128,7 +135,6 @@ module.exports = {
         const { whatsapp } = request.body;
         const apiKey = request.headers['x-api-key'];
 
-        // Camada extra de segurança, verificando a chave de API
         if (!apiKey || apiKey !== process.env.BOT_API_KEY) {
             return response.status(403).json({ error: 'Acesso não autorizado.' });
         }
@@ -137,7 +143,7 @@ module.exports = {
             const [order] = await connection('orders')
                 .where({ id: id, status: 'Novo' })
                 .update({
-                    client_phone: whatsapp // Atualiza o telefone com o número real do WhatsApp
+                    client_phone: whatsapp
                 })
                 .returning('*');
 

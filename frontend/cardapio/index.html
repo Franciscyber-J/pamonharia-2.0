@@ -170,6 +170,21 @@
 
     <div id="selection-modal" class="modal-overlay"><div class="modal-content"><button class="modal-close-btn">&times;</button><div id="modal-header" class="modal-header"></div><div id="modal-body" class="modal-body"></div><div class="modal-footer"><div id="modal-feedback" class="modal-feedback"></div><button id="add-to-cart-btn" class="action-button">Adicionar ao Carrinho</button></div></div></div>
     <div id="error-modal" class="modal-overlay"><div class="modal-content"><button class="modal-close-btn" onclick="document.getElementById('error-modal').style.display='none'">&times;</button><div id="error-modal-header" class="modal-header" style="color: var(--danger-color);"><h3 id="error-modal-title">Ocorreu um Erro</h3></div><div id="error-modal-body" class="modal-body" style="text-align: center;"><p id="error-modal-message"></p></div><div class="modal-footer"><button onclick="document.getElementById('error-modal').style.display='none'" class="action-button" style="background-color: var(--danger-color);">Fechar</button></div></div></div>
+    
+    <div id="confirm-modal" class="modal-overlay" style="z-index: 1001;">
+        <div class="modal-content" style="max-width: 450px; text-align: center;">
+            <div id="confirm-modal-header" class="modal-header">
+                <h3>Confirmar Pedido no WhatsApp</h3>
+            </div>
+            <div id="confirm-modal-body" class="modal-body">
+                <p id="confirm-modal-message"></p>
+            </div>
+            <div class="modal-footer" style="flex-direction: row; justify-content: space-around;">
+                <button id="confirm-modal-cancel" class="btn btn-secondary">Cancelar</button>
+                <button id="confirm-modal-confirm" class="btn btn-primary">Confirmar</button>
+            </div>
+        </div>
+    </div>
 
     <script type="module" src="./js/main.js"></script>
 </body>

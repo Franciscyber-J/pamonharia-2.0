@@ -146,7 +146,6 @@ async function handleOrderSubmit(e) {
             }
             
             showWhatsAppConfirmationModal(state.storeSettings.whatsapp_number, newOrder);
-            clearCart(false);
 
         } catch (error) {
             console.error('[Order] ❌ Falha ao criar pedido:', error);
@@ -154,42 +153,6 @@ async function handleOrderSubmit(e) {
             dom.submitOrderBtn.disabled = false;
             dom.submitOrderBtn.textContent = 'Finalizar Pedido';
         }
-    }
-}
-
-export async function handleOnlinePaymentSelection(method) {
-    console.log(`[Payment] Método de pagamento online selecionado: ${method}`);
-    try {
-        dom.onlinePaymentMethodSelection.style.display = 'none';
-        
-        if (method === 'card') {
-            await initializeCardPaymentForm();
-        } else if (method === 'pix') {
-            dom.paymentProcessingOverlay.style.display = 'flex';
-            const paymentData = {
-                payment_method_id: 'pix',
-                payment_type: 'pix',
-                payer: { email: state.orderData.client_name.replace(/\s/g, '').toLowerCase() + '@email.com' },
-                order_details: state.orderData
-            };
-            const paymentResponse = await apiFetch('/payments/process', { method: 'POST', body: JSON.stringify(paymentData) });
-            console.log('[Payment] Resposta do PIX recebida:', paymentResponse);
-            dom.paymentProcessingOverlay.style.display = 'none';
-            dom.pixQrCode.src = `data:image/jpeg;base64,${paymentResponse.qr_code_base64}`;
-            dom.pixCopyPaste.value = paymentResponse.qr_code;
-            dom.pixPaymentContainer.style.display = 'block';
-        }
-
-    } catch (error) {
-        dom.paymentProcessingOverlay.style.display = 'none';
-        const errorMessage = (error?.details) || error.message || 'Erro desconhecido ao inicializar o pagamento.';
-        console.error('[Payment] ❌ Falha na preparação do pagamento:', errorMessage);
-        showErrorModal('Falha na Preparação do Pagamento', `Não foi possível iniciar o pagamento. Detalhe: ${errorMessage}`);
-        
-        dom.orderForm.style.display = 'block';
-        dom.onlinePaymentMethodSelection.style.display = 'none';
-        dom.submitOrderBtn.disabled = false;
-        dom.submitOrderBtn.textContent = 'Finalizar Pedido';
     }
 }
 

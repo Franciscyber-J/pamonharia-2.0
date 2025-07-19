@@ -397,13 +397,20 @@
 
             rejectReasonForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                const reason = rejectReasonSelect.value;
-                if (!reason) {
+                const reasonValue = rejectReasonSelect.value;
+                const reasonText = rejectReasonSelect.options[rejectReasonSelect.selectedIndex].text;
+                if (!reasonValue) {
                     alert('Por favor, selecione um motivo.');
                     return;
                 }
-                await window.updateOrderStatus(orderToRejectId, 'Cancelado', true);
-                if (reason === 'stock_problem') {
+                
+                await window.updateOrderStatus(orderToRejectId, 'Cancelado', {
+                    isRejectFlow: true,
+                    reason: reasonText,
+                    reason_code: reasonValue
+                });
+                
+                if (reasonValue === 'stock_problem') {
                     stockAlertBanner.style.display = 'block';
                     sidebar.classList.add('navigation-locked');
                 }
@@ -417,42 +424,180 @@
                 stockAlertBanner.style.display = 'none';
                 sidebar.classList.remove('navigation-locked');
             }
-
+            
             let notificationAudio, isSoundEnabled = true, isAudioUnlocked = false;
 
-            const updateSoundStatusButton = () => { const btn = document.getElementById('sound-status'); if (btn) { btn.textContent = isSoundEnabled ? '🔊 Som Ligado' : '🔇 Som Desligado'; btn.classList.toggle('sound-on', isSoundEnabled); btn.classList.toggle('sound-off', !isSoundEnabled); } };
-            const setupAudioPlayer = (url) => { notificationAudio = url ? new Audio(url) : null; if (notificationAudio) notificationAudio.loop = true; updateSoundStatusButton(); };
-            const unlockAudio = async () => { if (isAudioUnlocked || !notificationAudio) return isAudioUnlocked = true; try { await notificationAudio.play(); notificationAudio.pause(); notificationAudio.currentTime = 0; isAudioUnlocked = true; console.log('[Dashboard] 🔊 Contexto de áudio desbloqueado!'); return true; } catch (e) { console.warn('[Dashboard] 🔔 Falha ao desbloquear áudio.'); return false; } };
-            const playNotification = (id) => { if (isSoundEnabled && notificationAudio && isAudioUnlocked) { console.log(`[Dashboard] 🎵 Tocando notificação para pedido #${id}...`); notificationAudio.play().catch(e => console.warn("Erro ao tocar som:", e.message)); const card = document.getElementById(`order-${id}`); if (card) card.classList.add('is-playing-sound'); } };
-            const stopNotification = () => { if (notificationAudio) { notificationAudio.pause(); notificationAudio.currentTime = 0; } document.querySelectorAll('.order-card.is-playing-sound').forEach(c => c.classList.remove('is-playing-sound')); };
-            const showAudioUnlockModal = () => { const modal = document.getElementById('audio-unlock-modal-overlay'); const btn = document.getElementById('audio-unlock-confirm'); modal.style.display = 'flex'; btn.onclick = async () => { await unlockAudio(); modal.style.display = 'none'; }; };
-            document.getElementById('sound-status').addEventListener('click', async () => { if (!(await unlockAudio())) return; isSoundEnabled = !isSoundEnabled; updateSoundStatusButton(); if (!isSoundEnabled) stopNotification(); });
+            const updateSoundStatusButton = () => {
+                const btn = document.getElementById('sound-status');
+                if (btn) {
+                    btn.textContent = isSoundEnabled ? '🔊 Som Ligado' : '🔇 Som Desligado';
+                    btn.classList.toggle('sound-on', isSoundEnabled);
+                    btn.classList.toggle('sound-off', !isSoundEnabled);
+                }
+            };
 
-            window.updateOrderStatus = async (orderId, newStatus, isRejectFlow = false) => {
+            const setupAudioPlayer = (url) => {
+                notificationAudio = url ? new Audio(url) : null;
+                if (notificationAudio) {
+                    notificationAudio.loop = true;
+                    if (!isAudioUnlocked) {
+                        showAudioUnlockModal();
+                    }
+                }
+                updateSoundStatusButton();
+            };
+
+            const unlockAudio = async () => {
+                if (isAudioUnlocked || !notificationAudio) return true;
+                try {
+                    await notificationAudio.play();
+                    notificationAudio.pause();
+                    notificationAudio.currentTime = 0;
+                    isAudioUnlocked = true;
+                    console.log('[Dashboard] 🔊 Contexto de áudio desbloqueado!');
+                    return true;
+                } catch (e) {
+                    console.warn('[Dashboard] 🔔 Falha ao desbloquear áudio. A aguardar interação do utilizador.');
+                    return false;
+                }
+            };
+
+            const playNotification = async (id) => {
+                if (isSoundEnabled && notificationAudio && (await unlockAudio())) {
+                    console.log(`[Dashboard] 🎵 Tocando notificação para pedido #${id}...`);
+                    notificationAudio.play().catch(e => console.warn("Erro ao tocar som:", e.message));
+                    const card = document.getElementById(`order-${id}`);
+                    if (card) card.classList.add('is-playing-sound');
+                }
+            };
+
+            const stopNotification = () => {
+                if (notificationAudio) {
+                    notificationAudio.pause();
+                    notificationAudio.currentTime = 0;
+                }
+                document.querySelectorAll('.order-card.is-playing-sound').forEach(c => c.classList.remove('is-playing-sound'));
+            };
+
+            const showAudioUnlockModal = () => {
+                const modal = document.getElementById('audio-unlock-modal-overlay');
+                const btn = document.getElementById('audio-unlock-confirm');
+                modal.style.display = 'flex';
+                btn.onclick = async () => {
+                    await unlockAudio();
+                    modal.style.display = 'none';
+                };
+            };
+            
+            document.getElementById('sound-status').addEventListener('click', async () => {
+                if (!isAudioUnlocked && !(await unlockAudio())) {
+                    showAudioUnlockModal();
+                    return;
+                }
+                isSoundEnabled = !isSoundEnabled;
+                updateSoundStatusButton();
+                if (!isSoundEnabled) stopNotification();
+            });
+
+            window.updateOrderStatus = async (orderId, newStatus, options = {}) => {
                 stopNotification();
-                if (newStatus === 'Cancelado' && !isRejectFlow) {
+                if (newStatus === 'Cancelado' && !options.isRejectFlow) {
                     openRejectModal(orderId);
                 } else {
                     try {
-                        await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
+                        const payload = { status: newStatus };
+                        if (options.reason) {
+                            payload.reason = options.reason;
+                        }
+                        await apiFetch(`/orders/${orderId}/status`, {
+                            method: 'PATCH',
+                            body: JSON.stringify(payload)
+                        });
                     } catch (error) {
                         console.error(`Falha ao atualizar status:`, error);
                     }
                 }
             };
+            
+            function renderPedidosPage() {
+                pageTitle.textContent = 'Painel de Pedidos';
+                dashboardContent.innerHTML = `<div class="orders-header"><h2>Acompanhamento de Pedidos</h2><button id="clear-history-btn" class="btn btn-danger">Limpar Histórico</button></div><div class="orders-panel"><div class="order-column"><h3>Novos Pedidos</h3><div class="order-list" id="col-novo"></div></div><div class="order-column"><h3>Pronto para Entrega/Retirada</h3><div class="order-list" id="col-em-preparo"></div></div><div class="order-column"><h3>Em Rota de Entrega</h3><div class="order-list" id="col-pronto-para-entrega"></div></div><div class="order-column"><h3>Concluídos</h3><div class="order-list" id="col-finalizado"></div></div><div class="order-column"><h3>Recusados</h3><div class="order-list" id="col-cancelado"></div></div></div>`;
+                document.getElementById('clear-history-btn').addEventListener('click', () => { showCustomConfirm('Tem a certeza de que deseja apagar permanentemente todos os pedidos concluídos, recusados e abandonados?', async () => { try { await apiFetch('/orders/history', { method: 'DELETE' }); } catch (error) { console.error('Falha ao limpar histórico:', error); alert('Não foi possível limpar o histórico.'); } }); });
+                fetchAndRenderOrders();
+            };
 
-            function renderPedidosPage() { pageTitle.textContent = 'Painel de Pedidos'; dashboardContent.innerHTML = `<div class="orders-header"><h2>Acompanhamento de Pedidos</h2><button id="clear-history-btn" class="btn btn-danger">Limpar Histórico</button></div><div class="orders-panel"><div class="order-column"><h3>Novos Pedidos</h3><div class="order-list" id="col-novo"></div></div><div class="order-column"><h3>Em Preparo</h3><div class="order-list" id="col-em-preparo"></div></div><div class="order-column"><h3>Pronto para Entrega/Retirada</h3><div class="order-list" id="col-pronto-para-entrega"></div></div><div class="order-column"><h3>Concluídos</h3><div class="order-list" id="col-finalizado"></div></div><div class="order-column"><h3>Recusados</h3><div class="order-list" id="col-cancelado"></div></div></div>`; document.getElementById('clear-history-btn').addEventListener('click', () => { showCustomConfirm('Tem a certeza de que deseja apagar permanentemente todos os pedidos concluídos, recusados e abandonados?', async () => { try { await apiFetch('/orders/history', { method: 'DELETE' }); } catch (error) { console.error('Falha ao limpar histórico:', error); alert('Não foi possível limpar o histórico.'); } }); }); fetchAndRenderOrders(); };
-            async function fetchAndRenderOrders() { try { const { activeOrders, finishedOrders, rejectedOrders } = await apiFetch('/orders'); document.querySelectorAll('.order-list').forEach(l => l.innerHTML = ''); [...activeOrders, ...finishedOrders, ...rejectedOrders].forEach(o => addOrderCard(o, false)); if (!isAudioUnlocked && notificationAudio) showAudioUnlockModal(); } catch (error) { console.error("Erro ao buscar pedidos:", error); } };
-            function createOrderCard(order) { const card = document.createElement('div'); card.className = 'order-card'; card.id = `order-${order.id}`; card.onclick = () => stopNotification(); let paymentTag = ''; if (order.status === 'Pago' || order.payment_status === 'approved') paymentTag = `<span class="order-tag payment-paid">PAGO ONLINE</span>`; else if (order.payment_method === 'on_delivery') paymentTag = `<span class="order-tag payment-on-delivery">PAGAR NA ENTREGA</span>`; else if (order.status === 'Aguardando Pagamento') paymentTag = `<span class="order-tag payment-pending">AGUARDANDO PAG.</span>`; const deliveryTypeTag = order.client_address === 'Retirada no local' ? `<span class="order-tag delivery-pickup">RETIRADA</span>` : `<span class="order-tag delivery-delivery">ENTREGA</span>`; const actionMap = { 'Aguardando Pagamento': `<button onclick="window.updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`, 'Pago': `<button onclick="window.updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar Pedido</button>`, 'Novo': `<button onclick="window.updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar Pedido</button><button onclick="window.updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`, 'Em Preparo': `<button onclick="window.updateOrderStatus(${order.id}, 'Pronto para Entrega')">Pronto</button>`, 'Pronto para Entrega': `<button onclick="window.updateOrderStatus(${order.id}, 'Finalizado')">Finalizado</button>` }; const actionsHtml = actionMap[order.status] || ''; const displayAddress = order.client_address === 'Retirada no Local' ? '<strong>Retirada no Local</strong>' : order.client_address; const paymentStatusTranslations = { 'approved': 'Aprovado', 'pending': 'Pendente', 'in_process': 'Processando', 'rejected': 'Rejeitado', 'cancelled': 'Cancelado', 'refunded': 'Devolvido', 'charged_back': 'Estornado' }; const translatedStatus = paymentStatusTranslations[order.payment_status] || order.payment_status || 'N/A'; const paymentInfo = order.payment_id ? `<p class="order-details">Pgto. Online: ${translatedStatus} (ID: ${order.payment_id})</p>` : ''; card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</span></div><div class="order-tags">${paymentTag}${deliveryTypeTag}</div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Contacto:</strong> ${order.client_phone || 'Não informado'}</p><p><strong>Destino:</strong> ${displayAddress}</p>${paymentInfo}</div><div class="order-card-actions">${actionsHtml}</div>`; return card; };
+            async function fetchAndRenderOrders() { try { const { activeOrders, finishedOrders, rejectedOrders } = await apiFetch('/orders'); document.querySelectorAll('.order-list').forEach(l => l.innerHTML = ''); [...activeOrders, ...finishedOrders, ...rejectedOrders].forEach(o => addOrderCard(o, false)); if (notificationAudio && !isAudioUnlocked) showAudioUnlockModal(); } catch (error) { console.error("Erro ao buscar pedidos:", error); } };
+            
+            function createOrderCard(order) {
+                const card = document.createElement('div');
+                card.className = 'order-card';
+                card.id = `order-${order.id}`;
+                card.onclick = () => stopNotification();
+                
+                let paymentTag = '';
+                if (order.status === 'Pago' || order.payment_status === 'approved') {
+                    paymentTag = `<span class="order-tag payment-paid">PAGO ONLINE</span>`;
+                } else if (order.payment_method === 'on_delivery') {
+                    paymentTag = `<span class="order-tag payment-on-delivery">PAGAR NA ENTREGA</span>`;
+                } else if (order.status === 'Aguardando Pagamento') {
+                    paymentTag = `<span class="order-tag payment-pending">AGUARDANDO PAG.</span>`;
+                }
+
+                const isPickup = order.client_address === 'Retirada no local';
+                const deliveryTypeTag = isPickup ? `<span class="order-tag delivery-pickup">RETIRADA</span>` : `<span class="order-tag delivery-delivery">ENTREGA</span>`;
+                
+                const nextStatusFromPreparo = isPickup ? 'Finalizado' : 'Pronto para Entrega';
+
+                const actionMap = {
+                    'Aguardando Pagamento': `<button onclick="window.updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`,
+                    'Pago': `<button onclick="window.updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar Pedido</button>`,
+                    'Novo': `<button onclick="window.updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar Pedido</button><button onclick="window.updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`,
+                    'Em Preparo': `<button onclick="window.updateOrderStatus(${order.id}, '${nextStatusFromPreparo}')">Pronto</button>`,
+                    'Pronto para Entrega': `<button onclick="window.updateOrderStatus(${order.id}, 'Finalizado')">Finalizado</button>`
+                };
+
+                const actionsHtml = actionMap[order.status] || '';
+                const displayAddress = order.client_address === 'Retirada no Local' ? '<strong>Retirada no Local</strong>' : order.client_address;
+                const paymentStatusTranslations = { 'approved': 'Aprovado', 'pending': 'Pendente', 'in_process': 'Processando', 'rejected': 'Rejeitado', 'cancelled': 'Cancelado', 'refunded': 'Devolvido', 'charged_back': 'Estornado' };
+                const translatedStatus = paymentStatusTranslations[order.payment_status] || order.payment_status || 'N/A';
+                const paymentInfo = order.payment_id ? `<p class="order-details">Pgto. Online: ${translatedStatus} (ID: ${order.payment_id})</p>` : '';
+                
+                card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</span></div><div class="order-tags">${paymentTag}${deliveryTypeTag}</div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Contacto:</strong> ${order.client_phone || 'Não informado'}</p><p><strong>Destino:</strong> ${displayAddress}</p>${paymentInfo}</div><div class="order-card-actions">${actionsHtml}</div>`;
+                return card;
+            };
+
             function addOrderCard(order, prepend = true) { const statusMap = { 'Aguardando Pagamento': 'col-novo', 'Pago': 'col-novo', 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto-para-entrega', 'Finalizado': 'col-finalizado', 'Cancelado': 'col-cancelado' }; const columnId = statusMap[order.status]; if (!columnId) return; const column = document.getElementById(columnId); if (column) { const existingCard = document.getElementById(`order-${order.id}`); if (existingCard) existingCard.remove(); const card = createOrderCard(order); if (prepend) column.prepend(card); else column.appendChild(card); } };
 
             const socket = io(API_BASE_URL_GLOBAL, { transports: ['websocket'] });
             socket.on('connect', () => console.log('[Dashboard] ✅ Socket.IO conectado.'));
             socket.on('disconnect', () => console.log('[Dashboard] 🔌 Socket.IO desconectado.'));
             socket.on('connect_error', (err) => console.error('[Dashboard] ❌ Erro de conexão Socket.IO:', err.message));
-            socket.on('new_order', (order) => { addOrderCard(order, true); playNotification(order.id); });
-            socket.on('order_status_updated', ({ id, status }) => { const card = document.getElementById(`order-${id}`); if (card) { apiFetch(`/orders`).then(({ activeOrders, finishedOrders, rejectedOrders }) => { const updatedOrder = [...activeOrders, ...finishedOrders, ...rejectedOrders].find(o => o.id === id); if (updatedOrder) addOrderCard(updatedOrder, true); }); } });
-            socket.on('history_cleared', () => { if (document.querySelector('.orders-panel')) fetchAndRenderOrders(); });
+            
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // ARQUITETO: Simplificada a lógica de atualização. Qualquer evento de pedido
+            // agora aciona uma recarga completa dos pedidos, se a página estiver ativa.
+            const isPedidosPageActive = () => document.querySelector('.orders-panel');
+            
+            socket.on('new_order', (order) => {
+                if (isPedidosPageActive()) {
+                    addOrderCard(order, true);
+                }
+                playNotification(order.id);
+            });
+            
+            socket.on('order_status_updated', () => {
+                if (isPedidosPageActive()) {
+                    fetchAndRenderOrders();
+                }
+            });
+            
+            socket.on('history_cleared', () => {
+                if (isPedidosPageActive()) {
+                    fetchAndRenderOrders();
+                }
+            });
+            // ##################### FIM DA CORREÇÃO ######################
+            
             socket.on('stock_update', async () => { console.log('[Dashboard] 📥 Stock update recebido. Recarregando dados dos produtos para garantir consistência.'); await refreshCurrentProductView(); });
             socket.on('data_updated', async () => { if (isProgrammaticallyUpdating) return isProgrammaticallyUpdating = false; await refreshCurrentProductView(); });
 
