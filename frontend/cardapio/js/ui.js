@@ -1,10 +1,8 @@
 // frontend/cardapio/js/ui.js
 import { state, handleOnlinePaymentSelection } from './main.js';
-import { openProductWithOptionsModal, openComboModal, addToCartSimple, clearCart, adjustItemGroupQuantity, adjustCartItemQuantity, removeItemGroup, calculateTotals, isComboEffectivelyOutOfStock, isItemEffectivelyOutOfStock } from './cart.js';
+import { openProductWithOptionsModal, openComboModal, addToCartSimple, clearCart, adjustItemGroupQuantity, removeItemGroup, calculateTotals, isComboEffectivelyOutOfStock, isItemEffectivelyOutOfStock } from './cart.js';
 import { handleBackToCart, handleBackToPaymentSelection } from './payment.js';
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Adicionados os elementos do botão flutuante ao objeto DOM.
 export const dom = {
     productsGrid: document.getElementById('products-grid'),
     combosGrid: document.getElementById('combos-grid'),
@@ -56,7 +54,6 @@ export const dom = {
     floatingCartInfo: document.getElementById('floating-cart-info'),
     floatingCartTotal: document.getElementById('floating-cart-total'),
 };
-// ##################### FIM DA CORREÇÃO ######################
 
 export function renderItems() {
     dom.productsGrid.innerHTML = '';
@@ -93,30 +90,13 @@ export function renderItems() {
         
         const action = item.is_combo ? 'open-combo-modal' : (hasOptions ? 'open-options-modal' : 'add-to-cart-simple');
 
-        grid.innerHTML += `
-            <div class="item-card ${isOutOfStock ? 'out-of-stock' : ''}" data-id="${item.id}">
-                <div class="stock-overlay">${isOutOfStock ? 'Esgotado' : ''}</div>
-                <img src="${item.image_url || 'https://placehold.co/400x250/f59e0b/FFF?text=Pamonha'}" alt="${item.name}" class="item-image">
-                <div class="item-info">
-                    <h3>${item.name}</h3>
-                    <p class="description">${item.description || ''}</p>
-                    <div class="item-price">${priceText}</div>
-                    <button class="action-button" data-action="${action}" data-id="${item.id}" ${!state.storeSettings.is_open || isOutOfStock ? 'disabled' : ''}>
-                        ${hasOptions ? 'Montar' : 'Adicionar'}
-                    </button>
-                </div>
-            </div>`;
+        grid.innerHTML += `<div class="item-card ${isOutOfStock ? 'out-of-stock' : ''}" data-id="${item.id}"><div class="stock-overlay">${isOutOfStock ? 'Esgotado' : ''}</div><img src="${item.image_url || 'https://placehold.co/400x250/f59e0b/FFF?text=Pamonha'}" alt="${item.name}" class="item-image"><div class="item-info"><h3>${item.name}</h3><p class="description">${item.description || ''}</p><div class="item-price">${priceText}</div><button class="action-button" data-action="${action}" data-id="${item.id}" ${!state.storeSettings.is_open || isOutOfStock ? 'disabled' : ''}>${hasOptions ? 'Montar' : 'Adicionar'}</button></div></div>`;
     });
 }
 
-export function renderCart() {
-    localStorage.setItem('pamonharia-cart', JSON.stringify(state.cart));
-    calculateTotals();
-
-    dom.clearCartBtn.style.display = state.cart.length > 0 ? 'inline-block' : 'none';
-    
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Lógica para controlar o botão flutuante.
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Nova função isolada para atualizar o botão flutuante.
+function updateFloatingCartButton() {
     if (state.cart.length > 0) {
         let totalItems = 0;
         state.cart.forEach(group => totalItems += group.quantity);
@@ -126,7 +106,16 @@ export function renderCart() {
     } else {
         dom.floatingCartBtn.classList.remove('visible');
     }
-    // ##################### FIM DA CORREÇÃO ######################
+}
+// ##################### FIM DA CORREÇÃO ######################
+
+export function renderCart() {
+    localStorage.setItem('pamonharia-cart', JSON.stringify(state.cart));
+    calculateTotals();
+    
+    dom.clearCartBtn.style.display = state.cart.length > 0 ? 'inline-block' : 'none';
+    
+    updateFloatingCartButton();
 
     if (state.cart.length === 0) {
         dom.cartItemsContainer.innerHTML = '<p id="empty-cart-msg">Seu carrinho está vazio.</p>';
@@ -142,16 +131,11 @@ export function renderCart() {
         let subItemsHtml = '';
         if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
             subItemsHtml = '<div class="cart-sub-items">';
-            
             const complementCounts = {};
             itemGroup.selected_items.forEach(sub => {
                 complementCounts[sub.name] = (complementCounts[sub.name] || 0) + sub.quantity;
             });
-            
-            subItemsHtml += Object.entries(complementCounts).map(([name, count]) => {
-                return `<div class="cart-sub-item"><span>${count}x ${name}</span></div>`;
-            }).join('');
-
+            subItemsHtml += Object.entries(complementCounts).map(([name, count]) => `<div class="cart-sub-item"><span>${count}x ${name}</span></div>`).join('');
             subItemsHtml += '</div>';
         }
         
@@ -159,22 +143,7 @@ export function renderCart() {
             ? `<div class="quantity-control-cart"><button data-action="adjust-group" data-cart-index="${cartIndex}" data-amount="-1">-</button><span>${itemGroup.quantity}</span><button data-action="adjust-group" data-cart-index="${cartIndex}" data-amount="1">+</button></div>`
             : `<div class="quantity-control-cart" style="visibility: hidden;"></div>`;
 
-        dom.cartItemsContainer.innerHTML += `
-            <div class="cart-item-group" data-cart-id="${itemGroup.cart_id}">
-                <div class="cart-main-item">
-                    <img src="${itemGroup.image_url || 'https://placehold.co/60x60/f59e0b/FFF?text=Item'}" alt="${itemGroup.name}" class="cart-item-image">
-                    <div class="cart-item-info">
-                        <strong>${itemGroup.quantity}x ${itemGroup.name}</strong>
-                        <span class="cart-item-price">R$ ${(itemGroup.total_value || 0).toFixed(2).replace('.',',')}</span>
-                    </div>
-                    <div class="cart-main-controls">
-                        ${mainControlsHtml}
-                        <button class="remove-item-btn" data-action="remove-group" data-cart-index="${cartIndex}">&times;</button>
-                    </div>
-                </div>
-                ${subItemsHtml}
-            </div>
-        `;
+        dom.cartItemsContainer.innerHTML += `<div class="cart-item-group" data-cart-id="${itemGroup.cart_id}"><div class="cart-main-item"><img src="${itemGroup.image_url || 'https://placehold.co/60x60/f59e0b/FFF?text=Item'}" alt="${itemGroup.name}" class="cart-item-image"><div class="cart-item-info"><strong>${itemGroup.quantity}x ${itemGroup.name}</strong><span class="cart-item-price">R$ ${(itemGroup.total_value || 0).toFixed(2).replace('.',',')}</span></div><div class="cart-main-controls">${mainControlsHtml}<button class="remove-item-btn" data-action="remove-group" data-cart-index="${cartIndex}">&times;</button></div></div>${subItemsHtml}</div>`;
     });
     dom.submitOrderBtn.disabled = !state.storeSettings.is_open;
 }
@@ -197,10 +166,7 @@ function renderFooter() {
         dayOrder.forEach(dayKey => {
             const dayInfo = operating_hours[dayKey];
             const scheduleText = (dayInfo && dayInfo.enabled) ? `${dayInfo.open} às ${dayInfo.close}` : 'Fechado';
-            hoursHtml += `<div style="display: flex; justify-content: space-between; padding: 4px 0;">
-                            <span style="font-weight: 500;">${dayNames[dayKey]}:</span> 
-                            <span>${scheduleText}</span>
-                          </div>`;
+            hoursHtml += `<div style="display: flex; justify-content: space-between; padding: 4px 0;"><span style="font-weight: 500;">${dayNames[dayKey]}:</span> <span>${scheduleText}</span></div>`;
         });
         hoursHtml += '</div>';
         dom.footerHours.innerHTML = hoursHtml;
@@ -307,6 +273,9 @@ export function initializeUI() {
             dom.addressGroup.style.display = isDelivery ? 'block' : 'none';
             dom.clientAddressInput.required = isDelivery;
             calculateTotals();
+            // #################### INÍCIO DA CORREÇÃO ####################
+            updateFloatingCartButton(); // Atualiza o botão flutuante quando o modo de entrega muda
+            // ##################### FIM DA CORREÇÃO ######################
         });
     });
 
@@ -340,13 +309,10 @@ export function initializeUI() {
         const button = e.target.closest('button');
         if (!button) return;
 
-        const { action, cartIndex, subIndex, amount } = button.dataset;
+        const { action, cartIndex, amount } = button.dataset;
 
         if (action === 'adjust-group') {
             adjustItemGroupQuantity(parseInt(cartIndex), parseInt(amount));
-        }
-        if (action === 'adjust-sub-item') {
-            adjustCartItemQuantity(parseInt(cartIndex), parseInt(subIndex), parseInt(amount));
         }
         if (action === 'remove-group') {
             removeItemGroup(parseInt(cartIndex));
@@ -362,12 +328,12 @@ export function initializeUI() {
 
     dom.newOrderBtn.addEventListener('click', resetForNewOrder);
     
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Adiciona o evento de clique para o botão flutuante.
     dom.floatingCartBtn.addEventListener('click', () => {
         dom.cartWrapper.scrollIntoView({ behavior: 'smooth' });
     });
-    // ##################### FIM DA CORREÇÃO ######################
+    
+    // Dispara o evento change na inicialização para garantir que o estado inicial está correto.
+    document.querySelector('input[name="delivery-type"]:checked').dispatchEvent(new Event('change'));
 }
 
 function applyTheme(theme) {
