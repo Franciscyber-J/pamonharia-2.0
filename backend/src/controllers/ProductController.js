@@ -20,7 +20,6 @@ const emitDataUpdated = () => {
 };
 
 module.exports = {
-  // Lista produtos para o dashboard, mantendo a estrutura hierárquica.
   async index(request, response) {
     const products = await connection('products').select('*').orderBy('display_order', 'asc');
     const productMap = new Map();
@@ -44,7 +43,6 @@ module.exports = {
     return response.json(parentProducts);
   },
 
-  // Lista produtos para o cardápio público, apenas itens ativos e principais.
   async indexPublic(request, response) {
     const allActiveProducts = await connection('products')
       .where({ status: true })
@@ -72,7 +70,6 @@ module.exports = {
     return response.json(finalList);
   },
 
-  // Cria um novo produto.
   async create(request, response) {
     try {
       const productData = request.body;
@@ -97,7 +94,6 @@ module.exports = {
     }
   },
 
-  // Atualiza um produto existente e seus complementos.
   async update(request, response) {
     try {
       const { id } = request.params;
@@ -141,7 +137,6 @@ module.exports = {
     }
   },
 
-  // Apaga um produto.
   async destroy(request, response) {
     const { id } = request.params;
     const deleted_rows = await connection('products').where('id', id).delete();
@@ -153,8 +148,6 @@ module.exports = {
     return response.status(204).send();
   },
 
-  // #################### INÍCIO DA CORREÇÃO ####################
-  // ARQUITETO: Função `updateStock` refatorada para incluir a lógica de sincronização.
   async updateStock(request, response) {
     const { id } = request.params;
     const { stock_quantity, stock_enabled } = request.body;
@@ -165,18 +158,11 @@ module.exports = {
         if (stock_quantity !== undefined) dataToUpdate.stock_quantity = stock_quantity;
         if (stock_enabled !== undefined) dataToUpdate.stock_enabled = stock_enabled;
 
-        if (Object.keys(dataToUpdate).length === 0) {
-          return; // Nenhuma alteração a ser feita
-        }
+        if (Object.keys(dataToUpdate).length === 0) return;
 
-        // 1. Atualiza o produto principal (pai)
         const [product] = await trx('products').where('id', id).update(dataToUpdate).returning('*');
+        if (!product) throw new Error('Produto não encontrado.');
 
-        if (!product) {
-          throw new Error('Produto não encontrado.');
-        }
-
-        // 2. Se a sincronização estiver ativa E a quantidade foi alterada, propaga para os filhos.
         if (product.stock_sync_enabled && dataToUpdate.stock_quantity !== undefined) {
           console.log(`[ProductController] Sincronização ativa para o produto ${id}. Propagando estoque ${dataToUpdate.stock_quantity} para os filhos.`);
           await trx('products')
@@ -185,11 +171,11 @@ module.exports = {
         }
       });
 
-      // 3. Notifica todos os clientes sobre a mudança para recarregar os dados.
-      emitDataUpdated();
-      
-      // 4. Força o servidor a recarregar o inventário da base de dados.
+      // #################### INÍCIO DA CORREÇÃO ####################
+      // ARQUITETO: Removido o `emitDataUpdated()` para prevenir o reordenamento indesejado da UI.
+      // A função abaixo já emite o evento `stock_update`, que é suficiente e mais eficiente.
       await request.triggerInventoryReload(); 
+      // ##################### FIM DA CORREÇÃO ######################
       
       return response.status(200).json({ message: 'Estoque atualizado com sucesso.' });
 
@@ -201,9 +187,7 @@ module.exports = {
       return response.status(500).json({ error: 'Falha ao atualizar o estoque.' });
     }
   },
-  // ##################### FIM DA CORREÇÃO ######################
 
-  // Reordena os produtos no cardápio.
   async reorder(request, response) {
     const { orderedIds } = request.body;
     if (!Array.isArray(orderedIds)) {
@@ -227,7 +211,6 @@ module.exports = {
     }
   },
 
-  // Duplica um produto e seus complementos associados.
   async duplicate(request, response) {
     const { id } = request.params;
     try {
