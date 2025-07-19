@@ -23,6 +23,7 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
 body { font-family: var(--font-sans); background-color: var(--bg-primary); color: var(--text-primary); line-height: 1.6; transition: background-color 0.3s ease, color 0.3s ease; }
 .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
 
@@ -31,7 +32,24 @@ body { font-family: var(--font-sans); background-color: var(--bg-primary); color
 .header-center { flex-grow: 1; }
 .header h1 { font-family: var(--font-display); font-size: 2.5rem; color: var(--primary-color); font-weight: 700; }
 .header p { font-size: 1.1rem; color: var(--text-secondary); margin-top: 5px; }
-.theme-switcher { background: none; border: 2px solid var(--border-color); color: var(--text-secondary); width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.3s ease; }
+
+/* #################### INÍCIO DA CORREÇÃO #################### */
+.theme-switcher { 
+    background: none; 
+    border: 2px solid var(--border-color); 
+    color: var(--text-secondary); 
+    width: 40px; 
+    height: 40px; 
+    border-radius: 50%; 
+    cursor: pointer; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    transition: all 0.3s ease;
+    flex-shrink: 0; /* Impede que o botão seja achatado */
+}
+/* ##################### FIM DA CORREÇÃO ###################### */
+
 .theme-switcher:hover { border-color: var(--primary-color); color: var(--primary-color); transform: rotate(15deg); }
 .theme-switcher svg { width: 20px; height: 20px; }
 #sun-icon { display: none; }
@@ -118,7 +136,6 @@ select.input-field {
 #order-success-message, #payment-status-message { text-align: center; padding: 40px 20px; }
 #order-success-message h3, #payment-status-message h3 { color: var(--success-color); font-size: 1.5rem; margin-bottom: 15px; }
 
-/* #################### INÍCIO DA CORREÇÃO #################### */
 .btn {
     padding: 10px 20px;
     font-size: 1rem;
@@ -158,12 +175,10 @@ select.input-field {
     justify-content: space-between;
     align-items: center;
 }
-#card-payment-submit-btn { /* Garante que o botão de pagar tenha o mesmo estilo base */
+#card-payment-submit-btn {
     margin: 0;
     width: auto;
 }
-/* ##################### FIM DA CORREÇÃO ##################### */
-
 
 /* --- ESTILOS PARA O PAGAMENTO CUSTOMIZADO (CORE API) --- */
 #online-payment-method-selection { display: flex; flex-direction: column; gap: 15px; margin-top: 20px; }
@@ -206,3 +221,49 @@ select.input-field {
 .quantity-control button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border-color); background-color: transparent; color: var(--text-primary); font-size: 1.2rem; cursor: pointer; }
 .quantity-control button:disabled { opacity: 0.4; cursor: not-allowed; }
 .quantity-control span { font-weight: 500; min-width: 20px; text-align: center; }
+
+/* --- BOTÃO FLUTUANTE DO CARRINHO (MOBILE) --- */
+.floating-cart-btn {
+    display: none; 
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background-color: var(--primary-color);
+    color: white;
+    padding: 15px 20px;
+    border-radius: 50px;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+    /* #################### INÍCIO DA CORREÇÃO #################### */
+    z-index: 998; /* Garante que fique acima de outros elementos */
+    /* ##################### FIM DA CORREÇÃO ###################### */
+    font-family: var(--font-display);
+    font-weight: 500;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    opacity: 0;
+    transform: translateY(20px);
+}
+.floating-cart-btn.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+.floating-cart-btn:hover {
+    background-color: var(--primary-color-dark);
+}
+#floating-cart-info {
+    margin-right: 15px;
+    padding-right: 15px;
+    border-right: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+@media (max-width: 991px) {
+    .floating-cart-btn {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    aside {
+        position: static;
+        width: 100%;
+    }
+}
