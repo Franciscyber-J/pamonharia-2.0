@@ -19,7 +19,8 @@
     <div class="background-bubbles"></div>
     <script>
         const token = sessionStorage.getItem('authToken');
-        if (!token) {
+        const userRole = sessionStorage.getItem('userRole');
+        if (!token || !userRole) {
             window.location.href = '/dashboard/login.html';
         }
     </script>
@@ -65,7 +66,10 @@
 
             <header class="header">
                 <h1 id="page-title"></h1>
-                <button id="sound-status"></button>
+                <div class="header-controls">
+                    <div id="store-status-override-container"></div>
+                    <button id="sound-status"></button>
+                </div>
             </header>
             <div id="dashboard-content"></div>
         </main>
@@ -81,7 +85,6 @@
                     <input type="hidden" id="product-image-url">
                     <input type="hidden" id="parent-product-id">
                     <input type="hidden" id="is-main-product-flag">
-
                     <div id="parent-info-section" style="display: none; margin-bottom: 20px; background-color: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <span>Este item é um complemento de: </span>
@@ -89,7 +92,6 @@
                         </div>
                         <button type="button" id="unlink-parent-btn" class="btn btn-danger" style="padding: 5px 10px; font-size: 0.8rem;">Desvincular</button>
                     </div>
-
                     <div id="product-form-grid">
                         <div class="image-upload-container" onclick="document.getElementById('product-image-input').click()">
                             <img id="product-image-preview" class="image-preview" src="" alt="Pré-visualização da Imagem">
@@ -224,6 +226,7 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const userRole = sessionStorage.getItem('userRole');
             const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
             const API_BASE_URL_GLOBAL = IS_LOCAL ? 'http://localhost:10000' : 'https://pamonhariasaborosa.expertbr.com';
             console.log(`[Config] Ambiente detectado: ${IS_LOCAL ? 'Local' : 'Produção'}. API URL: ${API_BASE_URL_GLOBAL}`);
@@ -239,6 +242,7 @@
                     const response = await fetch(`${API_BASE_URL_GLOBAL}/api${endpoint}`, options);
                     if (response.status === 401) {
                         sessionStorage.removeItem('authToken');
+                        sessionStorage.removeItem('userRole');
                         window.location.href = '/dashboard/login.html';
                         throw new Error('Token inválido ou expirado.');
                     }
@@ -271,6 +275,7 @@
                 const stockInput = row.querySelector('.stock-input');
                 const productId = parseInt(row.dataset.id);
                 const feedbackSpan = row.querySelector('.stock-feedback');
+
                 if (!stockInput || stockInput.disabled || !feedbackSpan) return;
 
                 feedbackSpan.classList.remove('show', 'success', 'error');
@@ -283,10 +288,6 @@
                         method: 'PATCH',
                         body: JSON.stringify({ stock_quantity: parseInt(stockInput.value) })
                     });
-                    const productInState = allProductsFlat.find(p => p.id === productId);
-                    if (productInState) {
-                        productInState.stock_quantity = parseInt(stockInput.value);
-                    }
                     feedbackSpan.textContent = 'Salvo!';
                     feedbackSpan.classList.add('success');
                     setTimeout(() => {
@@ -305,7 +306,7 @@
                 const row = checkbox.closest('.product-row');
                 const productId = row.dataset.id;
                 const isEnabled = checkbox.checked;
-                row.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn, .btn-status-toggle').forEach(el => {
+                row.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn').forEach(el => {
                     if (!el.classList.contains('stock-enabled-toggle')) {
                         el.disabled = !isEnabled;
                     }
@@ -316,15 +317,11 @@
             window.toggleProductStatus = async (productId, newStatus) => {
                 isProgrammaticallyUpdating = true;
                 try {
-                    const product = allProductsFlat.find(p => p.id === productId);
-                    if (product) {
-                        product.status = newStatus;
-                        await globalApiFetch(`/products/${productId}`, {
-                            method: 'PUT',
-                            body: JSON.stringify({ status: newStatus })
-                        });
-                        await refreshCurrentProductView();
-                    }
+                    await globalApiFetch(`/products/${productId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ status: newStatus })
+                    });
+                    await refreshCurrentProductView();
                 } catch (error) {
                     console.error(`Falha ao atualizar o status do produto ${productId}:`, error);
                     alert('Não foi possível atualizar o status do produto. A recarregar a lista para garantir a consistência.');
@@ -462,7 +459,7 @@
             function flattenProductsWithParentInfo(products) { let flatList = []; products.forEach(p => { const { children, ...parent } = p; flatList.push(parent); if (children?.length > 0) flatList.push(...children.map(c => ({ ...c, parent_stock_sync_enabled: parent.stock_sync_enabled }))); }); return flatList; };
             async function fetchAllProducts() { try { allProducts = await apiFetch('/products'); allProductsFlat = flattenProductsWithParentInfo(allProducts); } catch (error) { console.error("Não foi possível carregar os produtos.", error); } };
 
-            function renderProdutosPage() { pageTitle.textContent = 'Produtos e Estoque'; dashboardContent.innerHTML = `<div class="page-header"><h2>Gestão de Produtos e Estoque</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`; document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true)); renderProdutosPageContent(); };
+            function renderProdutosPage() { pageTitle.textContent = 'Produtos e Estoque'; const addButtonHtml = userRole === 'admin' ? `<button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button>` : ''; dashboardContent.innerHTML = `<div class="page-header"><h2>Gestão de Produtos e Estoque</h2>${addButtonHtml}</div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`; if (userRole === 'admin') { document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true)); } renderProdutosPageContent(); };
             function renderProdutosPageContent() { const tbody = document.getElementById('products-tbody'); if (!tbody) return; const expanded = new Set(Array.from(tbody.querySelectorAll('.toggle-children-btn.expanded')).map(btn => btn.closest('.product-row')?.dataset.id)); tbody.innerHTML = ''; const main = allProducts.filter(p => p.is_main_product); main.forEach(p => { tbody.innerHTML += createProductRow(p); if (p.children?.length > 0) p.children.forEach(c => { tbody.innerHTML += createProductRow(c, true, p.stock_sync_enabled); }); }); expanded.forEach(id => { const row = tbody.querySelector(`.product-row[data-id='${id}']`); const btn = row?.querySelector('.toggle-children-btn'); if (btn) { btn.classList.add('expanded'); document.querySelectorAll(`.product-row.is-child[data-parent-id='${id}']`).forEach(child => child.style.display = 'table-row'); } }); initSortable('products-tbody', '/products/reorder'); };
             function renderComplementosPageContent() { const tbody = document.getElementById('complementos-tbody'); if (!tbody) return; tbody.innerHTML = ''; allProductsFlat.filter(p => !p.is_main_product).forEach(item => { tbody.innerHTML += createProductRow(item, false); }); initSortable('complementos-tbody', '/products/reorder'); };
             async function refreshCurrentProductView() { await fetchAllProducts(); const page = document.querySelector('nav a.active')?.id.split('-')[1]; if (page === 'produtos') renderProdutosPageContent(); else if (page === 'complementos') renderComplementosPageContent(); };
@@ -480,8 +477,8 @@
                 }
                 const hasChildren = !isChild && product.children && product.children.length > 0;
                 const toggleButton = hasChildren ? `<span class="toggle-children-btn" onclick="window.toggleChildren(this, ${product.id})">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
-                const dragHandle = !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
-                const pausePlayButton = product.status ? `<button class="btn-icon btn-status-toggle paused" onclick="window.toggleProductStatus(${product.id}, false)" title="Pausar item">||</button>` : `<button class="btn-icon btn-status-toggle playing" onclick="window.toggleProductStatus(${product.id}, true)" title="Ativar item">▶</button>`;
+                const dragHandle = userRole === 'admin' && !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
+                const pausePlayButton = `<button class="btn-icon btn-status-toggle ${product.status ? 'paused' : 'playing'}" onclick="window.toggleProductStatus(${product.id}, ${!product.status})" title="${product.status ? 'Pausar' : 'Ativar'}">${product.status ? '||' : '▶'}</button>`;
                 let stockControlsCell = '';
                 const isParentContainerOnly = !isChild && hasChildren && !product.sell_parent_product;
                 if (isParentContainerOnly) {
@@ -489,7 +486,7 @@
                 } else {
                     stockControlsCell = `<td><div class="stock-controls"><label class="toggle-switch"><input type="checkbox" class="stock-enabled-toggle" onchange="window.handleStockEnableToggle(this)" ${product.stock_enabled ? 'checked' : ''}><span class="slider"></span></label><button class="stock-btn stock-decrease" onclick="window.handleStockAdjust(this, -1)" ${stock_controls_disabled}>-</button><input type="number" class="input-field stock-input" value="${stock_quantity}" ${stock_controls_disabled}><button class="stock-btn stock-increase" onclick="window.handleStockAdjust(this, 1)" ${stock_controls_disabled}>+</button><button class="btn btn-primary stock-save-btn" onclick="window.handleStockSave(this)" ${stock_controls_disabled}>Salvar</button><span class="stock-feedback"></span>${pausePlayButton}</div></td>`;
                 }
-                const actionButtons = `<div class="actions-container"><button class="btn-icon btn-actions-menu" onclick="window.toggleActionsMenu(event)">⋮</button><div class="actions-menu"><a href="#" onclick="event.preventDefault(); window.openProductModal(${product.id})">Editar</a><a href="#" onclick="event.preventDefault(); window.duplicateProduct(${product.id})">Duplicar</a><a href="#" class="danger" onclick="event.preventDefault(); window.deleteProduct(${product.id})">Apagar</a></div></div>`;
+                const actionButtons = userRole === 'admin' ? `<div class="actions-container"><button class="btn-icon btn-actions-menu" onclick="window.toggleActionsMenu(event)">⋮</button><div class="actions-menu"><a href="#" onclick="event.preventDefault(); window.openProductModal(${product.id})">Editar</a><a href="#" onclick="event.preventDefault(); window.duplicateProduct(${product.id})">Duplicar</a><a href="#" class="danger" onclick="event.preventDefault(); window.deleteProduct(${product.id})">Apagar</a></div></div>` : '';
                 return `<tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">${dragHandle}<td><div class="product-name-cell">${toggleButton} ${isChild ? '<span class="child-indicator">↳</span>' : ''} <img src="${product.image_url || PLACEHOLDER_IMG_60}" alt="${product.name}" class="product-image-thumbnail"><span>${product.name}</span></div>${parentControls}</td><td>R$ ${parseFloat(product.price).toFixed(2).replace('.', ',')}</td><td><span class="status-badge ${product.status ? 'active' : 'inactive'}">${product.status ? 'Ativo' : 'Inativo'}</span></td>${stockControlsCell}<td class="action-buttons-cell">${actionButtons}</td></tr>`;
             };
 
@@ -502,9 +499,9 @@
             function closeComboModal() { document.getElementById('combo-modal-overlay').style.display = 'none'; };
             async function saveCombo(e) { e.preventDefault(); const btn = document.getElementById('save-combo-button'); btn.disabled = true; btn.textContent = 'Salvando...'; let imageUrl = document.getElementById('combo-image-url').value; const input = document.getElementById('combo-image-input'); if (input.files[0]) { try { const { timestamp, signature } = await apiFetch('/cloudinary-signature'); const fd = new FormData(); fd.append('file', input.files[0]); fd.append('api_key', '351266855176353'); fd.append('timestamp', timestamp); fd.append('signature', signature); const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/image/upload`, { method: 'POST', body: fd }); const data = await res.json(); if (data.secure_url) imageUrl = data.secure_url; else throw new Error('Falha no upload'); } catch (error) { alert('Erro ao fazer upload da imagem do combo.'); btn.disabled = false; btn.textContent = 'Salvar Combo'; return; } } const id = document.getElementById('combo-id').value; const products = Array.from(document.querySelectorAll('#combo-products-list input:checked')).map(cb => { const row = cb.closest('.combo-product-item'); const qty = document.getElementById('allow-free-choice').checked ? 1 : (parseInt(row.querySelector('.quantity-in-combo').value) || 1); return { id: parseInt(cb.dataset.productId), quantity_in_combo: qty, price_modifier: parseFloat(row.querySelector('.price-modifier').value) || 0 }; }); const data = { name: document.getElementById('combo-name').value, description: document.getElementById('combo-description').value, price: parseFloat(document.getElementById('combo-price').value), status: document.getElementById('combo-status').value === 'true', image_url: imageUrl, products, total_items_limit: parseInt(document.getElementById('total-items-limit').value), allow_free_choice: document.getElementById('allow-free-choice').checked }; try { await apiFetch(id ? `/combos/${id}` : '/combos', { method: id ? 'PUT' : 'POST', body: JSON.stringify(data) }); closeComboModal(); await fetchAndRenderCombos(); } catch (error) { alert('Falha ao salvar o combo.'); } finally { btn.disabled = false; btn.textContent = 'Salvar Combo'; } };
             function deleteCombo(id) { showCustomConfirm('Tem a certeza de que deseja apagar este combo?', async () => { try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); await fetchAndRenderCombos(); } catch (error) { console.error('Erro ao apagar combo:', error); } }); };
-            function renderSettingsPage() { pageTitle.textContent = 'Configurações da Loja'; dashboardContent.innerHTML = `<form id="settings-form" class="settings-form"><div class="settings-card"><div class="card-header"><h3>Status da Loja</h3></div><div id="status-buttons" class="status-buttons"><button type="button" data-status="true">Forçar Aberta</button><button type="button" data-status="false">Forçar Fechada</button><button type="button" data-status="null">Seguir Horário</button></div></div><div class="settings-card"><div class="card-header"><h3>Informações Gerais</h3></div><div class="info-grid"><div class="grid-col-span-2 form-group"><label for="address">Endereço</label><input type="text" id="address" class="input-field"></div><div class="form-group"><label for="store_name">Nome da Loja</label><input type="text" id="store_name" class="input-field"></div><div class="form-group"><label for="location_link">Link Google Maps</label><input type="text" id="location_link" class="input-field"></div></div></div><div class="settings-card"><div class="card-header"><h3>Financeiro</h3></div><div class="form-group"><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" step="0.50" class="input-field"></div></div><div class="settings-card"><div class="card-header"><h3>Horários</h3></div><div class="operating-hours-grid" id="hours-grid"></div></div><div class="settings-card"><div class="card-header"><h3>Notificações</h3></div><div class="form-group"><label for="notification_sound">Carregar Som (MP3, WAV)</label><input type="file" id="notification_sound" accept="audio/*"></div><div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;"><p id="sound-feedback"></p><button type="button" id="remove-sound-btn" style="display: none;" class="btn btn-danger">Remover</button></div></div><div class="form-buttons"><span id="save-feedback"></span><button type="submit" class="btn btn-primary">Salvar Alterações</button></div></form>`; fetchAndPopulateSettings(); };
-            async function fetchAndPopulateSettings() { try { const settings = await apiFetch('/settings'); document.getElementById('store_name').value = settings.store_name; document.getElementById('address').value = settings.address; document.getElementById('location_link').value = settings.location_link; document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2); document.querySelectorAll('#status-buttons button').forEach(b => { b.classList.remove('selected'); if (String(b.dataset.status) === String(settings.is_open_manual_override)) b.classList.add('selected'); }); const feedback = document.getElementById('sound-feedback'), removeBtn = document.getElementById('remove-sound-btn'); if (settings.notification_sound_filename) { feedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`; removeBtn.style.display = 'inline-block'; } else { feedback.textContent = 'Nenhum som configurado.'; removeBtn.style.display = 'none'; } const grid = document.getElementById('hours-grid'); grid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre</div><div class="grid-header">Fecha</div><div class="grid-header">Aberto?</div>`; ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { const s = settings.operating_hours[day] || { open: '00:00', close: '00:00', enabled: false }; grid.innerHTML += `<div class="day">${day.charAt(0).toUpperCase() + day.slice(1)}</div><input type="time" id="open-${day}" value="${s.open}" class="input-field"><input type="time" id="close-${day}" value="${s.close}" class="input-field"><label class="toggle-switch"><input type="checkbox" id="enabled-${day}" ${s.enabled ? "checked" : ""}><span class="slider"></span></label>`; }); addSettingsListeners(settings); } catch (error) { console.error("Falha ao buscar config:", error); } };
-            function addSettingsListeners(current) { const form = document.getElementById('settings-form'); if (!form) return; document.querySelectorAll('#status-buttons button').forEach(b => b.addEventListener('click', () => { document.querySelector('#status-buttons button.selected')?.classList.remove('selected'); b.classList.add('selected'); })); const input = document.getElementById('notification_sound'), feedback = document.getElementById('sound-feedback'), removeBtn = document.getElementById('remove-sound-btn'); removeBtn.onclick = () => { current.notification_sound_url = null; current.notification_sound_filename = null; input.value = ''; feedback.textContent = 'Som removido ao salvar.'; removeBtn.style.display = 'none'; }; form.addEventListener('submit', async e => { e.preventDefault(); const btn = form.querySelector('button[type="submit"]'), fb = document.getElementById('save-feedback'); btn.disabled = true; fb.textContent = 'Salvando...'; let url = current.notification_sound_url, filename = current.notification_sound_filename; if (input.files[0]) { try { const { timestamp, signature } = await apiFetch('/cloudinary-signature'); const fd = new FormData(); fd.append('file', input.files[0]); fd.append('api_key', '351266855176353'); fd.append('timestamp', timestamp); fd.append('signature', signature); const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`, { method: 'POST', body: fd }); const data = await res.json(); if (data.secure_url) { url = data.secure_url; filename = input.files[0].name; } else throw new Error('Falha no upload'); } catch (error) { fb.textContent = 'Erro no upload.'; setTimeout(() => fb.textContent = '', 3000); btn.disabled = false; return; } } const hours = {}; ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { hours[day] = { open: document.getElementById(`open-${day}`).value, close: document.getElementById(`close-${day}`).value, enabled: document.getElementById(`enabled-${day}`).checked }; }); let override = document.querySelector('#status-buttons button.selected')?.dataset.status; const data = { store_name: document.getElementById('store_name').value, address: document.getElementById('address').value, location_link: document.getElementById('location_link').value, delivery_fee: document.getElementById('delivery_fee').value, is_open_manual_override: override === 'null' ? null : override === 'true', operating_hours: hours, notification_sound_url: url, notification_sound_filename: filename }; try { await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(data) }); fb.textContent = 'Salvo!'; setupAudioPlayer(data.notification_sound_url); setTimeout(() => fb.textContent = '', 2000); } catch (error) { fb.textContent = 'Erro ao salvar.'; } finally { btn.disabled = false; } }); };
+            function renderSettingsPage() { pageTitle.textContent = 'Configurações da Loja'; dashboardContent.innerHTML = `<form id="settings-form" class="settings-form"><div class="settings-card"><div class="card-header"><h3>Informações Gerais</h3></div><div class="info-grid"><div class="grid-col-span-2 form-group"><label for="address">Endereço</label><input type="text" id="address" class="input-field"></div><div class="form-group"><label for="store_name">Nome da Loja</label><input type="text" id="store_name" class="input-field"></div><div class="form-group"><label for="location_link">Link Google Maps</label><input type="text" id="location_link" class="input-field"></div></div></div><div class="settings-card"><div class="card-header"><h3>Financeiro</h3></div><div class="form-group"><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" step="0.50" class="input-field"></div></div><div class="settings-card"><div class="card-header"><h3>Horários</h3></div><div class="operating-hours-grid" id="hours-grid"></div></div><div class="settings-card"><div class="card-header"><h3>Notificações</h3></div><div class="form-group"><label for="notification_sound">Carregar Som (MP3, WAV)</label><input type="file" id="notification_sound" accept="audio/*"></div><div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;"><p id="sound-feedback"></p><button type="button" id="remove-sound-btn" style="display: none;" class="btn btn-danger">Remover</button></div></div><div class="form-buttons"><span id="save-feedback"></span><button type="submit" class="btn btn-primary">Salvar Alterações</button></div></form>`; fetchAndPopulateSettings(); };
+            async function fetchAndPopulateSettings() { try { const settings = await apiFetch('/settings'); document.getElementById('store_name').value = settings.store_name; document.getElementById('address').value = settings.address; document.getElementById('location_link').value = settings.location_link; document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2); const soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn'); if (settings.notification_sound_filename) { soundFeedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`; removeSoundBtn.style.display = 'inline-block'; } else { soundFeedback.textContent = 'Nenhum som configurado.'; removeSoundBtn.style.display = 'none'; } const hoursGrid = document.getElementById('hours-grid'); hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre</div><div class="grid-header">Fecha</div><div class="grid-header">Aberto?</div>`; ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { const daySettings = settings.operating_hours[day] || { open: '00:00', close: '00:00', enabled: false }; hoursGrid.innerHTML += `<div class="day">${day.charAt(0).toUpperCase() + day.slice(1)}</div><input type="time" id="open-${day}" value="${daySettings.open}" class="input-field"><input type="time" id="close-${day}" value="${daySettings.close}" class="input-field"><label class="toggle-switch"><input type="checkbox" id="enabled-${day}" ${daySettings.enabled ? "checked" : ""}><span class="slider"></span></label>`; }); addSettingsListeners(settings); } catch (error) { console.error("Falha ao buscar config:", error); } };
+            function addSettingsListeners(currentSettings) { const form = document.getElementById('settings-form'); if (!form) return; const soundInput = document.getElementById('notification_sound'), soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn'); removeSoundBtn.onclick = () => { currentSettings.notification_sound_url = null; currentSettings.notification_sound_filename = null; soundInput.value = ''; soundFeedback.textContent = 'Som removido ao salvar.'; removeSoundBtn.style.display = 'none'; }; form.addEventListener('submit', async e => { e.preventDefault(); const saveButton = form.querySelector('button[type="submit"]'), feedback = document.getElementById('save-feedback'); saveButton.disabled = true; feedback.textContent = 'Salvando...'; let soundUrlToSave = currentSettings.notification_sound_url, soundFilenameToSave = currentSettings.notification_sound_filename; if (soundInput.files[0]) { try { const { timestamp, signature } = await apiFetch('/cloudinary-signature'); const formData = new FormData(); formData.append('file', soundInput.files[0]); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature); const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`, { method: 'POST', body: formData }); const data = await res.json(); if (data.secure_url) { soundUrlToSave = data.secure_url; soundFilenameToSave = soundInput.files[0].name; } else throw new Error('Falha no upload'); } catch (error) { feedback.textContent = 'Erro no upload.'; setTimeout(() => feedback.textContent = '', 3000); saveButton.disabled = false; return; } } const operating_hours = {}; ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { operating_hours[day] = { open: document.getElementById(`open-${day}`).value, close: document.getElementById(`close-${day}`).value, enabled: document.getElementById(`enabled-${day}`).checked }; }); const data = { store_name: document.getElementById('store_name').value, address: document.getElementById('address').value, location_link: document.getElementById('location_link').value, delivery_fee: document.getElementById('delivery_fee').value, operating_hours, notification_sound_url: soundUrlToSave, notification_sound_filename: soundFilenameToSave }; try { await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(data) }); feedback.textContent = 'Salvo!'; setupAudioPlayer(data.notification_sound_url); setTimeout(() => feedback.textContent = '', 2000); } catch (error) { feedback.textContent = 'Erro ao salvar.'; } finally { saveButton.disabled = false; } }); };
             function initSortable(id, endpoint) { const tbody = document.getElementById(id); if (!tbody) return; new Sortable(tbody, { handle: '.drag-handle', animation: 150, filter: '.is-child', onMove: (e) => e.related.className.indexOf('is-child') === -1, onEnd: async (e) => { const ids = Array.from(tbody.querySelectorAll('tr:not(.is-child)')).map(row => row.dataset.id); try { await apiFetch(endpoint, { method: 'POST', body: JSON.stringify({ orderedIds: ids }) }); } catch (error) { alert('Não foi possível salvar a nova ordem.'); fetchAndRenderOrders(); } } }); };
             function showCustomConfirm(message, onConfirm, confirmClass = 'btn-danger', confirmText = 'Confirmar') { const modal = document.getElementById('confirm-modal-overlay'); const msg = document.getElementById('confirm-modal-message'); const confirmBtn = document.getElementById('confirm-modal-confirm'); const cancelBtn = document.getElementById('confirm-modal-cancel'); msg.textContent = message; confirmBtn.textContent = confirmText; confirmBtn.className = `btn ${confirmClass}`; const newBtn = confirmBtn.cloneNode(true); confirmBtn.parentNode.replaceChild(newBtn, confirmBtn); newBtn.onclick = () => { onConfirm(); modal.style.display = 'none'; }; cancelBtn.onclick = () => { modal.style.display = 'none'; }; modal.style.display = 'flex'; };
 
@@ -544,10 +541,54 @@
             if (openCardapioBtn) openCardapioBtn.addEventListener('click', () => window.open(cardapioUrl, '_blank'));
             if (copyCardapioLinkBtn) { const icon = copyCardapioLinkBtn.innerHTML; copyCardapioLinkBtn.addEventListener('click', () => { navigator.clipboard.writeText(cardapioUrl).then(() => { copyCardapioLinkBtn.innerHTML = '✅'; setTimeout(() => { copyCardapioLinkBtn.innerHTML = icon; }, 2000); }).catch(err => console.error('Falha ao copiar: ', err)); }); }
 
-            document.getElementById('logout-button').addEventListener('click', () => { sessionStorage.removeItem('authToken'); window.location.href = '/dashboard/login.html'; });
+            document.getElementById('logout-button').addEventListener('click', () => { sessionStorage.removeItem('authToken'); sessionStorage.removeItem('userRole'); window.location.href = '/dashboard/login.html'; });
 
-            const initializeSoundSystem = async () => { try { const settings = await apiFetch('/settings'); setupAudioPlayer(settings.notification_sound_url); } catch (error) { console.error("Não foi possível carregar as config de som.", error); setupAudioPlayer(null); } };
-            const main = async () => { await Promise.all([fetchAllProducts(), initializeSoundSystem()]); navLinks.pedidos.click(); };
+            const initializeSoundSystem = async () => { try { const config = await apiFetch('/dashboard/config'); setupAudioPlayer(config.notification_sound_url); } catch (error) { console.error("Não foi possível carregar as configurações de som.", error); setupAudioPlayer(null); } };
+
+            function applyRolePermissions() {
+                if (userRole === 'operador') {
+                    document.getElementById('nav-complementos').style.display = 'none';
+                    document.getElementById('nav-combos').style.display = 'none';
+                    document.getElementById('nav-configuracoes').style.display = 'none';
+                }
+            }
+            
+            function renderHeaderControls() {
+                if (userRole === 'admin' || userRole === 'operador') {
+                    const container = document.getElementById('store-status-override-container');
+                    container.innerHTML = `<div id="status-buttons" class="status-buttons"><button type="button" data-status="true">Loja Aberta</button><button type="button" data-status="false">Loja Fechada</button><button type="button" data-status="null">Seguir Horário</button></div>`;
+                    
+                    const updateButtons = (currentStatus) => {
+                        container.querySelectorAll('button').forEach(button => {
+                            button.classList.remove('selected');
+                            if (String(button.dataset.status) === String(currentStatus)) {
+                                button.classList.add('selected');
+                            }
+                        });
+                    };
+
+                    apiFetch('/dashboard/config').then(config => updateButtons(config.is_open_manual_override));
+
+                    container.addEventListener('click', async (e) => {
+                        if (e.target.tagName === 'BUTTON') {
+                            const override = e.target.dataset.status === 'null' ? null : e.target.dataset.status === 'true';
+                            await apiFetch('/settings/status', {
+                                method: 'PATCH',
+                                body: JSON.stringify({ is_open_manual_override: override })
+                            });
+                            updateButtons(override);
+                        }
+                    });
+                }
+            }
+            
+            const main = async () => {
+                applyRolePermissions();
+                renderHeaderControls();
+                await Promise.all([fetchAllProducts(), initializeSoundSystem()]);
+                const initialPage = userRole === 'operador' ? navLinks.pedidos : navLinks.pedidos;
+                initialPage.click();
+            };
 
             main();
         });

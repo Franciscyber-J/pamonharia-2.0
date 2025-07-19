@@ -88,77 +88,83 @@
         </form>
     </div>
     <script>
-        const loginForm = document.getElementById('login-form');
-        const emailInput = document.getElementById('email');
-        const passwordInput = document.getElementById('password');
-        const rememberMeCheckbox = document.getElementById('remember-me');
-        const togglePassword = document.getElementById('toggle-password');
-        const errorMessage = document.getElementById('error-message');
-
-        const API_BASE_URL = 'https://pamonhariasaborosa.expertbr.com';
-
-        togglePassword.addEventListener('click', () => {
-            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-            passwordInput.setAttribute('type', type);
-            togglePassword.textContent = type === 'password' ? '👁️' : '🙈';
-        });
-
         document.addEventListener('DOMContentLoaded', () => {
+            const loginForm = document.getElementById('login-form');
+            const emailInput = document.getElementById('email');
+            const passwordInput = document.getElementById('password');
+            const rememberMeCheckbox = document.getElementById('remember-me');
+            const togglePassword = document.getElementById('toggle-password');
+            const errorMessage = document.getElementById('error-message');
+            
+            const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const API_BASE_URL = IS_LOCAL ? 'http://localhost:10000' : 'https://pamonhariasaborosa.expertbr.com';
+
+            togglePassword.addEventListener('click', () => {
+                const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordInput.setAttribute('type', type);
+                togglePassword.textContent = type === 'password' ? '👁️' : '🙈';
+            });
+
             if (localStorage.getItem('rememberMe') === 'true') {
                 emailInput.value = localStorage.getItem('savedEmail') || '';
                 passwordInput.value = localStorage.getItem('savedPassword') || '';
                 rememberMeCheckbox.checked = true;
             } else {
-                emailInput.value = 'admin@pamonharia.com';
-                passwordInput.value = 'admin123';
-            }
-        });
-        
-        loginForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            errorMessage.textContent = "";
-            
-            try {
-                const audioUnlock = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
-                await audioUnlock.play();
-                console.log('Contexto de áudio ativado pela interação de login.');
-            } catch (err) {
-                console.warn('Não foi possível pré-ativar o áudio.');
+                emailInput.value = 'operador@pamonharia.com';
+                passwordInput.value = 'operador123';
             }
             
-            const email = emailInput.value;
-            const password = passwordInput.value;
-
-            if (rememberMeCheckbox.checked) {
-                localStorage.setItem('rememberMe', 'true');
-                localStorage.setItem('savedEmail', email);
-                localStorage.setItem('savedPassword', password);
-            } else {
-                localStorage.setItem('rememberMe', 'false');
-                localStorage.removeItem('savedEmail');
-                localStorage.removeItem('savedPassword');
-            }
-
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/sessions`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ email: email, password: password })
-                });
+            loginForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                errorMessage.textContent = "";
                 
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ error: 'Falha no login' }));
-                    throw new Error(errorData.error);
+                try {
+                    const audioUnlock = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+                    await audioUnlock.play();
+                } catch (err) {
+                    console.warn('Não foi possível pré-ativar o áudio.');
                 }
                 
-                const data = await response.json();
-                sessionStorage.setItem("authToken", data.token);
-                window.location.href = '/dashboard';
+                const email = emailInput.value;
+                const password = passwordInput.value;
 
-            } catch (error) {
-                errorMessage.textContent = "Email ou senha inválidos.";
-                console.error("Catch no login:", error);
-            }
+                if (rememberMeCheckbox.checked) {
+                    localStorage.setItem('rememberMe', 'true');
+                    localStorage.setItem('savedEmail', email);
+                    localStorage.setItem('savedPassword', password);
+                } else {
+                    localStorage.removeItem('rememberMe');
+                    localStorage.removeItem('savedEmail');
+                    localStorage.removeItem('savedPassword');
+                }
+
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/sessions`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ email: email, password: password })
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ error: 'Falha no login' }));
+                        throw new Error(errorData.error);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    // #################### INÍCIO DA CORREÇÃO ####################
+                    // ARQUITETO: Guardamos o token E a 'role' na sessão do navegador.
+                    sessionStorage.setItem("authToken", data.token);
+                    sessionStorage.setItem("userRole", data.user.role);
+                    // ##################### FIM DA CORREÇÃO ######################
+                    
+                    window.location.href = '/dashboard';
+
+                } catch (error) {
+                    errorMessage.textContent = "Email ou senha inválidos.";
+                    console.error("Catch no login:", error);
+                }
+            });
         });
     </script>
 </body>

@@ -1,18 +1,19 @@
 // backend/src/routes.js
 const express = require('express');
 
-// Importação de todos os controllers
 const SessionController = require('./controllers/SessionController');
 const ProductController = require('./controllers/ProductController');
 const SettingsController = require('./controllers/SettingsController');
 const OrderController = require('./controllers/OrderController');
 const ComboController = require('./controllers/ComboController');
 const PaymentController = require('./controllers/PaymentController');
+
 const authMiddleware = require('./middlewares/auth');
+const { checkRole } = require('./middlewares/authorization');
 
-const router = express.Router(); // Usamos router em vez de routes para clareza
+const router = express.Router();
 
-// --- ROTAS PÚBLICAS DA API ---
+// --- ROTAS PÚBLICAS ---
 router.post('/sessions', SessionController.create);
 router.get('/public/products', ProductController.indexPublic);
 router.get('/public/combos', ComboController.indexPublic);
@@ -22,31 +23,40 @@ router.get('/public/payment-settings', SettingsController.getPaymentSettings);
 router.post('/payments/process', PaymentController.processPayment);
 router.post('/payments/webhook', PaymentController.receiveWebhook);
 
-// --- APLICAÇÃO DO MIDDLEWARE DE AUTENTICAÇÃO ---
-// A partir desta linha, todas as rotas abaixo são privadas
 router.use(authMiddleware);
 
-// --- ROTAS PRIVADAS DA API (DASHBOARD) ---
-router.get('/products', ProductController.index);
-router.post('/products', ProductController.create);
-router.put('/products/:id', ProductController.update);
-router.delete('/products/:id', ProductController.destroy);
-router.patch('/products/:id/stock', ProductController.updateStock);
-router.post('/products/reorder', ProductController.reorder);
-router.post('/products/:id/duplicate', ProductController.duplicate); // NOVA ROTA
+// --- ROTAS PRIVADAS (ADMIN E OPERADOR) ---
+router.get('/orders', checkRole(['admin', 'operador']), OrderController.index);
+router.patch('/orders/:id/status', checkRole(['admin', 'operador']), OrderController.updateStatus);
+router.delete('/orders/history', checkRole(['admin', 'operador']), OrderController.clearHistory);
 
-router.get('/combos', ComboController.index);
-router.post('/combos', ComboController.create);
-router.put('/combos/:id', ComboController.update);
-router.delete('/combos/:id', ComboController.destroy);
-router.post('/combos/reorder', ComboController.reorder);
+router.patch('/products/:id/stock', checkRole(['admin', 'operador']), ProductController.updateStock);
 
-router.get('/settings', SettingsController.show);
-router.put('/settings', SettingsController.update);
-router.get('/cloudinary-signature', SettingsController.generateCloudinarySignature);
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Permite que o operador veja a lista de produtos para gerir o stock.
+router.get('/products', checkRole(['admin', 'operador']), ProductController.index);
 
-router.get('/orders', OrderController.index);
-router.patch('/orders/:id/status', OrderController.updateStatus);
-router.delete('/orders/history', OrderController.clearHistory);
+// ARQUITETO: Novas rotas seguras para o operador.
+router.get('/dashboard/config', checkRole(['admin', 'operador']), SettingsController.getDashboardConfig);
+router.patch('/settings/status', checkRole(['admin', 'operador']), SettingsController.updateStatus);
+// ##################### FIM DA CORREÇÃO ######################
+
+
+// --- ROTAS RESTRITAS (APENAS ADMIN) ---
+router.post('/products', checkRole(['admin']), ProductController.create);
+router.put('/products/:id', checkRole(['admin']), ProductController.update);
+router.delete('/products/:id', checkRole(['admin']), ProductController.destroy);
+router.post('/products/reorder', checkRole(['admin']), ProductController.reorder);
+router.post('/products/:id/duplicate', checkRole(['admin']), ProductController.duplicate);
+
+router.get('/combos', checkRole(['admin']), ComboController.index);
+router.post('/combos', checkRole(['admin']), ComboController.create);
+router.put('/combos/:id', checkRole(['admin']), ComboController.update);
+router.delete('/combos/:id', checkRole(['admin']), ComboController.destroy);
+router.post('/combos/reorder', checkRole(['admin']), ComboController.reorder);
+
+router.get('/settings', checkRole(['admin']), SettingsController.show);
+router.put('/settings', checkRole(['admin']), SettingsController.update);
+router.get('/cloudinary-signature', checkRole(['admin']), SettingsController.generateCloudinarySignature);
 
 module.exports = router;
