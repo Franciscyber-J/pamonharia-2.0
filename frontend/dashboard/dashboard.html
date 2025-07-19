@@ -19,8 +19,7 @@
     <div class="background-bubbles"></div>
     <script>
         const token = sessionStorage.getItem('authToken');
-        const userRole = sessionStorage.getItem('userRole');
-        if (!token || !userRole) {
+        if (!token) {
             window.location.href = '/dashboard/login.html';
         }
     </script>
@@ -85,6 +84,7 @@
                     <input type="hidden" id="product-image-url">
                     <input type="hidden" id="parent-product-id">
                     <input type="hidden" id="is-main-product-flag">
+
                     <div id="parent-info-section" style="display: none; margin-bottom: 20px; background-color: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <span>Este item é um complemento de: </span>
@@ -92,6 +92,7 @@
                         </div>
                         <button type="button" id="unlink-parent-btn" class="btn btn-danger" style="padding: 5px 10px; font-size: 0.8rem;">Desvincular</button>
                     </div>
+
                     <div id="product-form-grid">
                         <div class="image-upload-container" onclick="document.getElementById('product-image-input').click()">
                             <img id="product-image-preview" class="image-preview" src="" alt="Pré-visualização da Imagem">
@@ -275,7 +276,6 @@
                 const stockInput = row.querySelector('.stock-input');
                 const productId = parseInt(row.dataset.id);
                 const feedbackSpan = row.querySelector('.stock-feedback');
-
                 if (!stockInput || stockInput.disabled || !feedbackSpan) return;
 
                 feedbackSpan.classList.remove('show', 'success', 'error');
@@ -499,11 +499,167 @@
             function closeComboModal() { document.getElementById('combo-modal-overlay').style.display = 'none'; };
             async function saveCombo(e) { e.preventDefault(); const btn = document.getElementById('save-combo-button'); btn.disabled = true; btn.textContent = 'Salvando...'; let imageUrl = document.getElementById('combo-image-url').value; const input = document.getElementById('combo-image-input'); if (input.files[0]) { try { const { timestamp, signature } = await apiFetch('/cloudinary-signature'); const fd = new FormData(); fd.append('file', input.files[0]); fd.append('api_key', '351266855176353'); fd.append('timestamp', timestamp); fd.append('signature', signature); const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/image/upload`, { method: 'POST', body: fd }); const data = await res.json(); if (data.secure_url) imageUrl = data.secure_url; else throw new Error('Falha no upload'); } catch (error) { alert('Erro ao fazer upload da imagem do combo.'); btn.disabled = false; btn.textContent = 'Salvar Combo'; return; } } const id = document.getElementById('combo-id').value; const products = Array.from(document.querySelectorAll('#combo-products-list input:checked')).map(cb => { const row = cb.closest('.combo-product-item'); const qty = document.getElementById('allow-free-choice').checked ? 1 : (parseInt(row.querySelector('.quantity-in-combo').value) || 1); return { id: parseInt(cb.dataset.productId), quantity_in_combo: qty, price_modifier: parseFloat(row.querySelector('.price-modifier').value) || 0 }; }); const data = { name: document.getElementById('combo-name').value, description: document.getElementById('combo-description').value, price: parseFloat(document.getElementById('combo-price').value), status: document.getElementById('combo-status').value === 'true', image_url: imageUrl, products, total_items_limit: parseInt(document.getElementById('total-items-limit').value), allow_free_choice: document.getElementById('allow-free-choice').checked }; try { await apiFetch(id ? `/combos/${id}` : '/combos', { method: id ? 'PUT' : 'POST', body: JSON.stringify(data) }); closeComboModal(); await fetchAndRenderCombos(); } catch (error) { alert('Falha ao salvar o combo.'); } finally { btn.disabled = false; btn.textContent = 'Salvar Combo'; } };
             function deleteCombo(id) { showCustomConfirm('Tem a certeza de que deseja apagar este combo?', async () => { try { await apiFetch(`/combos/${id}`, { method: 'DELETE' }); await fetchAndRenderCombos(); } catch (error) { console.error('Erro ao apagar combo:', error); } }); };
-            function renderSettingsPage() { pageTitle.textContent = 'Configurações da Loja'; dashboardContent.innerHTML = `<form id="settings-form" class="settings-form"><div class="settings-card"><div class="card-header"><h3>Informações Gerais</h3></div><div class="info-grid"><div class="grid-col-span-2 form-group"><label for="address">Endereço</label><input type="text" id="address" class="input-field"></div><div class="form-group"><label for="store_name">Nome da Loja</label><input type="text" id="store_name" class="input-field"></div><div class="form-group"><label for="location_link">Link Google Maps</label><input type="text" id="location_link" class="input-field"></div></div></div><div class="settings-card"><div class="card-header"><h3>Financeiro</h3></div><div class="form-group"><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" step="0.50" class="input-field"></div></div><div class="settings-card"><div class="card-header"><h3>Horários</h3></div><div class="operating-hours-grid" id="hours-grid"></div></div><div class="settings-card"><div class="card-header"><h3>Notificações</h3></div><div class="form-group"><label for="notification_sound">Carregar Som (MP3, WAV)</label><input type="file" id="notification_sound" accept="audio/*"></div><div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;"><p id="sound-feedback"></p><button type="button" id="remove-sound-btn" style="display: none;" class="btn btn-danger">Remover</button></div></div><div class="form-buttons"><span id="save-feedback"></span><button type="submit" class="btn btn-primary">Salvar Alterações</button></div></form>`; fetchAndPopulateSettings(); };
-            async function fetchAndPopulateSettings() { try { const settings = await apiFetch('/settings'); document.getElementById('store_name').value = settings.store_name; document.getElementById('address').value = settings.address; document.getElementById('location_link').value = settings.location_link; document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2); const soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn'); if (settings.notification_sound_filename) { soundFeedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`; removeSoundBtn.style.display = 'inline-block'; } else { soundFeedback.textContent = 'Nenhum som configurado.'; removeSoundBtn.style.display = 'none'; } const hoursGrid = document.getElementById('hours-grid'); hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre</div><div class="grid-header">Fecha</div><div class="grid-header">Aberto?</div>`; ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { const daySettings = settings.operating_hours[day] || { open: '00:00', close: '00:00', enabled: false }; hoursGrid.innerHTML += `<div class="day">${day.charAt(0).toUpperCase() + day.slice(1)}</div><input type="time" id="open-${day}" value="${daySettings.open}" class="input-field"><input type="time" id="close-${day}" value="${daySettings.close}" class="input-field"><label class="toggle-switch"><input type="checkbox" id="enabled-${day}" ${daySettings.enabled ? "checked" : ""}><span class="slider"></span></label>`; }); addSettingsListeners(settings); } catch (error) { console.error("Falha ao buscar config:", error); } };
-            function addSettingsListeners(currentSettings) { const form = document.getElementById('settings-form'); if (!form) return; const soundInput = document.getElementById('notification_sound'), soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn'); removeSoundBtn.onclick = () => { currentSettings.notification_sound_url = null; currentSettings.notification_sound_filename = null; soundInput.value = ''; soundFeedback.textContent = 'Som removido ao salvar.'; removeSoundBtn.style.display = 'none'; }; form.addEventListener('submit', async e => { e.preventDefault(); const saveButton = form.querySelector('button[type="submit"]'), feedback = document.getElementById('save-feedback'); saveButton.disabled = true; feedback.textContent = 'Salvando...'; let soundUrlToSave = currentSettings.notification_sound_url, soundFilenameToSave = currentSettings.notification_sound_filename; if (soundInput.files[0]) { try { const { timestamp, signature } = await apiFetch('/cloudinary-signature'); const formData = new FormData(); formData.append('file', soundInput.files[0]); formData.append('api_key', '351266855176353'); formData.append('timestamp', timestamp); formData.append('signature', signature); const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`, { method: 'POST', body: formData }); const data = await res.json(); if (data.secure_url) { soundUrlToSave = data.secure_url; soundFilenameToSave = soundInput.files[0].name; } else throw new Error('Falha no upload'); } catch (error) { feedback.textContent = 'Erro no upload.'; setTimeout(() => feedback.textContent = '', 3000); saveButton.disabled = false; return; } } const operating_hours = {}; ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => { operating_hours[day] = { open: document.getElementById(`open-${day}`).value, close: document.getElementById(`close-${day}`).value, enabled: document.getElementById(`enabled-${day}`).checked }; }); const data = { store_name: document.getElementById('store_name').value, address: document.getElementById('address').value, location_link: document.getElementById('location_link').value, delivery_fee: document.getElementById('delivery_fee').value, operating_hours, notification_sound_url: soundUrlToSave, notification_sound_filename: soundFilenameToSave }; try { await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(data) }); feedback.textContent = 'Salvo!'; setupAudioPlayer(data.notification_sound_url); setTimeout(() => feedback.textContent = '', 2000); } catch (error) { feedback.textContent = 'Erro ao salvar.'; } finally { saveButton.disabled = false; } }); };
-            function initSortable(id, endpoint) { const tbody = document.getElementById(id); if (!tbody) return; new Sortable(tbody, { handle: '.drag-handle', animation: 150, filter: '.is-child', onMove: (e) => e.related.className.indexOf('is-child') === -1, onEnd: async (e) => { const ids = Array.from(tbody.querySelectorAll('tr:not(.is-child)')).map(row => row.dataset.id); try { await apiFetch(endpoint, { method: 'POST', body: JSON.stringify({ orderedIds: ids }) }); } catch (error) { alert('Não foi possível salvar a nova ordem.'); fetchAndRenderOrders(); } } }); };
-            function showCustomConfirm(message, onConfirm, confirmClass = 'btn-danger', confirmText = 'Confirmar') { const modal = document.getElementById('confirm-modal-overlay'); const msg = document.getElementById('confirm-modal-message'); const confirmBtn = document.getElementById('confirm-modal-confirm'); const cancelBtn = document.getElementById('confirm-modal-cancel'); msg.textContent = message; confirmBtn.textContent = confirmText; confirmBtn.className = `btn ${confirmClass}`; const newBtn = confirmBtn.cloneNode(true); confirmBtn.parentNode.replaceChild(newBtn, confirmBtn); newBtn.onclick = () => { onConfirm(); modal.style.display = 'none'; }; cancelBtn.onclick = () => { modal.style.display = 'none'; }; modal.style.display = 'flex'; };
+            
+            function renderSettingsPage() {
+                pageTitle.textContent = 'Configurações da Loja';
+                dashboardContent.innerHTML = `<form id="settings-form" class="settings-form">
+                    <div class="settings-card">
+                        <div class="card-header"><h3>Informações Gerais</h3></div>
+                        <div class="info-grid">
+                            <div class="form-group"><label for="store_name">Nome da Loja</label><input type="text" id="store_name" class="input-field"></div>
+                            <div class="form-group"><label for="whatsapp_number">Número do WhatsApp (com DDI, ex: 55629...)</label><input type="text" id="whatsapp_number" class="input-field"></div>
+                            <div class="grid-col-span-2 form-group"><label for="address">Endereço</label><input type="text" id="address" class="input-field"></div>
+                            <div class="form-group"><label for="location_link">Link Google Maps</label><input type="text" id="location_link" class="input-field"></div>
+                        </div>
+                    </div>
+                    <div class="settings-card">
+                        <div class="card-header"><h3>Financeiro</h3></div>
+                        <div class="form-group"><label for="delivery_fee">Taxa de Entrega (R$)</label><input type="number" id="delivery_fee" step="0.50" class="input-field"></div>
+                    </div>
+                    <div class="settings-card">
+                        <div class="card-header"><h3>Horários</h3></div>
+                        <div class="operating-hours-grid" id="hours-grid"></div>
+                    </div>
+                    <div class="settings-card">
+                        <div class="card-header"><h3>Notificações</h3></div>
+                        <div class="form-group"><label for="notification_sound">Carregar Som (MP3, WAV)</label><input type="file" id="notification_sound" accept="audio/*"></div>
+                        <div id="sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;"><p id="sound-feedback"></p><button type="button" id="remove-sound-btn" style="display: none;" class="btn btn-danger">Remover</button></div>
+                    </div>
+                    <div class="form-buttons"><span id="save-feedback"></span><button type="submit" class="btn btn-primary">Salvar Alterações</button></div>
+                </form>`;
+                fetchAndPopulateSettings();
+            };
+            
+            async function fetchAndPopulateSettings() {
+                try {
+                    const settings = await apiFetch('/settings');
+                    document.getElementById('store_name').value = settings.store_name;
+                    document.getElementById('whatsapp_number').value = settings.whatsapp_number || '';
+                    document.getElementById('address').value = settings.address;
+                    document.getElementById('location_link').value = settings.location_link;
+                    document.getElementById('delivery_fee').value = parseFloat(settings.delivery_fee).toFixed(2);
+                    const soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
+                    if (settings.notification_sound_filename) {
+                        soundFeedback.innerHTML = `Som atual: <strong>${settings.notification_sound_filename}</strong>`;
+                        removeSoundBtn.style.display = 'inline-block';
+                    } else {
+                        soundFeedback.textContent = 'Nenhum som configurado.';
+                        removeSoundBtn.style.display = 'none';
+                    }
+                    const hoursGrid = document.getElementById('hours-grid');
+                    hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre</div><div class="grid-header">Fecha</div><div class="grid-header">Aberto?</div>`;
+                    ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => {
+                        const daySettings = settings.operating_hours[day] || { open: '00:00', close: '00:00', enabled: false };
+                        hoursGrid.innerHTML += `<div class="day">${day.charAt(0).toUpperCase() + day.slice(1)}</div><input type="time" id="open-${day}" value="${daySettings.open}" class="input-field"><input type="time" id="close-${day}" value="${daySettings.close}" class="input-field"><label class="toggle-switch"><input type="checkbox" id="enabled-${day}" ${daySettings.enabled ? "checked" : ""}><span class="slider"></span></label>`;
+                    });
+                    addSettingsListeners(settings);
+                } catch (error) {
+                    console.error("Falha ao buscar config:", error);
+                }
+            };
+
+            function addSettingsListeners(currentSettings) {
+                const form = document.getElementById('settings-form');
+                if (!form) return;
+                const soundInput = document.getElementById('notification_sound'), soundFeedback = document.getElementById('sound-feedback'), removeSoundBtn = document.getElementById('remove-sound-btn');
+                removeSoundBtn.onclick = () => { currentSettings.notification_sound_url = null; currentSettings.notification_sound_filename = null; soundInput.value = ''; soundFeedback.textContent = 'Som removido ao salvar.'; removeSoundBtn.style.display = 'none'; };
+                form.addEventListener('submit', async e => {
+                    e.preventDefault();
+                    const saveButton = form.querySelector('button[type="submit"]'), feedback = document.getElementById('save-feedback');
+                    saveButton.disabled = true;
+                    feedback.textContent = 'Salvando...';
+                    let soundUrlToSave = currentSettings.notification_sound_url, soundFilenameToSave = currentSettings.notification_sound_filename;
+                    if (soundInput.files[0]) {
+                        try {
+                            const { timestamp, signature } = await apiFetch('/cloudinary-signature');
+                            const formData = new FormData();
+                            formData.append('file', soundInput.files[0]);
+                            formData.append('api_key', '351266855176353');
+                            formData.append('timestamp', timestamp);
+                            formData.append('signature', signature);
+                            const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`, { method: 'POST', body: formData });
+                            const data = await res.json();
+                            if (data.secure_url) {
+                                soundUrlToSave = data.secure_url;
+                                soundFilenameToSave = soundInput.files[0].name;
+                            } else throw new Error('Falha no upload');
+                        } catch (error) {
+                            feedback.textContent = 'Erro no upload.';
+                            setTimeout(() => feedback.textContent = '', 3000);
+                            saveButton.disabled = false;
+                            return;
+                        }
+                    }
+                    const operating_hours = {};
+                    ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].forEach(day => {
+                        operating_hours[day] = {
+                            open: document.getElementById(`open-${day}`).value,
+                            close: document.getElementById(`close-${day}`).value,
+                            enabled: document.getElementById(`enabled-${day}`).checked
+                        };
+                    });
+                    const data = {
+                        store_name: document.getElementById('store_name').value,
+                        whatsapp_number: document.getElementById('whatsapp_number').value,
+                        address: document.getElementById('address').value,
+                        location_link: document.getElementById('location_link').value,
+                        delivery_fee: document.getElementById('delivery_fee').value,
+                        operating_hours,
+                        notification_sound_url: soundUrlToSave,
+                        notification_sound_filename: soundFilenameToSave
+                    };
+                    try {
+                        await apiFetch('/settings', { method: 'PUT', body: JSON.stringify(data) });
+                        feedback.textContent = 'Salvo!';
+                        setupAudioPlayer(data.notification_sound_url);
+                        setTimeout(() => feedback.textContent = '', 2000);
+                    } catch (error) {
+                        feedback.textContent = 'Erro ao salvar.';
+                    } finally {
+                        saveButton.disabled = false;
+                    }
+                });
+            };
+
+            function initSortable(id, endpoint) {
+                const tbody = document.getElementById(id);
+                if (!tbody) return;
+                new Sortable(tbody, {
+                    handle: '.drag-handle',
+                    animation: 150,
+                    filter: '.is-child',
+                    onMove: (e) => e.related.className.indexOf('is-child') === -1,
+                    onEnd: async (e) => {
+                        const ids = Array.from(tbody.querySelectorAll('tr:not(.is-child)')).map(row => row.dataset.id);
+                        try {
+                            await apiFetch(endpoint, { method: 'POST', body: JSON.stringify({ orderedIds: ids }) });
+                        } catch (error) {
+                            alert('Não foi possível salvar a nova ordem.');
+                            fetchAndRenderOrders();
+                        }
+                    }
+                });
+            };
+
+            function showCustomConfirm(message, onConfirm, confirmClass = 'btn-danger', confirmText = 'Confirmar') {
+                const modal = document.getElementById('confirm-modal-overlay');
+                const msg = document.getElementById('confirm-modal-message');
+                const confirmBtn = document.getElementById('confirm-modal-confirm');
+                const cancelBtn = document.getElementById('confirm-modal-cancel');
+                msg.textContent = message;
+                confirmBtn.textContent = confirmText;
+                confirmBtn.className = `btn ${confirmClass}`;
+                const newBtn = confirmBtn.cloneNode(true);
+                confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+                newBtn.onclick = () => {
+                    onConfirm();
+                    modal.style.display = 'none';
+                };
+                cancelBtn.onclick = () => {
+                    modal.style.display = 'none';
+                };
+                modal.style.display = 'flex';
+            };
 
             const navLinks = { pedidos: document.getElementById('nav-pedidos'), produtos: document.getElementById('nav-produtos'), complementos: document.getElementById('nav-complementos'), combos: document.getElementById('nav-combos'), configuracoes: document.getElementById('nav-configuracoes') };
             const pages = { pedidos: renderPedidosPage, produtos: renderProdutosPage, complementos: renderComplementosPage, combos: renderCombosPage, configuracoes: renderSettingsPage };
@@ -519,8 +675,31 @@
             };
             Object.values(navLinks).forEach(link => link.addEventListener('click', handleNavigation));
 
-            dashboardContent.addEventListener('change', async (event) => { if (event.target.classList.contains('stock-sync-toggle')) { const cb = event.target; const row = cb.closest('.product-row'); if (!row) return; const id = row.dataset.id; const enabled = cb.checked; try { await globalApiFetch(`/products/${id}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: enabled }) }); await refreshCurrentProductView(); } catch (error) { console.error(`Falha ao atualizar a sincronização de estoque para o produto ${id}:`, error); alert('Não foi possível atualizar a configuração de sincronização.'); cb.checked = !enabled; } } });
-            dashboardContent.addEventListener('keydown', (event) => { if (event.key === 'Enter' && event.target.classList.contains('stock-input')) { event.preventDefault(); window.handleStockSave(event.target); event.target.blur(); } });
+            dashboardContent.addEventListener('change', async (event) => {
+                if (event.target.classList.contains('stock-sync-toggle')) {
+                    const cb = event.target;
+                    const row = cb.closest('.product-row');
+                    if (!row) return;
+                    const id = row.dataset.id;
+                    const enabled = cb.checked;
+                    try {
+                        await globalApiFetch(`/products/${id}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: enabled }) });
+                        await refreshCurrentProductView();
+                    } catch (error) {
+                        console.error(`Falha ao atualizar a sincronização de estoque para o produto ${id}:`, error);
+                        alert('Não foi possível atualizar a configuração de sincronização.');
+                        cb.checked = !enabled;
+                    }
+                }
+            });
+
+            dashboardContent.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && event.target.classList.contains('stock-input')) {
+                    event.preventDefault();
+                    window.handleStockSave(event.target);
+                    event.target.blur();
+                }
+            });
 
             document.getElementById('product-form').addEventListener('submit', saveProduct);
             document.getElementById('product-cancel-button').addEventListener('click', closeProductModal);
@@ -543,7 +722,7 @@
 
             document.getElementById('logout-button').addEventListener('click', () => { sessionStorage.removeItem('authToken'); sessionStorage.removeItem('userRole'); window.location.href = '/dashboard/login.html'; });
 
-            const initializeSoundSystem = async () => { try { const config = await apiFetch('/dashboard/config'); setupAudioPlayer(config.notification_sound_url); } catch (error) { console.error("Não foi possível carregar as configurações de som.", error); setupAudioPlayer(null); } };
+            const initializeSoundSystem = async () => { try { const config = await apiFetch('/dashboard/config'); setupAudioPlayer(config.notification_sound_url); } catch (error) { console.error("Não foi possível carregar as config de som.", error); setupAudioPlayer(null); } };
 
             function applyRolePermissions() {
                 if (userRole === 'operador') {

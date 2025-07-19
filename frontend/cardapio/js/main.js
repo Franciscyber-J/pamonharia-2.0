@@ -2,7 +2,7 @@
 console.log('[main.js] Módulo iniciado.');
 import { apiFetch, fetchAndRenderAllData } from './api.js';
 import { initializeCart, getCart, clearCart } from './cart.js';
-import { dom, initializeUI, updateStoreStatus, renderItems, renderCart, showErrorModal, showSuccessScreen } from './ui.js';
+import { dom, initializeUI, updateStoreStatus, renderItems, renderCart, showErrorModal, showSuccessScreen, showWhatsAppConfirmationModal } from './ui.js';
 import { initializeCardPaymentForm } from './payment.js';
 
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -26,7 +26,9 @@ export const state = {
 };
 
 export function startCartTimeout() {
-    if (state.cartTimeout) clearTimeout(state.cartTimeout);
+    if (state.cartTimeout) {
+        clearTimeout(state.cartTimeout);
+    }
     console.log('[Timeout] Iniciando temporizador de 15 minutos para o carrinho.');
     state.cartTimeout = setTimeout(() => {
         console.log('[Timeout] Carrinho expirado! Devolvendo itens ao estoque.');
@@ -42,7 +44,6 @@ export function stopCartTimeout() {
         state.cartTimeout = null;
     }
 }
-
 
 async function main() {
     console.log('[main.js] Função main() iniciada.');
@@ -90,24 +91,29 @@ async function handleOrderSubmit(e) {
     e.preventDefault();
     console.log('[Order] ➡️ Iniciando submissão de pedido.');
     
-    // Prepara os dados do pedido independentemente do método de pagamento
+    const paymentMethod = document.querySelector('input[name="payment-method"]:checked').value;
     const deliveryFee = state.storeSettings.delivery_fee || 0;
     const isDelivery = document.querySelector('input[name="delivery-type"]:checked').value === 'delivery';
+    
     let subtotal = state.cart.reduce((acc, item) => acc + (item.total_value || 0), 0);
     const finalDeliveryFee = isDelivery ? parseFloat(deliveryFee) : 0;
     const totalPrice = subtotal + finalDeliveryFee;
-    const paymentMethod = document.querySelector('input[name="payment-method"]:checked').value;
 
+    const deliveryType = document.querySelector('input[name="delivery-type"]:checked').value;
     state.orderData = {
         client_name: document.getElementById('client-name').value,
         client_phone: document.getElementById('client-phone').value,
-        client_address: isDelivery ? dom.clientAddressInput.value : 'Retirada no local',
+        client_address: deliveryType === 'delivery' ? dom.clientAddressInput.value : 'Retirada no local',
         items: getCart().map(itemGroup => ({
             id: itemGroup.original_id,
-            name: itemGroup.name, price: itemGroup.price, quantity: itemGroup.quantity,
-            is_combo: !!itemGroup.is_combo, selected_items: itemGroup.selected_items || []
+            name: itemGroup.name,
+            price: itemGroup.price,
+            quantity: itemGroup.quantity,
+            is_combo: !!itemGroup.is_combo,
+            selected_items: itemGroup.selected_items || []
         })),
-        total_price: totalPrice, payment_method: paymentMethod
+        total_price: totalPrice,
+        payment_method: paymentMethod
     };
 
     dom.submitOrderBtn.disabled = true;
@@ -132,10 +138,16 @@ async function handleOrderSubmit(e) {
     } else {
         console.log('[Order] Pagamento na entrega selecionado. A enviar pedido...');
         try {
-            state.currentOrder = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(state.orderData) });
-            console.log('[Order] ✅ Pedido criado com sucesso:', state.currentOrder);
-            showSuccessScreen('Obrigado pelo seu pedido!', 'Ele já foi enviado para a nossa cozinha e em breve chegará até você.');
+            const newOrder = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(state.orderData) });
+            console.log('[Order] ✅ Pré-pedido criado com sucesso:', newOrder);
+
+            if (!state.storeSettings.whatsapp_number) {
+                throw new Error("O número de WhatsApp da loja não está configurado.");
+            }
+            
+            showWhatsAppConfirmationModal(state.storeSettings.whatsapp_number, newOrder);
             clearCart(false);
+
         } catch (error) {
             console.error('[Order] ❌ Falha ao criar pedido:', error);
             showErrorModal('Falha no Pedido', `Não foi possível criar seu pedido. Detalhe: ${error.message || 'Erro desconhecido'}`);
@@ -145,9 +157,6 @@ async function handleOrderSubmit(e) {
     }
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: A função agora não cria um pedido. Ela envia os detalhes do pedido
-// para o endpoint de pagamento, que inicia a transação no Mercado Pago.
 export async function handleOnlinePaymentSelection(method) {
     console.log(`[Payment] Método de pagamento online selecionado: ${method}`);
     try {
@@ -161,7 +170,7 @@ export async function handleOnlinePaymentSelection(method) {
                 payment_method_id: 'pix',
                 payment_type: 'pix',
                 payer: { email: state.orderData.client_name.replace(/\s/g, '').toLowerCase() + '@email.com' },
-                order_details: state.orderData // Envia todos os detalhes do pedido
+                order_details: state.orderData
             };
             const paymentResponse = await apiFetch('/payments/process', { method: 'POST', body: JSON.stringify(paymentData) });
             console.log('[Payment] Resposta do PIX recebida:', paymentResponse);
@@ -183,7 +192,6 @@ export async function handleOnlinePaymentSelection(method) {
         dom.submitOrderBtn.textContent = 'Finalizar Pedido';
     }
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 dom.orderForm.addEventListener('submit', handleOrderSubmit);
 

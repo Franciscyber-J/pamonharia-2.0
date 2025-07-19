@@ -1,7 +1,7 @@
 // frontend/cardapio/js/ui.js
-import { state, handleOnlinePaymentSelection } from './main.js';
+import { state } from './main.js';
 import { openProductWithOptionsModal, openComboModal, addToCartSimple, clearCart, adjustItemGroupQuantity, removeItemGroup, calculateTotals, isComboEffectivelyOutOfStock, isItemEffectivelyOutOfStock } from './cart.js';
-import { handleBackToCart, handleBackToPaymentSelection } from './payment.js';
+import { handleOnlinePaymentSelection, handleBackToCart, handleBackToPaymentSelection } from './payment.js';
 
 export const dom = {
     productsGrid: document.getElementById('products-grid'),
@@ -53,6 +53,11 @@ export const dom = {
     floatingCartBtn: document.getElementById('floating-cart-btn'),
     floatingCartInfo: document.getElementById('floating-cart-info'),
     floatingCartTotal: document.getElementById('floating-cart-total'),
+    // Novo modal de confirmação
+    confirmModal: document.querySelector('.confirm-modal-overlay'),
+    confirmModalMessage: document.querySelector('.confirm-modal-message'),
+    confirmModalCancel: document.querySelector('.confirm-modal-cancel'),
+    confirmModalConfirm: document.querySelector('.confirm-modal-confirm'),
 };
 
 export function renderItems() {
@@ -94,8 +99,6 @@ export function renderItems() {
     });
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Nova função isolada para atualizar o botão flutuante.
 function updateFloatingCartButton() {
     if (state.cart.length > 0) {
         let totalItems = 0;
@@ -107,7 +110,6 @@ function updateFloatingCartButton() {
         dom.floatingCartBtn.classList.remove('visible');
     }
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 export function renderCart() {
     localStorage.setItem('pamonharia-cart', JSON.stringify(state.cart));
@@ -237,7 +239,7 @@ export function showSuccessScreen(title, message) {
     dom.successMessage.style.display = 'block';
 }
 
-function resetForNewOrder() {
+export function resetForNewOrder() {
     console.log('[UI] Resetando a interface para um novo pedido.');
     
     dom.successMessage.style.display = 'none';
@@ -251,10 +253,39 @@ function resetForNewOrder() {
     dom.submitOrderBtn.textContent = 'Finalizar Pedido';
     
     const deliveryEvent = new Event('change', { bubbles: true });
-    document.querySelector('input[name="delivery-type"]').dispatchEvent(deliveryEvent);
+    document.querySelector('input[name="delivery-type"]:checked').dispatchEvent(deliveryEvent);
     renderCart();
 }
 
+export function showWhatsAppConfirmationModal(storePhoneNumber, order) {
+    dom.cartWrapper.style.display = 'none';
+
+    // "Encriptação" simples para ofuscar os dados na URL
+    const confirmationData = { id: order.id };
+    const encodedData = btoa(JSON.stringify(confirmationData)); // Converte para Base64
+
+    const message = `Olá! Gostaria de confirmar meu pedido.
+Código de Confirmação: PA-${String(order.id).padStart(4, '0')}-${encodedData}
+
+_(Por favor, não edite esta mensagem para garantir a confirmação do seu pedido.)_`;
+
+    const whatsappUrl = `https://wa.me/${storePhoneNumber}?text=${encodeURIComponent(message)}`;
+
+    showSuccessScreen(
+        'Quase lá! Confirme no WhatsApp.',
+        'O seu pedido foi reservado. Para o enviar para a cozinha, por favor, clique no botão abaixo e envie a mensagem de confirmação que preparámos para si no WhatsApp.'
+    );
+    
+    const newOrderBtn = dom.successMessage.querySelector('#new-order-btn');
+    newOrderBtn.textContent = 'Confirmar Pedido via WhatsApp';
+    newOrderBtn.onclick = () => {
+        window.open(whatsappUrl, '_blank');
+        setTimeout(() => {
+            newOrderBtn.textContent = 'Fazer um Novo Pedido';
+            newOrderBtn.onclick = resetForNewOrder;
+        }, 500);
+    };
+}
 
 export function initializeUI() {
     console.log('[UI] 🎨 Inicializando a Interface do Utilizador e os listeners.');
@@ -273,9 +304,7 @@ export function initializeUI() {
             dom.addressGroup.style.display = isDelivery ? 'block' : 'none';
             dom.clientAddressInput.required = isDelivery;
             calculateTotals();
-            // #################### INÍCIO DA CORREÇÃO ####################
-            updateFloatingCartButton(); // Atualiza o botão flutuante quando o modo de entrega muda
-            // ##################### FIM DA CORREÇÃO ######################
+            updateFloatingCartButton();
         });
     });
 
@@ -332,7 +361,6 @@ export function initializeUI() {
         dom.cartWrapper.scrollIntoView({ behavior: 'smooth' });
     });
     
-    // Dispara o evento change na inicialização para garantir que o estado inicial está correto.
     document.querySelector('input[name="delivery-type"]:checked').dispatchEvent(new Event('change'));
 }
 

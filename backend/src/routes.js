@@ -19,6 +19,7 @@ router.get('/public/products', ProductController.indexPublic);
 router.get('/public/combos', ComboController.indexPublic);
 router.get('/public/settings', SettingsController.show);
 router.post('/public/orders', OrderController.create);
+router.post('/public/orders/:id/confirm', OrderController.confirmOrder); // Nova rota de confirmação
 router.get('/public/payment-settings', SettingsController.getPaymentSettings);
 router.post('/payments/process', PaymentController.processPayment);
 router.post('/payments/webhook', PaymentController.receiveWebhook);
@@ -31,15 +32,10 @@ router.patch('/orders/:id/status', checkRole(['admin', 'operador']), OrderContro
 router.delete('/orders/history', checkRole(['admin', 'operador']), OrderController.clearHistory);
 
 router.patch('/products/:id/stock', checkRole(['admin', 'operador']), ProductController.updateStock);
-
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Permite que o operador veja a lista de produtos para gerir o stock.
 router.get('/products', checkRole(['admin', 'operador']), ProductController.index);
 
-// ARQUITETO: Novas rotas seguras para o operador.
 router.get('/dashboard/config', checkRole(['admin', 'operador']), SettingsController.getDashboardConfig);
 router.patch('/settings/status', checkRole(['admin', 'operador']), SettingsController.updateStatus);
-// ##################### FIM DA CORREÇÃO ######################
 
 
 // --- ROTAS RESTRITAS (APENAS ADMIN) ---
