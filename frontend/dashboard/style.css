@@ -10,7 +10,7 @@
     --danger-color: #e53e3e;
     --danger-glow-color: rgba(229, 62, 62, 0.6);
     --success-color: #38A169;
-    --success-glow-color: rgba(56, 161, 105, 0.6);
+    --success-glow-color: rgba(56, 161, 105, 0.5);
     --paused-bg-color: #4A5568;
     --paused-glow-color: rgba(113, 128, 150, 0.5);
 }
@@ -45,6 +45,24 @@ body::before {
 .sidebar nav ul li a:hover, .sidebar nav ul li a.active { background-color: rgba(159, 122, 234, 0.2); color: white; }
 #logout-button { width: 100%; padding: 10px 20px; border: 1px solid var(--danger-color); background-color: transparent; color: var(--danger-color); border-radius: 8px; cursor: pointer; transition: all 0.3s; margin-top: 20px; font-weight: 600; }
 #logout-button:hover { background-color: var(--danger-color); color: var(--dark-bg); box-shadow: 0 0 15px var(--danger-glow-color); }
+
+/* #################### INÍCIO DA CORREÇÃO #################### */
+.sidebar-actions {
+    margin-top: auto; /* Empurra para o fundo da sidebar */
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+#open-cardapio-btn {
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+/* ##################### FIM DA CORREÇÃO ###################### */
 
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
 .header h1 { font-size: 2rem; }
@@ -188,7 +206,6 @@ input:checked + .slider:before { transform: translateX(20px); }
 .confirm-modal-content p { margin-bottom: 25px; font-size: 1.1rem; }
 .confirm-modal-buttons { display: flex; justify-content: center; gap: 15px; }
 
-/* #################### INÍCIO DA CORREÇÃO #################### */
 .btn-icon {
     background: none;
     border: none;
@@ -232,8 +249,8 @@ input:checked + .slider:before { transform: translateX(20px); }
     box-shadow: 0 0 15px var(--paused-glow-color);
 }
 .btn-status-toggle.playing {
-    background-color: var(--secondary-color); /* COR CORRIGIDA */
-    box-shadow: 0 0 10px var(--glow-color); /* GLOW CORRIGIDO */
+    background-color: var(--secondary-color);
+    box-shadow: 0 0 10px var(--glow-color);
 }
 .btn-status-toggle.playing:hover:not(:disabled) {
     background-color: var(--secondary-color);
@@ -296,4 +313,3 @@ input:checked + .slider:before { transform: translateX(20px); }
     background-color: var(--danger-color);
     color: white;
 }
-/* ##################### FIM DA CORREÇÃO ###################### */

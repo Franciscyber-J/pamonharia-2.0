@@ -33,6 +33,17 @@
                     <li><a id="nav-configuracoes" href="#">Configurações</a></li>
                 </ul>
             </nav>
+            
+            <div class="sidebar-actions">
+                <button id="open-cardapio-btn" class="btn btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    <span>Ver Cardápio</span>
+                </button>
+                <button id="copy-cardapio-link-btn" class="btn btn-secondary" title="Copiar link do cardápio">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                </button>
+            </div>
+
             <button id="logout-button">Sair</button>
         </aside>
         <main class="content">
@@ -225,9 +236,7 @@
                     stockInput.value = Math.max(0, value + amount);
                 }
             };
-
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: Função refatorada para usar classList e garantir a exibição correta do feedback.
+            
             window.handleStockSave = async (button) => {
                 const row = button.closest('.product-row');
                 const stockInput = row.querySelector('.stock-input');
@@ -237,12 +246,10 @@
                 if (!stockInput || stockInput.disabled || !feedbackSpan) {
                     return;
                 }
-
-                // Limpa estados anteriores para evitar sobreposições
+                
                 feedbackSpan.classList.remove('show', 'success', 'error');
                 feedbackSpan.textContent = '';
 
-                // 1. Mostra "Salvando..."
                 feedbackSpan.textContent = 'Salvando...';
                 feedbackSpan.classList.add('show');
                 
@@ -257,27 +264,22 @@
                         productInState.stock_quantity = parseInt(stockInput.value);
                     }
 
-                    // 2. Em caso de sucesso, mostra "Salvo!"
                     feedbackSpan.textContent = 'Salvo!';
                     feedbackSpan.classList.add('success');
 
-                    // 3. Agenda o desaparecimento da mensagem
                     setTimeout(() => {
                         feedbackSpan.classList.remove('show', 'success');
                     }, 3000);
 
                 } catch (error) {
-                    // Em caso de erro, mostra "Falhou!"
                     feedbackSpan.textContent = 'Falhou!';
                     feedbackSpan.classList.add('error');
                     
-                    // Agenda o desaparecimento da mensagem de erro
                     setTimeout(() => {
                         feedbackSpan.classList.remove('show', 'error');
                     }, 3000);
                 }
             };
-            // ##################### FIM DA CORREÇÃO ######################
             
             window.handleStockEnableToggle = async (checkbox) => {
                 const row = checkbox.closest('.product-row');
@@ -365,7 +367,6 @@
             window.createProductRow = createProductRow; 
             window.toggleChildren = toggleChildren;
 
-            // --- SISTEMA DE NOTIFICAÇÃO E ÁUDIO ---
             let notificationAudio;
             let isSoundEnabled = true;
             let isAudioUnlocked = false;
@@ -447,7 +448,6 @@
                 } 
             });
 
-            // --- LÓGICA DE GESTÃO DE PEDIDOS ---
             window.updateOrderStatus = async (orderId, newStatus) => { 
                 stopNotification();
                 try { 
@@ -539,7 +539,6 @@
                 }
             };
             
-            // --- SOCKET.IO LISTENERS ---
             const socket = io(API_BASE_URL_GLOBAL, {
                 transports: ['websocket']
             });
@@ -1066,6 +1065,31 @@
             document.getElementById('combo-modal-overlay').addEventListener('click', (e) => { if(e.target.id === 'combo-modal-overlay') closeComboModal(); });
             document.getElementById('product-image-input').addEventListener('change', (event) => { const preview = document.getElementById('product-image-preview'); const prompt = document.getElementById('product-upload-prompt'); if (event.target.files[0]) { const reader = new FileReader(); reader.onload = (e) => { preview.src = e.target.result; prompt.style.display = 'none'; }; reader.readAsDataURL(event.target.files[0]); } });
             document.getElementById('combo-image-input').addEventListener('change', (event) => { const preview = document.getElementById('combo-image-preview'); const prompt = document.getElementById('combo-upload-prompt'); if (event.target.files[0]) { const reader = new FileReader(); reader.onload = (e) => { preview.src = e.target.result; prompt.style.display = 'none'; }; reader.readAsDataURL(event.target.files[0]); } });
+            
+            const openCardapioBtn = document.getElementById('open-cardapio-btn');
+            const copyCardapioLinkBtn = document.getElementById('copy-cardapio-link-btn');
+            const cardapioUrl = 'https://pamonhariasaborosa.expertbr.com/cardapio';
+
+            if (openCardapioBtn) {
+                openCardapioBtn.addEventListener('click', () => {
+                    window.open(cardapioUrl, '_blank');
+                });
+            }
+
+            if (copyCardapioLinkBtn) {
+                const originalCopyIcon = copyCardapioLinkBtn.innerHTML;
+                copyCardapioLinkBtn.addEventListener('click', () => {
+                    navigator.clipboard.writeText(cardapioUrl).then(() => {
+                        copyCardapioLinkBtn.innerHTML = '✅';
+                        setTimeout(() => {
+                            copyCardapioLinkBtn.innerHTML = originalCopyIcon;
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('Falha ao copiar o link: ', err);
+                        alert('Não foi possível copiar o link para a área de transferência.');
+                    });
+                });
+            }
             
             document.getElementById('logout-button').addEventListener('click', () => { 
                 sessionStorage.removeItem('authToken'); 

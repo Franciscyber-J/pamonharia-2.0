@@ -3,6 +3,8 @@ import { state, handleOnlinePaymentSelection } from './main.js';
 import { openProductWithOptionsModal, openComboModal, addToCartSimple, clearCart, adjustItemGroupQuantity, adjustCartItemQuantity, removeItemGroup, calculateTotals, isComboEffectivelyOutOfStock, isItemEffectivelyOutOfStock } from './cart.js';
 import { handleBackToCart, handleBackToPaymentSelection } from './payment.js';
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Adicionados os elementos do botão flutuante ao objeto DOM.
 export const dom = {
     productsGrid: document.getElementById('products-grid'),
     combosGrid: document.getElementById('combos-grid'),
@@ -50,7 +52,11 @@ export const dom = {
     backToCartBtn: document.getElementById('back-to-cart-btn'),
     backToPaymentSelectionBtn: document.getElementById('back-to-payment-selection-btn'),
     backToPaymentSelectionFromPixBtn: document.getElementById('back-to-payment-selection-from-pix-btn'),
+    floatingCartBtn: document.getElementById('floating-cart-btn'),
+    floatingCartInfo: document.getElementById('floating-cart-info'),
+    floatingCartTotal: document.getElementById('floating-cart-total'),
 };
+// ##################### FIM DA CORREÇÃO ######################
 
 export function renderItems() {
     dom.productsGrid.innerHTML = '';
@@ -108,6 +114,20 @@ export function renderCart() {
     calculateTotals();
 
     dom.clearCartBtn.style.display = state.cart.length > 0 ? 'inline-block' : 'none';
+    
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Lógica para controlar o botão flutuante.
+    if (state.cart.length > 0) {
+        let totalItems = 0;
+        state.cart.forEach(group => totalItems += group.quantity);
+        dom.floatingCartInfo.textContent = `${totalItems} item(s)`;
+        dom.floatingCartTotal.textContent = dom.grandTotalEl.textContent;
+        dom.floatingCartBtn.classList.add('visible');
+    } else {
+        dom.floatingCartBtn.classList.remove('visible');
+    }
+    // ##################### FIM DA CORREÇÃO ######################
+
     if (state.cart.length === 0) {
         dom.cartItemsContainer.innerHTML = '<p id="empty-cart-msg">Seu carrinho está vazio.</p>';
         dom.submitOrderBtn.disabled = true;
@@ -242,53 +262,30 @@ export function setupModal(config) {
     if (config.onOpen) config.onOpen();
 }
 
-/**
- * Exibe a tela de sucesso do pedido de forma segura,
- * preservando o botão de "Novo Pedido".
- * @param {string} title - O título da mensagem (ex: "Obrigado pelo seu pedido!").
- * @param {string} message - O corpo da mensagem.
- */
 export function showSuccessScreen(title, message) {
-    // Esconde a interface do carrinho/checkout
     dom.cartWrapper.style.display = 'none';
-
-    // Atualiza o conteúdo da mensagem de sucesso sem substituir o HTML inteiro
     const successTitleEl = dom.successMessage.querySelector('h3');
     const successParagraphEl = dom.successMessage.querySelector('p');
-
     if (successTitleEl) successTitleEl.textContent = title;
     if (successParagraphEl) successParagraphEl.textContent = message;
-
-    // Exibe o container da mensagem de sucesso
     dom.successMessage.style.display = 'block';
 }
 
-/**
- * Reseta completamente a interface para permitir um novo pedido.
- */
 function resetForNewOrder() {
     console.log('[UI] Resetando a interface para um novo pedido.');
     
     dom.successMessage.style.display = 'none';
     dom.cartWrapper.style.display = 'block';
-    
     dom.orderForm.style.display = 'block';
-
     dom.onlinePaymentMethodSelection.style.display = 'none';
     dom.customPaymentContainer.style.display = 'none';
     dom.pixPaymentContainer.style.display = 'none';
-    
     dom.orderForm.reset();
-
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // Redefine o botão de submissão para o seu estado inicial.
-    dom.submitOrderBtn.disabled = true; // Desabilitado porque o carrinho está vazio.
+    dom.submitOrderBtn.disabled = true;
     dom.submitOrderBtn.textContent = 'Finalizar Pedido';
-    // ##################### FIM DA CORREÇÃO ######################
     
     const deliveryEvent = new Event('change', { bubbles: true });
     document.querySelector('input[name="delivery-type"]').dispatchEvent(deliveryEvent);
-
     renderCart();
 }
 
@@ -364,6 +361,13 @@ export function initializeUI() {
     dom.backToPaymentSelectionFromPixBtn.addEventListener('click', handleBackToPaymentSelection);
 
     dom.newOrderBtn.addEventListener('click', resetForNewOrder);
+    
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Adiciona o evento de clique para o botão flutuante.
+    dom.floatingCartBtn.addEventListener('click', () => {
+        dom.cartWrapper.scrollIntoView({ behavior: 'smooth' });
+    });
+    // ##################### FIM DA CORREÇÃO ######################
 }
 
 function applyTheme(theme) {

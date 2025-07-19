@@ -5,8 +5,9 @@ const { getIO } = require('../socket-manager');
 module.exports = {
   async index(request, response) {
     console.log('[OrderController] Buscando lista de pedidos.');
+    // ARQUITETO: Removido o status 'Aguardando Pagamento' da consulta principal.
     const activeOrders = await connection('orders')
-      .whereIn('status', ['Novo', 'Pago', 'Em Preparo', 'Pronto para Entrega', 'Aguardando Pagamento'])
+      .whereIn('status', ['Novo', 'Pago', 'Em Preparo', 'Pronto para Entrega'])
       .select('*')
       .orderBy('created_at', 'asc');
       
@@ -33,20 +34,21 @@ module.exports = {
     return response.status(204).send();
   },
 
+  // #################### INÍCIO DA CORREÇÃO ####################
+  // ARQUITETO: Esta função agora só lida com pedidos 'Pagamento na Entrega'.
+  // Pedidos online são criados pelo PaymentController após a confirmação.
   async create(request, response) {
     try {
       const { client_name, client_phone, client_address, total_price, items, payment_method } = request.body;
       
-      const isNewOnDeliveryOrder = payment_method === 'on_delivery';
-      const initialStatus = isNewOnDeliveryOrder ? 'Novo' : 'Aguardando Pagamento';
+      if (payment_method !== 'on_delivery') {
+        return response.status(400).json({ error: 'Este endpoint é exclusivo para pedidos com pagamento na entrega.' });
+      }
 
       const newOrderData = await connection.transaction(async (trx) => {
         const [order] = await trx('orders').insert({
-          client_name,
-          client_phone,
-          client_address,
-          total_price,
-          status: initialStatus,
+          client_name, client_phone, client_address, total_price,
+          status: 'Novo', // Status inicial para pagamento na entrega
           payment_method
         }).returning('*');
 
@@ -65,16 +67,13 @@ module.exports = {
             await trx('order_items').insert(orderItemsToInsert);
         }
 
-        console.log(`[OrderController] ✅ Pedido ${order_id} criado com sucesso com status "${initialStatus}".`);
+        console.log(`[OrderController] ✅ Pedido ${order_id} (Na Entrega) criado com sucesso.`);
         return order;
       });
 
-      // Se for um novo pedido na entrega, ele já está pronto para o dashboard.
-      if (isNewOnDeliveryOrder) {
-        console.log(`[OrderController] 🚀 Emitindo evento 'new_order' para o pedido #${newOrderData.id}`);
-        const io = getIO();
-        io.emit('new_order', newOrderData);
-      }
+      console.log(`[OrderController] 🚀 Emitindo evento 'new_order' para o pedido #${newOrderData.id}`);
+      const io = getIO();
+      io.emit('new_order', newOrderData);
 
       return response.status(201).json(newOrderData);
     } catch (error) {
@@ -82,6 +81,7 @@ module.exports = {
       return response.status(400).json({ error: 'Não foi possível registrar o pedido.' });
     }
   },
+  // ##################### FIM DA CORREÇÃO ######################
 
   async clearHistory(request, response) {
     try {

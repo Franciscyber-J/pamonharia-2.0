@@ -1,5 +1,5 @@
 // frontend/cardapio/js/cart.js
-import { state, socket } from './main.js';
+import { state, socket, startCartTimeout, stopCartTimeout } from './main.js';
 import { dom, renderCart, setupModal, showErrorModal } from './ui.js';
 
 function handleQuantityChange(target, selectedState, validator, item, options = {}) {
@@ -61,6 +61,7 @@ export function clearCart(releaseStock = true) {
 
     console.log('[Cart] Limpando o estado do carrinho localmente.');
     state.cart = [];
+    stopCartTimeout(); 
     renderCart();
 }
 
@@ -105,22 +106,19 @@ export function openProductWithOptionsModal(productId) {
     let selectedItemsInModal = {};
     let bodyHtml = '';
 
-    // Inicializa o estado do modal para todos os itens relevantes
     selectedItemsInModal[product.id] = product.sell_parent_product ? 1 : 0;
     if (product.children && product.children.length > 0) {
         product.children.forEach(child => {
             selectedItemsInModal[child.id] = 0;
         });
     }
-
-    // Renderiza o produto pai se ele for vendável
+    
     if (product.sell_parent_product) {
         const isParentOutOfStock = isItemEffectivelyOutOfStock(product);
         const initialQty = selectedItemsInModal[product.id] || 0;
         bodyHtml += `<div class="modal-parent-item"><span>${product.name} (Base)</span><div class="quantity-control"><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>-</button><span id="quantity-${product.id}">${initialQty}</span><button data-item-id="${product.id}" ${isParentOutOfStock ? 'disabled' : ''}>+</button></div></div>`;
     }
 
-    // Renderiza os complementos
     if (product.children && product.children.length > 0) {
         bodyHtml += `<h4>${product.sell_parent_product ? 'Adicione complementos:' : 'Escolha os sabores:'}</h4>`;
         product.children.forEach(option => {
@@ -130,14 +128,12 @@ export function openProductWithOptionsModal(productId) {
         });
     }
     
-    // #################### INÍCIO DA CORREÇÃO ####################
     const onSave = () => {
         let selected_items_details = [];
         let itemsToReserve = [];
         let finalPrice = 0;
         let finalQuantity = 1;
         
-        // Itera sobre TODOS os itens possíveis no modal (pai e filhos)
         for (const itemIdStr in selectedItemsInModal) {
             const itemId = parseInt(itemIdStr, 10);
             const quantity = selectedItemsInModal[itemId];
@@ -146,27 +142,24 @@ export function openProductWithOptionsModal(productId) {
                 const fullProductDetails = state.allProductsFlat.find(p => p.id === itemId);
                 if (!fullProductDetails) continue;
 
-                // Se o item tem seu próprio stock, adiciona à lista de reserva.
                 if (fullProductDetails.stock_enabled) {
                     itemsToReserve.push({ id: itemId, quantity: quantity });
                 }
 
-                // Adiciona ao preço total e aos detalhes do item do carrinho
                 finalPrice += parseFloat(fullProductDetails.price || 0) * quantity;
-                if (itemId !== product.id) { // Se não for o pai, é um complemento
+                if (itemId !== product.id) {
                     selected_items_details.push({ ...fullProductDetails, quantity });
                 }
             }
         }
 
-        // Determina a quantidade do item principal no carrinho
         const parentQty = selectedItemsInModal[product.id] || 0;
         const totalComplementQty = selected_items_details.reduce((sum, item) => sum + item.quantity, 0);
 
         if (product.sell_parent_product) {
             finalQuantity = parentQty;
         } else {
-            finalQuantity = totalComplementQty > 0 ? 1 : 0; // Se o pai não vende, adicionamos 1 "grupo" ao carrinho
+            finalQuantity = totalComplementQty > 0 ? 1 : 0;
         }
         
         if (finalQuantity === 0 && selected_items_details.length === 0) {
@@ -213,7 +206,6 @@ export function openProductWithOptionsModal(productId) {
         dom.addToCartBtn.textContent = buttonText;
         dom.addToCartBtn.disabled = !isValid;
     };
-    // ##################### FIM DA CORREÇÃO ######################
 
     setupModal({ title: `Montar ${product.name}`, description: 'Selecione os itens e quantidades desejadas.', body: bodyHtml, onSave, onOpen: validator });
     dom.modalBody.querySelectorAll('.quantity-control button[data-item-id]').forEach(button => {
@@ -311,8 +303,7 @@ export function openComboModal(comboId) {
 }
 
 export function isItemEffectivelyOutOfStock(item) {
-    if (!item) return true;
-    if (!item.status) return true;
+    if (!item || !item.status) return true;
 
     const stock = getAvailableStock(item);
     if (item.children && item.children.length > 0 && !item.sell_parent_product) {
@@ -334,7 +325,8 @@ export function isComboEffectivelyOutOfStock(combo) {
 }
 
 export function getAvailableStock(item) {
-    if (!item || !item.stock_enabled) return Infinity; 
+    if (!item) return Infinity; 
+    if (!item.stock_enabled) return Infinity;
 
     const parentId = state.productParentMap[item.id];
     if (parentId) {
@@ -367,6 +359,9 @@ function addToCartAndReserve(itemData, itemsToReserve) {
 
         if (response && response.success) {
             console.log('[Cart] Reserva de estoque bem-sucedida. Adicionando ao carrinho.');
+            if (state.cart.length === 0) {
+                startCartTimeout();
+            }
             state.cart.push({ ...itemData, cart_id: `cart_${Date.now()}` });
             renderCart();
             dom.modal.style.display = 'none';
@@ -414,30 +409,39 @@ export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
     // Esta função pode ser simplificada ou removida se a edição direta de complementos for desativada no carrinho.
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Função `getItemsToReleaseFromGroup` refatorada para ser o espelho exato da nova lógica de reserva.
 function getItemsToReleaseFromGroup(itemGroup) {
     const itemsToRelease = [];
-    
-    // Devolve o stock para o item pai se ele era a autoridade
-    const parentProduct = state.allProductsFlat.find(p => p.id === itemGroup.original_id);
-    if (parentProduct && parentProduct.stock_enabled && parentProduct.sell_parent_product) {
-        itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
-    }
+    const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
 
-    // Devolve o stock para cada complemento que tenha seu próprio controlo
+    if (!parentProduct) return [];
+
+    // Lida com combos
+    if (parentProduct.is_combo) {
+        itemGroup.selected_items.forEach(sub => {
+            const fullProduct = state.allProductsFlat.find(p => p.id === sub.id);
+            if (fullProduct && fullProduct.stock_enabled) {
+                itemsToRelease.push({ id: sub.id, quantity: sub.quantity * itemGroup.quantity });
+            }
+        });
+        return itemsToRelease.filter(i => i.id && i.quantity > 0);
+    }
+    
+    // Lida com produtos e complementos que têm seu próprio stock
     if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
         itemGroup.selected_items.forEach(subItem => {
             if (subItem.stock_enabled) {
-                // Multiplica a quantidade do sub-item pela quantidade do grupo no carrinho
                 itemsToRelease.push({ id: subItem.id, quantity: subItem.quantity * itemGroup.quantity });
             }
         });
     }
+
+    // Lida com o produto pai
+    if (parentProduct.stock_enabled && parentProduct.sell_parent_product) {
+        itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
+    }
     
-    return itemsToRelease;
+    return itemsToRelease.filter(i => i.id && i.quantity > 0);
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 export function removeItemGroup(cartIndex) {
     const itemToRemove = state.cart[cartIndex];
