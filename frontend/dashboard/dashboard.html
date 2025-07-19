@@ -30,7 +30,7 @@
             <nav>
                 <ul>
                     <li><a id="nav-pedidos" href="#">Pedidos</a></li>
-                    <li><a id="nav-produtos" href="#">Produtos Principais</a></li>
+                    <li><a id="nav-produtos" href="#">Produtos e Estoque</a></li>
                     <li><a id="nav-complementos" href="#">Itens de Complemento</a></li>
                     <li><a id="nav-combos" href="#">Combos</a></li>
                     <li><a id="nav-configuracoes" href="#">Configurações</a></li>
@@ -59,6 +59,10 @@
             <button id="logout-button">Sair</button>
         </aside>
         <main class="content">
+            <div id="stock-alert-banner" class="stock-alert-banner">
+                <strong>ALERTA:</strong> Um pedido foi recusado por falta de estoque. Verifique seu inventário.
+            </div>
+
             <header class="header">
                 <h1 id="page-title"></h1>
                 <button id="sound-status"></button>
@@ -192,6 +196,29 @@
             <div class="confirm-modal-buttons">
                 <button id="audio-unlock-confirm" class="btn btn-primary">Ativar Som</button>
             </div>
+        </div>
+    </div>
+
+    <div id="reject-reason-modal-overlay" class="modal-overlay">
+        <div class="modal-content" style="max-width: 500px;">
+            <button class="modal-close-btn">&times;</button>
+            <h3>Motivo da Recusa</h3>
+            <p style="opacity: 0.8; margin-bottom: 20px;">Selecione o motivo pelo qual o pedido está a ser recusado. Esta ação não pode ser desfeita.</p>
+            <form id="reject-reason-form">
+                <div class="form-group">
+                    <label for="reject-reason-select">Motivo</label>
+                    <select id="reject-reason-select" class="input-field" required>
+                        <option value="" disabled selected>Selecione uma opção...</option>
+                        <option value="stock_problem">Problema com estoque</option>
+                        <option value="delivery_problem">Problema com entrega</option>
+                        <option value="operational_problem">Indisponibilidade operacional</option>
+                    </select>
+                </div>
+                <div class="form-buttons">
+                    <button type="button" class="btn btn-secondary modal-cancel-btn">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">Confirmar Recusa</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -353,6 +380,47 @@
             window.createProductRow = createProductRow;
             window.toggleChildren = toggleChildren;
 
+            const rejectReasonModal = document.getElementById('reject-reason-modal-overlay');
+            const rejectReasonForm = document.getElementById('reject-reason-form');
+            const rejectReasonSelect = document.getElementById('reject-reason-select');
+            const stockAlertBanner = document.getElementById('stock-alert-banner');
+            const sidebar = document.querySelector('.sidebar');
+            let orderToRejectId = null;
+
+            function openRejectModal(orderId) {
+                orderToRejectId = orderId;
+                rejectReasonForm.reset();
+                rejectReasonModal.style.display = 'flex';
+            }
+
+            function closeRejectModal() {
+                orderToRejectId = null;
+                rejectReasonModal.style.display = 'none';
+            }
+
+            rejectReasonForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const reason = rejectReasonSelect.value;
+                if (!reason) {
+                    alert('Por favor, selecione um motivo.');
+                    return;
+                }
+                await window.updateOrderStatus(orderToRejectId, 'Cancelado', true);
+                if (reason === 'stock_problem') {
+                    stockAlertBanner.style.display = 'block';
+                    sidebar.classList.add('navigation-locked');
+                }
+                closeRejectModal();
+            });
+
+            rejectReasonModal.querySelector('.modal-close-btn').addEventListener('click', closeRejectModal);
+            rejectReasonModal.querySelector('.modal-cancel-btn').addEventListener('click', closeRejectModal);
+
+            function dismissStockAlert() {
+                stockAlertBanner.style.display = 'none';
+                sidebar.classList.remove('navigation-locked');
+            }
+
             let notificationAudio, isSoundEnabled = true, isAudioUnlocked = false;
 
             const updateSoundStatusButton = () => { const btn = document.getElementById('sound-status'); if (btn) { btn.textContent = isSoundEnabled ? '🔊 Som Ligado' : '🔇 Som Desligado'; btn.classList.toggle('sound-on', isSoundEnabled); btn.classList.toggle('sound-off', !isSoundEnabled); } };
@@ -363,7 +431,18 @@
             const showAudioUnlockModal = () => { const modal = document.getElementById('audio-unlock-modal-overlay'); const btn = document.getElementById('audio-unlock-confirm'); modal.style.display = 'flex'; btn.onclick = async () => { await unlockAudio(); modal.style.display = 'none'; }; };
             document.getElementById('sound-status').addEventListener('click', async () => { if (!(await unlockAudio())) return; isSoundEnabled = !isSoundEnabled; updateSoundStatusButton(); if (!isSoundEnabled) stopNotification(); });
 
-            window.updateOrderStatus = async (id, status) => { stopNotification(); try { await apiFetch(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }); } catch (error) { console.error(`Falha ao atualizar status:`, error); } };
+            window.updateOrderStatus = async (orderId, newStatus, isRejectFlow = false) => {
+                stopNotification();
+                if (newStatus === 'Cancelado' && !isRejectFlow) {
+                    openRejectModal(orderId);
+                } else {
+                    try {
+                        await apiFetch(`/orders/${orderId}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus }) });
+                    } catch (error) {
+                        console.error(`Falha ao atualizar status:`, error);
+                    }
+                }
+            };
 
             function renderPedidosPage() { pageTitle.textContent = 'Painel de Pedidos'; dashboardContent.innerHTML = `<div class="orders-header"><h2>Acompanhamento de Pedidos</h2><button id="clear-history-btn" class="btn btn-danger">Limpar Histórico</button></div><div class="orders-panel"><div class="order-column"><h3>Novos Pedidos</h3><div class="order-list" id="col-novo"></div></div><div class="order-column"><h3>Em Preparo</h3><div class="order-list" id="col-em-preparo"></div></div><div class="order-column"><h3>Pronto para Entrega/Retirada</h3><div class="order-list" id="col-pronto-para-entrega"></div></div><div class="order-column"><h3>Concluídos</h3><div class="order-list" id="col-finalizado"></div></div><div class="order-column"><h3>Recusados</h3><div class="order-list" id="col-cancelado"></div></div></div>`; document.getElementById('clear-history-btn').addEventListener('click', () => { showCustomConfirm('Tem a certeza de que deseja apagar permanentemente todos os pedidos concluídos, recusados e abandonados?', async () => { try { await apiFetch('/orders/history', { method: 'DELETE' }); } catch (error) { console.error('Falha ao limpar histórico:', error); alert('Não foi possível limpar o histórico.'); } }); }); fetchAndRenderOrders(); };
             async function fetchAndRenderOrders() { try { const { activeOrders, finishedOrders, rejectedOrders } = await apiFetch('/orders'); document.querySelectorAll('.order-list').forEach(l => l.innerHTML = ''); [...activeOrders, ...finishedOrders, ...rejectedOrders].forEach(o => addOrderCard(o, false)); if (!isAudioUnlocked && notificationAudio) showAudioUnlockModal(); } catch (error) { console.error("Erro ao buscar pedidos:", error); } };
@@ -374,16 +453,16 @@
             socket.on('connect', () => console.log('[Dashboard] ✅ Socket.IO conectado.'));
             socket.on('disconnect', () => console.log('[Dashboard] 🔌 Socket.IO desconectado.'));
             socket.on('connect_error', (err) => console.error('[Dashboard] ❌ Erro de conexão Socket.IO:', err.message));
-            socket.on('new_order', (order) => { if (document.querySelector('.orders-panel')) { addOrderCard(order, true); playNotification(order.id); } });
+            socket.on('new_order', (order) => { addOrderCard(order, true); playNotification(order.id); });
             socket.on('order_status_updated', ({ id, status }) => { const card = document.getElementById(`order-${id}`); if (card) { apiFetch(`/orders`).then(({ activeOrders, finishedOrders, rejectedOrders }) => { const updatedOrder = [...activeOrders, ...finishedOrders, ...rejectedOrders].find(o => o.id === id); if (updatedOrder) addOrderCard(updatedOrder, true); }); } });
             socket.on('history_cleared', () => { if (document.querySelector('.orders-panel')) fetchAndRenderOrders(); });
-            socket.on('stock_update', (liveInventory) => { console.log('[Dashboard] 📥 Stock update recebido:', liveInventory); for (const productId in liveInventory) { const newStock = liveInventory[productId]; const product = allProductsFlat.find(p => p.id == productId); if (product) product.stock_quantity = newStock; const row = document.querySelector(`.product-row[data-id='${productId}']`); if (row) { const input = row.querySelector('.stock-input'); if (input && input.value != newStock) input.value = newStock ?? ''; } } });
+            socket.on('stock_update', async () => { console.log('[Dashboard] 📥 Stock update recebido. Recarregando dados dos produtos para garantir consistência.'); await refreshCurrentProductView(); });
             socket.on('data_updated', async () => { if (isProgrammaticallyUpdating) return isProgrammaticallyUpdating = false; await refreshCurrentProductView(); });
 
             function flattenProductsWithParentInfo(products) { let flatList = []; products.forEach(p => { const { children, ...parent } = p; flatList.push(parent); if (children?.length > 0) flatList.push(...children.map(c => ({ ...c, parent_stock_sync_enabled: parent.stock_sync_enabled }))); }); return flatList; };
             async function fetchAllProducts() { try { allProducts = await apiFetch('/products'); allProductsFlat = flattenProductsWithParentInfo(allProducts); } catch (error) { console.error("Não foi possível carregar os produtos.", error); } };
 
-            function renderProdutosPage() { pageTitle.textContent = 'Produtos Principais'; dashboardContent.innerHTML = `<div class="page-header"><h2>Produtos Vendidos Diretamente</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`; document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true)); renderProdutosPageContent(); };
+            function renderProdutosPage() { pageTitle.textContent = 'Produtos e Estoque'; dashboardContent.innerHTML = `<div class="page-header"><h2>Gestão de Produtos e Estoque</h2><button id="add-product-btn" class="btn btn-primary">Adicionar Produto Principal</button></div><p style="opacity: 0.7; margin-bottom: 20px;">Arraste e solte as linhas pela alça (⠿) para reordenar a exibição no cardápio.</p><table class="data-table product-table"><thead><tr><th style="width: 40px;"></th><th>Produto</th><th>Preço</th><th>Status</th><th>Controle de Estoque</th><th>Ações</th></tr></thead><tbody id="products-tbody"></tbody></table>`; document.getElementById('add-product-btn').addEventListener('click', () => openProductModal(null, true)); renderProdutosPageContent(); };
             function renderProdutosPageContent() { const tbody = document.getElementById('products-tbody'); if (!tbody) return; const expanded = new Set(Array.from(tbody.querySelectorAll('.toggle-children-btn.expanded')).map(btn => btn.closest('.product-row')?.dataset.id)); tbody.innerHTML = ''; const main = allProducts.filter(p => p.is_main_product); main.forEach(p => { tbody.innerHTML += createProductRow(p); if (p.children?.length > 0) p.children.forEach(c => { tbody.innerHTML += createProductRow(c, true, p.stock_sync_enabled); }); }); expanded.forEach(id => { const row = tbody.querySelector(`.product-row[data-id='${id}']`); const btn = row?.querySelector('.toggle-children-btn'); if (btn) { btn.classList.add('expanded'); document.querySelectorAll(`.product-row.is-child[data-parent-id='${id}']`).forEach(child => child.style.display = 'table-row'); } }); initSortable('products-tbody', '/products/reorder'); };
             function renderComplementosPageContent() { const tbody = document.getElementById('complementos-tbody'); if (!tbody) return; tbody.innerHTML = ''; allProductsFlat.filter(p => !p.is_main_product).forEach(item => { tbody.innerHTML += createProductRow(item, false); }); initSortable('complementos-tbody', '/products/reorder'); };
             async function refreshCurrentProductView() { await fetchAllProducts(); const page = document.querySelector('nav a.active')?.id.split('-')[1]; if (page === 'produtos') renderProdutosPageContent(); else if (page === 'complementos') renderComplementosPageContent(); };
@@ -431,7 +510,16 @@
 
             const navLinks = { pedidos: document.getElementById('nav-pedidos'), produtos: document.getElementById('nav-produtos'), complementos: document.getElementById('nav-complementos'), combos: document.getElementById('nav-combos'), configuracoes: document.getElementById('nav-configuracoes') };
             const pages = { pedidos: renderPedidosPage, produtos: renderProdutosPage, complementos: renderComplementosPage, combos: renderCombosPage, configuracoes: renderSettingsPage };
-            const handleNavigation = (e) => { e.preventDefault(); document.querySelector('nav a.active')?.classList.remove('active'); const link = e.currentTarget; link.classList.add('active'); const pageKey = link.id.split('-')[1]; if (pages[pageKey]) pages[pageKey](); };
+            const handleNavigation = (e) => {
+                e.preventDefault();
+                const pageKey = e.currentTarget.id.split('-')[1];
+                if (sidebar.classList.contains('navigation-locked') && pageKey !== 'produtos') return;
+                if (pageKey === 'produtos') dismissStockAlert();
+                document.querySelector('nav a.active')?.classList.remove('active');
+                const link = e.currentTarget;
+                link.classList.add('active');
+                if (pages[pageKey]) pages[pageKey]();
+            };
             Object.values(navLinks).forEach(link => link.addEventListener('click', handleNavigation));
 
             dashboardContent.addEventListener('change', async (event) => { if (event.target.classList.contains('stock-sync-toggle')) { const cb = event.target; const row = cb.closest('.product-row'); if (!row) return; const id = row.dataset.id; const enabled = cb.checked; try { await globalApiFetch(`/products/${id}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: enabled }) }); await refreshCurrentProductView(); } catch (error) { console.error(`Falha ao atualizar a sincronização de estoque para o produto ${id}:`, error); alert('Não foi possível atualizar a configuração de sincronização.'); cb.checked = !enabled; } } });
