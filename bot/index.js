@@ -86,7 +86,6 @@ client.on('message', async (msg) => {
 
     const lowerBody = msg.body.trim().toLowerCase();
     
-    // 1. Lógica de Confirmação de Pedido (Prioridade Máxima)
     const confirmationMatch = msg.body.match(/Código de Confirmação: *\*P-(\d+)-([A-Z0-9]{4})\*/i);
     if (confirmationMatch) {
         const orderId = confirmationMatch[1];
@@ -94,7 +93,6 @@ client.on('message', async (msg) => {
         return;
     }
 
-    // 2. Lógica de Concierge (Menu, Produtos, etc.)
     await handleConcierge(msg, lowerBody);
 });
 
@@ -109,27 +107,28 @@ async function handleOrderConfirmation(msg, orderId) {
         });
         
         // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Lógica de formatação do resumo do pedido refatorada para incluir todos os detalhes
-        // e para lidar corretamente com itens "agrupadores".
+        // ARQUITETO: Lógica de resumo do pedido corrigida para usar a nova estrutura de dados e regras de quantidade.
         let resumo = `Pedido *P-${confirmedOrder.id}* confirmado com sucesso! ✅\n\n`;
         resumo += "Resumo do seu pedido:\n\n";
         
         confirmedOrder.items.forEach(item => {
-            const details = item.item_details || [];
-            const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(details) && details.length > 0;
+            const detailsWrapper = item.item_details || {};
+            const complements = detailsWrapper.complements || [];
+            const isOneToOne = detailsWrapper.force_one_to_one === true;
+            
+            const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(complements) && complements.length > 0;
 
             if (isContainerOnly) {
-                // Se for um item 'agrupador', combinamos o nome do pai com o do filho.
-                details.forEach(det => {
+                complements.forEach(det => {
                     const combinedName = `${item.item_name} - ${det.name}`;
                     resumo += `*${det.quantity}x* ${combinedName}\n`;
                 });
             } else {
-                // Para itens normais, mostramos o item principal e depois os seus complementos.
                 resumo += `*${item.quantity}x* ${item.item_name}\n`;
-                if (Array.isArray(details) && details.length > 0) {
-                    details.forEach(det => {
-                        resumo += `  ↳ _${det.quantity * item.quantity}x ${det.name}_\n`;
+                if (Array.isArray(complements) && complements.length > 0) {
+                    complements.forEach(det => {
+                        const finalQuantity = isOneToOne ? det.quantity : (det.quantity * item.quantity);
+                        resumo += `  ↳ _${finalQuantity}x ${det.name}_\n`;
                     });
                 }
             }

@@ -590,7 +590,7 @@
             };
 
             // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: Lógica de renderização do modal refatorada para exibir os complementos e lidar com "agrupadores".
+            // ARQUITETO: Lógica de renderização do modal refatorada para usar a nova estrutura de `item_details` e a regra de quantidade.
             function openOrderDetailsModal(order) {
                 const modal = document.getElementById('order-details-modal-overlay');
                 const title = document.getElementById('order-details-title');
@@ -601,22 +601,25 @@
                 let itemsHtml = '<h4>Itens do Pedido</h4><ul class="order-details-list">';
                 if (order.items && order.items.length > 0) {
                     order.items.forEach(item => {
-                        const details = item.item_details || [];
-                        const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(details) && details.length > 0;
+                        const detailsWrapper = item.item_details || {};
+                        const complements = detailsWrapper.complements || [];
+                        const isOneToOne = detailsWrapper.force_one_to_one === true;
+                        
+                        const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(complements) && complements.length > 0;
 
                         if (isContainerOnly) {
-                            // Se for um item 'agrupador' (ex: Bolinho de Milho), combinamos o nome do pai com o do filho.
-                            details.forEach(sub => {
+                            complements.forEach(sub => {
                                 const combinedName = `${item.item_name} - ${sub.name}`;
                                 itemsHtml += `<li><strong>${sub.quantity}x ${combinedName}</strong></li>`;
                             });
                         } else {
-                            // Para itens normais (ex: Curau) ou combos, mostramos o item principal e depois os complementos.
                             itemsHtml += `<li><strong>${item.quantity}x ${item.item_name}</strong>`;
-                            if (Array.isArray(details) && details.length > 0) {
+                            if (Array.isArray(complements) && complements.length > 0) {
                                 itemsHtml += '<ul class="order-details-sublist">';
-                                details.forEach(sub => {
-                                    itemsHtml += `<li>${sub.quantity * item.quantity}x ${sub.name}</li>`;
+                                complements.forEach(sub => {
+                                    // Usa a flag `isOneToOne` para decidir se multiplica a quantidade ou não
+                                    const finalQuantity = isOneToOne ? sub.quantity : (sub.quantity * item.quantity);
+                                    itemsHtml += `<li>${finalQuantity}x ${sub.name}</li>`;
                                 });
                                 itemsHtml += '</ul>';
                             }
