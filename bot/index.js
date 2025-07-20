@@ -49,10 +49,24 @@ const client = new Client({
 });
 
 client.on('qr', (qr) => {
-    log('INFO', 'QRCode', 'QR Code recebido. Escaneie com o seu WhatsApp.');
-    qrcode.toString(qr, { type: 'terminal', small: true }, (err, url) => {
-        if (err) return console.error(err);
-        console.log(url);
+    log('INFO', 'QRCode', 'QR Code recebido. A gerar URL de imagem...');
+    qrcode.toDataURL(qr, (err, url) => {
+        if (err) {
+            console.error('Erro ao gerar URL do QR Code:', err);
+            return;
+        }
+        console.log('--------------------------------------------------');
+        console.log('QR Code pronto! Use um leitor ou a câmara para ler a URL abaixo e abri-la no navegador:');
+        
+        qrcode.toString(url, { type: 'terminal', small: true }, (err, qrTerminal) => {
+            if (err) {
+                console.log('Não foi possível gerar o QR Code da URL, por favor, copie a URL manualmente.');
+            } else {
+                console.log(qrTerminal);
+            }
+            console.log('URL DIRETA (copie e cole no navegador):', url);
+            console.log('--------------------------------------------------');
+        });
     });
 });
 
@@ -94,29 +108,44 @@ async function handleOrderConfirmation(msg, orderId) {
             headers: { 'x-api-key': API_KEY }
         });
         
-        // Formata o resumo do pedido para o cliente.
+        // #################### INÍCIO DA CORREÇÃO ####################
+        // ARQUITETO: Lógica de formatação do resumo do pedido refatorada para incluir todos os detalhes.
         let resumo = `Pedido *P-${confirmedOrder.id}* confirmado com sucesso! ✅\n\n`;
         resumo += "Resumo do seu pedido:\n\n";
+        
         confirmedOrder.items.forEach(item => {
             resumo += `*${item.quantity}x* ${item.item_name}\n`;
-            if (item.item_details && item.item_details.length > 2) { // Evita '[]'
-                const details = JSON.parse(item.item_details);
-                if(Array.isArray(details) && details.length > 0) {
-                    details.forEach(det => {
-                        resumo += `  ↳ _${det.quantity}x ${det.name}_\n`;
-                    });
+            if (item.item_details && item.item_details.length > 2) {
+                try {
+                    const details = JSON.parse(item.item_details);
+                    if(Array.isArray(details) && details.length > 0) {
+                        details.forEach(det => {
+                            resumo += `  ↳ _${det.quantity}x ${det.name}_\n`;
+                        });
+                    }
+                } catch(e) {
+                    log('WARN', 'Confirmation', `Não foi possível parsear item_details para o item ${item.id}`);
                 }
             }
         });
+
         resumo += `\n*TOTAL: R$ ${Number.parseFloat(confirmedOrder.total_price).toFixed(2).replace(".", ",")}*`;
         resumo += `\n\n*Pagamento:* ${confirmedOrder.payment_method === 'online' ? 'Pago Online' : 'Pagar na Entrega/Retirada'}`;
         resumo += `\n*Destino:* ${confirmedOrder.client_address}`;
+        
+        if (confirmedOrder.observations) {
+            resumo += `\n\n*Observações:* ${confirmedOrder.observations}`;
+        }
+        resumo += `\n*Precisa de talher?* ${confirmedOrder.needs_cutlery ? 'Sim' : 'Não'}`;
+        
         resumo += `\n\nNossa equipe já foi notificada e em breve começará a prepará-lo. Manteremos você atualizado!`;
+        // ##################### FIM DA CORREÇÃO ######################
         
         await msg.reply(resumo);
 
     } catch (error) {
-        log('ERROR', 'Confirmation', `Falha ao confirmar pedido #${orderId}: ${error.message}`);
+        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+        log('ERROR', 'Confirmation', `Falha ao confirmar pedido #${orderId}: ${errorMessage}`);
         await msg.reply('Ocorreu um erro ao confirmar seu pedido. Por favor, aguarde que um atendente irá verificar.');
     }
 }
