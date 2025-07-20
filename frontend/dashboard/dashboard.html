@@ -590,7 +590,7 @@
             };
             
             // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: Lógica de renderização do modal refatorada para exibir os complementos e lidar com "agrupadores".
+            // ARQUITETO: Corrigido para não usar JSON.parse() em `item_details`, pois já é um objeto.
             function openOrderDetailsModal(order) {
                 const modal = document.getElementById('order-details-modal-overlay');
                 const title = document.getElementById('order-details-title');
@@ -601,23 +601,18 @@
                 let itemsHtml = '<h4>Itens do Pedido</h4><ul class="order-details-list">';
                 if (order.items && order.items.length > 0) {
                     order.items.forEach(item => {
-                        const details = item.item_details ? JSON.parse(item.item_details) : [];
-                        // Heurística: se o preço unitário for 0 e houver complementos, é um agrupador.
+                        const details = item.item_details || []; // `item_details` já é um objeto/array
                         const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(details) && details.length > 0;
 
                         if (isContainerOnly) {
-                            // Se for um item 'agrupador' (como Pamonha Tradicional), mostramos apenas os complementos.
                             details.forEach(sub => {
-                                // A quantidade do sub-item (complemento) já é a quantidade total correta.
                                 itemsHtml += `<li><strong>${sub.quantity}x ${sub.name}</strong></li>`;
                             });
                         } else {
-                            // Para itens normais (como Curau) ou combos, mostramos o item principal.
                             itemsHtml += `<li><strong>${item.quantity}x ${item.item_name}</strong>`;
                             if (Array.isArray(details) && details.length > 0) {
                                 itemsHtml += '<ul class="order-details-sublist">';
                                 details.forEach(sub => {
-                                    // A quantidade do complemento é multiplicada pela quantidade do item pai.
                                     itemsHtml += `<li>${sub.quantity * item.quantity}x ${sub.name}</li>`;
                                 });
                                 itemsHtml += '</ul>';

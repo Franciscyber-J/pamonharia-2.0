@@ -109,13 +109,12 @@ async function handleOrderConfirmation(msg, orderId) {
         });
         
         // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Lógica de formatação do resumo do pedido refatorada para incluir todos os detalhes
-        // e para lidar corretamente com itens "agrupadores".
+        // ARQUITETO: Corrigido para não usar JSON.parse() e para lidar com a lógica de "agrupadores".
         let resumo = `Pedido *P-${confirmedOrder.id}* confirmado com sucesso! ✅\n\n`;
         resumo += "Resumo do seu pedido:\n\n";
         
         confirmedOrder.items.forEach(item => {
-            const details = item.item_details ? JSON.parse(item.item_details) : [];
+            const details = item.item_details || []; // `item_details` já é um objeto/array
             const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(details) && details.length > 0;
 
             if (isContainerOnly) {
