@@ -3,6 +3,7 @@ const connection = require('../database/connection');
 const { getIO } = require('../socket-manager');
 const axios = require('axios');
 
+// ARQUITETO: Função de notificação robustecida com logs de erro detalhados.
 const notifyBot = async (phone, message) => {
     const botUrl = process.env.BOT_API_URL;
     if (!botUrl) {
@@ -16,11 +17,14 @@ const notifyBot = async (phone, message) => {
             message
         }, {
             headers: { 'x-api-key': process.env.BOT_API_KEY },
-            timeout: 5000
+            timeout: 5000 // Timeout de 5 segundos para a requisição
         });
         console.log(`[BotNotify] ✅ Notificação para ${phone} enviada com sucesso para o bot.`);
     } catch (error) {
-        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+        // Captura e exibe o erro detalhado da falha de comunicação.
+        const errorMessage = error.response 
+            ? JSON.stringify(error.response.data) // Erro vindo da API do bot (ex: bot não pronto)
+            : error.message; // Erro de rede (ex: timeout, DNS, ngrok offline)
         console.error(`[BotNotify] ❌ Falha ao notificar o bot: ${errorMessage}`);
     }
 };
@@ -107,10 +111,8 @@ module.exports = {
 
     async create(request, response) {
         try {
-            // ARQUITETO: Extraímos os novos campos do corpo da requisição.
             const { client_name, client_phone, client_address, total_price, items, payment_method, observations, needs_cutlery } = request.body;
             const initialStatus = 'Novo';
-
             const newOrderData = await connection.transaction(async (trx) => {
                 const [order] = await trx('orders').insert({
                     client_name, 
@@ -119,12 +121,11 @@ module.exports = {
                     total_price, 
                     status: initialStatus, 
                     payment_method,
-                    observations, // Campo novo
-                    needs_cutlery  // Campo novo
+                    observations,
+                    needs_cutlery
                 }).returning('*');
 
                 const order_id = order.id;
-
                 if (items && items.length > 0) {
                     const orderItemsToInsert = items.map(item => ({
                         order_id: order_id,
@@ -137,7 +138,6 @@ module.exports = {
                     }));
                     await trx('order_items').insert(orderItemsToInsert);
                 }
-                
                 const fullOrderDetails = { ...order, items };
                 console.log(`[OrderController] ✅ Pré-pedido #${order_id} criado. Aguardando confirmação.`);
                 return fullOrderDetails;

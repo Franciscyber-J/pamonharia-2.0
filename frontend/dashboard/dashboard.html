@@ -554,6 +554,7 @@
                 const card = document.createElement('div');
                 card.className = 'order-card';
                 card.id = `order-${order.id}`;
+                // ARQUITETO: A ordem completa é passada para o modal.
                 card.onclick = (event) => {
                     if (event.target.tagName !== 'BUTTON') {
                         openOrderDetailsModal(order);
@@ -589,6 +590,8 @@
                 return card;
             };
 
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // ARQUITETO: Lógica de renderização do modal refatorada para exibir os complementos.
             function openOrderDetailsModal(order) {
                 const modal = document.getElementById('order-details-modal-overlay');
                 const title = document.getElementById('order-details-title');
@@ -600,6 +603,7 @@
                 if (order.items && order.items.length > 0) {
                     order.items.forEach(item => {
                         itemsHtml += `<li><strong>${item.quantity}x ${item.item_name}</strong>`;
+                        // Verifica se 'item_details' existe e é um JSON de array não vazio.
                         if (item.item_details && item.item_details.length > 2) { 
                             try {
                                 const details = JSON.parse(item.item_details);
@@ -619,6 +623,16 @@
                 }
                 itemsHtml += '</ul>';
                 
+                // Escape HTML para observações do cliente para evitar injeção de XSS.
+                const escapeHTML = (str) => str.replace(/[&<>'"]/g, 
+                    tag => ({
+                        '&': '&amp;', '<': '&lt;', '>': '&gt;',
+                        "'": '&#39;', '"': '&quot;'
+                    }[tag] || tag)
+                );
+                
+                const observationsText = order.observations ? escapeHTML(order.observations).replace(/\n/g, '<br>') : 'Nenhuma';
+
                 const clientInfoHtml = `
                     <h4>Informações do Cliente</h4>
                     <p><strong>Nome:</strong> ${order.client_name}</p>
@@ -627,7 +641,8 @@
                     <hr>
                     <h4>Preferências e Observações</h4>
                     <p><strong>Precisa de talher?</strong> ${order.needs_cutlery ? 'Sim' : 'Não'}</p>
-                    <p><strong>Observações:</strong> ${order.observations || 'Nenhuma'}</p>
+                    <p><strong>Observações:</strong></p>
+                    <p class="order-details-observation">${observationsText}</p>
                     <hr>
                     <h4>Financeiro</h4>
                     <p><strong>Total:</strong> R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</p>
@@ -644,6 +659,7 @@
                     }
                 };
             }
+            // ##################### FIM DA CORREÇÃO ######################
 
             function addOrderCard(order, prepend = true) { const statusMap = { 'Aguardando Pagamento': 'col-novo', 'Pago': 'col-novo', 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto-para-entrega', 'Finalizado': 'col-finalizado', 'Cancelado': 'col-cancelado' }; const columnId = statusMap[order.status]; if (!columnId) return; const column = document.getElementById(columnId); if (column) { const existingCard = document.getElementById(`order-${order.id}`); if (existingCard) existingCard.remove(); const card = createOrderCard(order); if (prepend) column.prepend(card); else column.appendChild(card); } };
 
