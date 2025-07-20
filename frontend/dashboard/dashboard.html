@@ -617,7 +617,6 @@
                             if (Array.isArray(complements) && complements.length > 0) {
                                 itemsHtml += '<ul class="order-details-sublist">';
                                 complements.forEach(sub => {
-                                    // Usa a flag `isOneToOne` para decidir se multiplica a quantidade ou não
                                     const finalQuantity = isOneToOne ? sub.quantity : (sub.quantity * item.quantity);
                                     itemsHtml += `<li>${finalQuantity}x ${sub.name}</li>`;
                                 });
@@ -639,6 +638,17 @@
                 ) : '';
                 
                 const observationsText = order.observations ? escapeHTML(order.observations).replace(/\n/g, '<br>') : 'Nenhuma';
+                
+                let financialDetailsHtml = '';
+                if (order.delivery_fee && order.delivery_fee > 0) {
+                    financialDetailsHtml = `
+                        <p><strong>Subtotal:</strong> R$ ${parseFloat(order.subtotal).toFixed(2).replace('.', ',')}</p>
+                        <p><strong>Taxa de Entrega:</strong> R$ ${parseFloat(order.delivery_fee).toFixed(2).replace('.', ',')}</p>
+                        <p><strong>Total:</strong> R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</p>
+                    `;
+                } else {
+                    financialDetailsHtml = `<p><strong>Total:</strong> R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</p>`;
+                }
 
                 const clientInfoHtml = `
                     <h4>Informações do Cliente</h4>
@@ -652,7 +662,7 @@
                     <p class="order-details-observation">${observationsText}</p>
                     <hr>
                     <h4>Financeiro</h4>
-                    <p><strong>Total:</strong> R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</p>
+                    ${financialDetailsHtml}
                     <p><strong>Pagamento:</strong> ${order.payment_method === 'online' ? 'Pago Online' : 'Pagar na Entrega/Retirada'}</p>
                 `;
 

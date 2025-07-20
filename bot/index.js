@@ -107,7 +107,7 @@ async function handleOrderConfirmation(msg, orderId) {
         });
         
         // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Lógica de resumo do pedido corrigida para usar a nova estrutura de dados e regras de quantidade.
+        // ARQUITETO: Lógica de resumo do pedido corrigida para incluir o detalhamento financeiro.
         let resumo = `Pedido *P-${confirmedOrder.id}* confirmado com sucesso! ✅\n\n`;
         resumo += "Resumo do seu pedido:\n\n";
         
@@ -134,8 +134,17 @@ async function handleOrderConfirmation(msg, orderId) {
             }
         });
 
-        resumo += `\n*TOTAL: R$ ${Number.parseFloat(confirmedOrder.total_price).toFixed(2).replace(".", ",")}*`;
-        resumo += `\n\n*Pagamento:* ${confirmedOrder.payment_method === 'online' ? 'Pago Online' : 'Pagar na Entrega/Retirada'}`;
+        // Detalhamento Financeiro
+        resumo += "\n";
+        if (confirmedOrder.delivery_fee && confirmedOrder.delivery_fee > 0) {
+            resumo += `Subtotal: R$ ${Number.parseFloat(confirmedOrder.subtotal).toFixed(2).replace(".", ",")}\n`;
+            resumo += `Taxa de Entrega: R$ ${Number.parseFloat(confirmedOrder.delivery_fee).toFixed(2).replace(".", ",")}\n`;
+            resumo += `*TOTAL: R$ ${Number.parseFloat(confirmedOrder.total_price).toFixed(2).replace(".", ",")}*\n`;
+        } else {
+            resumo += `*TOTAL: R$ ${Number.parseFloat(confirmedOrder.total_price).toFixed(2).replace(".", ",")}*\n`;
+        }
+
+        resumo += `\n*Pagamento:* ${confirmedOrder.payment_method === 'online' ? 'Pago Online' : 'Pagar na Entrega/Retirada'}`;
         resumo += `\n*Destino:* ${confirmedOrder.client_address}`;
         
         if (confirmedOrder.observations) {

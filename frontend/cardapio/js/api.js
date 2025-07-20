@@ -1,18 +1,13 @@
 import { state } from './main.js';
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Corrigido para determinar dinamicamente a URL da API com base no ambiente.
-// Isso resolve o erro de CORS ao garantir que o frontend de desenvolvimento
-// comunique com o backend de desenvolvimento.
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_BASE_URL = IS_LOCAL ? 'http://localhost:10000' : 'https://pamonhariasaborosa.expertbr.com';
-// ##################### FIM DA CORREÇÃO ######################
 
 /**
  * Função centralizada para fazer requisições à API.
  * @param {string} endpoint - O endpoint da API (ex: '/public/products').
  * @param {object} options - Opções para a função fetch.
- * @returns {Promise<any>} - A resposta da API em JSON.
+ * @returns {Promise<any>} - A resposta da API em JSON ou texto.
  */
 export async function apiFetch(endpoint, options = {}) {
     try {
@@ -30,8 +25,18 @@ export async function apiFetch(endpoint, options = {}) {
             }
             throw new Error(errorJson.error || `HTTP error! status: ${response.status}`);
         }
+        
+        // #################### INÍCIO DA CORREÇÃO ####################
+        // ARQUITETO: Verifica o Content-Type. Se for JSON, faz o parse. Senão, retorna o texto.
+        // Isso resolve o erro no endpoint /health que retorna "OK" como texto.
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+            return responseBodyText ? JSON.parse(responseBodyText) : null;
+        } else {
+            return responseBodyText;
+        }
+        // ##################### FIM DA CORREÇÃO ######################
 
-        return responseBodyText ? JSON.parse(responseBodyText) : null;
     } catch (error) {
         console.error(`Erro de API para ${endpoint}:`, error);
         throw error;
@@ -50,7 +55,6 @@ export async function fetchAndRenderAllData() {
 
     state.storeSettings = settingsResponse;
     
-    // Reseta e mapeia os produtos
     state.allProductsFlat = [];
     state.productParentMap = {};
     const recursiveFlattenAndMap = (products, parent = null) => {
@@ -63,13 +67,10 @@ export async function fetchAndRenderAllData() {
     };
     recursiveFlattenAndMap(productsResponse);
 
-    // Processa os combos, mesclando os dados dos produtos para preservar o price_modifier.
     combosResponse.forEach(c => {
         if (c.products) {
             c.products = c.products.map(comboProduct => {
                 const fullProductDetails = state.allProductsFlat.find(i => i.id === comboProduct.id);
-                // Mescla os detalhes completos do produto com os detalhes específicos do combo
-                // (como price_modifier), garantindo que os dados do combo tenham prioridade.
                 return { ...fullProductDetails, ...comboProduct };
             });
         }

@@ -27,6 +27,31 @@ const notifyBot = async (phone, message) => {
     }
 };
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Função auxiliar para enriquecer os pedidos com detalhes financeiros.
+const enrichOrdersWithFinancials = async (orders) => {
+    if (!orders || orders.length === 0) {
+        return orders;
+    }
+    // Buscamos a taxa de entrega uma única vez
+    const settings = await connection('store_settings').select('delivery_fee').where('id', 1).first();
+    const delivery_fee = settings ? parseFloat(settings.delivery_fee) : 0;
+
+    return orders.map(order => {
+        const isDelivery = order.client_address !== 'Retirada no local';
+        if (isDelivery && delivery_fee > 0) {
+            const total = parseFloat(order.total_price);
+            return {
+                ...order,
+                delivery_fee: delivery_fee,
+                subtotal: total - delivery_fee
+            };
+        }
+        return order; // Retorna o pedido original se não for entrega
+    });
+};
+// ##################### FIM DA CORREÇÃO ######################
+
 module.exports = {
     async index(request, response) {
         console.log('[OrderController] Buscando lista de pedidos com detalhes.');
@@ -38,8 +63,11 @@ module.exports = {
         const finishedOrders = await connection('orders').where('status', 'Finalizado').select('*').orderBy('updated_at', 'desc').limit(20);
         const cancelledOrders = await connection('orders').where('status', 'Cancelado').select('*').orderBy('updated_at', 'desc').limit(20);
         
-        const allOrders = [...activeOrders, ...finishedOrders, ...cancelledOrders];
+        let allOrders = [...activeOrders, ...finishedOrders, ...cancelledOrders];
         
+        // Enriquece todos os pedidos com os detalhes financeiros
+        allOrders = await enrichOrdersWithFinancials(allOrders);
+
         const orderIds = allOrders.map(o => o.id);
         if (orderIds.length > 0) {
             const items = await connection('order_items').whereIn('order_id', orderIds);
@@ -56,6 +84,7 @@ module.exports = {
     },
 
     async updateStatus(request, response) {
+        // ... (código existente sem alterações)
         const { id } = request.params;
         const { status: newStatus, reason } = request.body;
         console.log(`[OrderController] Pedido de atualização para pedido ${id}. Novo status: ${newStatus}, Motivo: ${reason || 'N/A'}`);
@@ -66,15 +95,18 @@ module.exports = {
                 return response.status(404).json({ error: 'Pedido não encontrado.' });
             }
 
-            const [updatedOrder] = await connection('orders')
+            const [updatedOrderRaw] = await connection('orders')
                 .where('id', id)
                 .update({ status: newStatus, updated_at: new Date() })
                 .returning('*');
 
-            if (!updatedOrder) {
+            if (!updatedOrderRaw) {
                 return response.status(404).json({ error: 'Falha ao atualizar o pedido.' });
             }
             
+            // Enriquece o pedido atualizado antes de emitir
+            const [updatedOrder] = await enrichOrdersWithFinancials([updatedOrderRaw]);
+
             const items = await connection('order_items').where('order_id', updatedOrder.id);
             const fullOrder = { ...updatedOrder, items };
 
@@ -108,6 +140,7 @@ module.exports = {
     },
 
     async create(request, response) {
+        // ... (código existente sem alterações)
         try {
             const { client_name, client_phone, client_address, total_price, items, payment_method, observations, needs_cutlery } = request.body;
             const initialStatus = 'Novo';
@@ -125,8 +158,6 @@ module.exports = {
 
                 const order_id = order.id;
                 if (items && items.length > 0) {
-                    // #################### INÍCIO DA CORREÇÃO ####################
-                    // ARQUITETO: A lógica agora salva o objeto `details` completo.
                     const orderItemsToInsert = items.map(item => ({
                         order_id: order_id,
                         product_id: item.is_combo ? null : item.original_id,
@@ -136,7 +167,6 @@ module.exports = {
                         unit_price: item.price,
                         item_details: JSON.stringify(item.details || {})
                     }));
-                    // ##################### FIM DA CORREÇÃO ######################
                     await trx('order_items').insert(orderItemsToInsert);
                 }
                 const fullOrderDetails = { ...order, items };
@@ -151,6 +181,7 @@ module.exports = {
     },
 
     async confirmOrder(request, response) {
+        // ... (código existente sem alterações, mas o pedido retornado será enriquecido)
         const { id } = request.params;
         const { whatsapp } = request.body;
         const apiKey = request.headers['x-api-key'];
@@ -160,16 +191,17 @@ module.exports = {
         }
         
         try {
-            const [order] = await connection('orders')
+            const [orderRaw] = await connection('orders')
                 .where({ id: id, status: 'Novo' })
                 .update({ client_phone: whatsapp })
                 .returning('*');
 
-            if (!order) {
+            if (!orderRaw) {
                 console.log(`[OrderController] Tentativa de confirmar pedido #${id}, mas não foi encontrado.`);
                 return response.status(404).json({ error: 'Pedido não encontrado ou já processado.' });
             }
             
+            const [order] = await enrichOrdersWithFinancials([orderRaw]);
             const items = await connection('order_items').where('order_id', order.id);
             const fullOrder = { ...order, items };
 
@@ -185,12 +217,14 @@ module.exports = {
     },
     
     async getDetails(request, response) {
+        // ... (código existente sem alterações, mas o pedido retornado será enriquecido)
         const { id } = request.params;
         try {
-            const order = await connection('orders').where('id', id).first();
-            if (!order) {
+            const orderRaw = await connection('orders').where('id', id).first();
+            if (!orderRaw) {
                 return response.status(404).json({ error: 'Pedido não encontrado.' });
             }
+            const [order] = await enrichOrdersWithFinancials([orderRaw]);
             const items = await connection('order_items').where('order_id', id);
             const fullOrder = { ...order, items };
             return response.json(fullOrder);
@@ -201,6 +235,7 @@ module.exports = {
     },
 
     async clearHistory(request, response) {
+        // ... (código existente sem alterações)
         try {
             console.log('[OrderController] Limpando histórico de pedidos.');
             await connection('orders').whereIn('status', ['Finalizado', 'Cancelado']).del();
