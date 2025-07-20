@@ -109,22 +109,27 @@ async function handleOrderConfirmation(msg, orderId) {
         });
         
         // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Lógica de formatação do resumo do pedido refatorada para incluir todos os detalhes.
+        // ARQUITETO: Lógica de formatação do resumo do pedido refatorada para incluir todos os detalhes
+        // e para lidar corretamente com itens "agrupadores".
         let resumo = `Pedido *P-${confirmedOrder.id}* confirmado com sucesso! ✅\n\n`;
         resumo += "Resumo do seu pedido:\n\n";
         
         confirmedOrder.items.forEach(item => {
-            resumo += `*${item.quantity}x* ${item.item_name}\n`;
-            if (item.item_details && item.item_details.length > 2) {
-                try {
-                    const details = JSON.parse(item.item_details);
-                    if(Array.isArray(details) && details.length > 0) {
-                        details.forEach(det => {
-                            resumo += `  ↳ _${det.quantity}x ${det.name}_\n`;
-                        });
-                    }
-                } catch(e) {
-                    log('WARN', 'Confirmation', `Não foi possível parsear item_details para o item ${item.id}`);
+            const details = item.item_details ? JSON.parse(item.item_details) : [];
+            const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(details) && details.length > 0;
+
+            if (isContainerOnly) {
+                // Se for um item 'agrupador', mostramos apenas os complementos.
+                details.forEach(det => {
+                    resumo += `*${det.quantity}x* ${det.name}\n`;
+                });
+            } else {
+                // Para itens normais, mostramos o item principal e depois os seus complementos.
+                resumo += `*${item.quantity}x* ${item.item_name}\n`;
+                if (Array.isArray(details) && details.length > 0) {
+                    details.forEach(det => {
+                        resumo += `  ↳ _${det.quantity * item.quantity}x ${det.name}_\n`;
+                    });
                 }
             }
         });

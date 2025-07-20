@@ -554,7 +554,6 @@
                 const card = document.createElement('div');
                 card.className = 'order-card';
                 card.id = `order-${order.id}`;
-                // ARQUITETO: A ordem completa é passada para o modal.
                 card.onclick = (event) => {
                     if (event.target.tagName !== 'BUTTON') {
                         openOrderDetailsModal(order);
@@ -589,9 +588,9 @@
                 card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</span></div><div class="order-tags">${paymentTag}${deliveryTypeTag}</div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Destino:</strong> ${displayAddress}</p></div><div class="order-card-actions">${actionsHtml}</div>`;
                 return card;
             };
-
+            
             // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: Lógica de renderização do modal refatorada para exibir os complementos.
+            // ARQUITETO: Lógica de renderização do modal refatorada para exibir os complementos e lidar com "agrupadores".
             function openOrderDetailsModal(order) {
                 const modal = document.getElementById('order-details-modal-overlay');
                 const title = document.getElementById('order-details-title');
@@ -602,34 +601,41 @@
                 let itemsHtml = '<h4>Itens do Pedido</h4><ul class="order-details-list">';
                 if (order.items && order.items.length > 0) {
                     order.items.forEach(item => {
-                        itemsHtml += `<li><strong>${item.quantity}x ${item.item_name}</strong>`;
-                        // Verifica se 'item_details' existe e é um JSON de array não vazio.
-                        if (item.item_details && item.item_details.length > 2) { 
-                            try {
-                                const details = JSON.parse(item.item_details);
-                                if(Array.isArray(details) && details.length > 0) {
-                                    itemsHtml += '<ul class="order-details-sublist">';
-                                    details.forEach(sub => {
-                                        itemsHtml += `<li>${sub.quantity}x ${sub.name}</li>`;
-                                    });
-                                    itemsHtml += '</ul>';
-                                }
-                            } catch (e) { console.error("Erro ao parsear item_details:", e); }
+                        const details = item.item_details ? JSON.parse(item.item_details) : [];
+                        // Heurística: se o preço unitário for 0 e houver complementos, é um agrupador.
+                        const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(details) && details.length > 0;
+
+                        if (isContainerOnly) {
+                            // Se for um item 'agrupador' (como Pamonha Tradicional), mostramos apenas os complementos.
+                            details.forEach(sub => {
+                                // A quantidade do sub-item (complemento) já é a quantidade total correta.
+                                itemsHtml += `<li><strong>${sub.quantity}x ${sub.name}</strong></li>`;
+                            });
+                        } else {
+                            // Para itens normais (como Curau) ou combos, mostramos o item principal.
+                            itemsHtml += `<li><strong>${item.quantity}x ${item.item_name}</strong>`;
+                            if (Array.isArray(details) && details.length > 0) {
+                                itemsHtml += '<ul class="order-details-sublist">';
+                                details.forEach(sub => {
+                                    // A quantidade do complemento é multiplicada pela quantidade do item pai.
+                                    itemsHtml += `<li>${sub.quantity * item.quantity}x ${sub.name}</li>`;
+                                });
+                                itemsHtml += '</ul>';
+                            }
+                            itemsHtml += '</li>';
                         }
-                        itemsHtml += '</li>';
                     });
                 } else {
                     itemsHtml += '<li>Nenhum item encontrado.</li>';
                 }
                 itemsHtml += '</ul>';
                 
-                // Escape HTML para observações do cliente para evitar injeção de XSS.
-                const escapeHTML = (str) => str.replace(/[&<>'"]/g, 
+                const escapeHTML = (str) => str ? str.replace(/[&<>'"]/g, 
                     tag => ({
                         '&': '&amp;', '<': '&lt;', '>': '&gt;',
                         "'": '&#39;', '"': '&quot;'
                     }[tag] || tag)
-                );
+                ) : '';
                 
                 const observationsText = order.observations ? escapeHTML(order.observations).replace(/\n/g, '<br>') : 'Nenhuma';
 

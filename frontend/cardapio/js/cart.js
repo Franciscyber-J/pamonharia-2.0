@@ -168,13 +168,18 @@ export function openProductWithOptionsModal(productId) {
             return;
         }
 
+        // #################### INÍCIO DA CORREÇÃO ####################
+        // ARQUITETO: Corrigido para usar o preço original do produto pai.
+        // Isso garante que agrupadores com preço 0.00 sejam salvos corretamente,
+        // permitindo que a lógica de exibição os identifique e oculte.
         const itemData = {
             original_id: product.id, name: product.name,
-            price: finalQuantity > 0 ? (finalPrice / finalQuantity) : 0,
+            price: parseFloat(product.price),
             total_value: finalPrice, quantity: finalQuantity,
             is_combo: false, selected_items: selected_items_details,
             image_url: product.image_url
         };
+        // ##################### FIM DA CORREÇÃO ######################
         
         addToCartAndReserve(itemData, itemsToReserve);
     };
