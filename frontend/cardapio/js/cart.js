@@ -93,7 +93,12 @@ export function addToCartSimple(itemId) {
     const itemData = {
         original_id: item.id, name: item.name, price: parseFloat(item.price),
         total_value: parseFloat(item.price), image_url: item.image_url,
-        quantity: 1, is_combo: false, selected_items: []
+        quantity: 1, is_combo: false, 
+        // ARQUITETO: Mantém a estrutura de dados consistente para itens simples.
+        details: {
+            force_one_to_one: false,
+            complements: []
+        }
     };
     addToCartAndReserve(itemData, itemsToReserve);
 }
@@ -168,18 +173,21 @@ export function openProductWithOptionsModal(productId) {
             return;
         }
 
-        // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Corrigido para usar o preço original do produto pai.
-        // Isso garante que agrupadores com preço 0.00 sejam salvos corretamente,
-        // permitindo que a lógica de exibição os identifique e oculte.
         const itemData = {
             original_id: product.id, name: product.name,
             price: parseFloat(product.price),
             total_value: finalPrice, quantity: finalQuantity,
-            is_combo: false, selected_items: selected_items_details,
+            is_combo: false,
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // ARQUITETO: A estrutura de dados dos detalhes foi alterada para um objeto
+            // que armazena a regra `force_one_to_one_complement`, resolvendo a ambiguidade.
+            details: {
+                force_one_to_one: product.force_one_to_one_complement || false,
+                complements: selected_items_details
+            },
+            // ##################### FIM DA CORREÇÃO ######################
             image_url: product.image_url
         };
-        // ##################### FIM DA CORREÇÃO ######################
         
         addToCartAndReserve(itemData, itemsToReserve);
     };
@@ -273,7 +281,12 @@ export function openComboModal(comboId) {
         const itemData = { 
             original_id: combo.id, name: combo.name, price: finalPrice, 
             total_value: finalPrice, is_combo: true, quantity: 1, 
-            selected_items, image_url: combo.image_url 
+            // ARQUITETO: Mantém a estrutura de dados consistente para combos.
+            details: {
+                force_one_to_one: false, // Combos não usam esta regra
+                complements: selected_items
+            },
+            image_url: combo.image_url 
         };
         addToCartAndReserve(itemData, itemsToReserve);
     };
@@ -419,28 +432,24 @@ function getItemsToReleaseFromGroup(itemGroup) {
     const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
 
     if (!parentProduct) return [];
-
-    // Lida com combos
-    if (parentProduct.is_combo) {
-        itemGroup.selected_items.forEach(sub => {
-            const fullProduct = state.allProductsFlat.find(p => p.id === sub.id);
-            if (fullProduct && fullProduct.stock_enabled) {
-                itemsToRelease.push({ id: sub.id, quantity: sub.quantity * itemGroup.quantity });
-            }
-        });
-        return itemsToRelease.filter(i => i.id && i.quantity > 0);
-    }
     
-    // Lida com produtos e complementos que têm seu próprio stock
-    if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
-        itemGroup.selected_items.forEach(subItem => {
-            if (subItem.stock_enabled) {
-                itemsToRelease.push({ id: subItem.id, quantity: subItem.quantity * itemGroup.quantity });
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: A lógica agora lê a lista de complementos da nova estrutura `details.complements`.
+    const complements = (itemGroup.details && itemGroup.details.complements) ? itemGroup.details.complements : [];
+
+    if (complements.length > 0) {
+        complements.forEach(sub => {
+            const fullProduct = state.allProductsFlat.find(p => p.id === (sub.id || sub.product_id));
+            if (fullProduct && fullProduct.stock_enabled) {
+                // A lógica de quantidade precisa respeitar a regra one-to-one
+                const isOneToOne = itemGroup.details.force_one_to_one;
+                const quantityToRelease = isOneToOne ? sub.quantity : (sub.quantity * itemGroup.quantity);
+                itemsToRelease.push({ id: fullProduct.id, quantity: quantityToRelease });
             }
         });
     }
+    // ##################### FIM DA CORREÇÃO ######################
 
-    // Lida com o produto pai
     if (parentProduct.stock_enabled && parentProduct.sell_parent_product) {
         itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
     }

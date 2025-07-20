@@ -3,7 +3,6 @@ const connection = require('../database/connection');
 const { getIO } = require('../socket-manager');
 const axios = require('axios');
 
-// ARQUITETO: Função de notificação robustecida com logs de erro detalhados.
 const notifyBot = async (phone, message) => {
     const botUrl = process.env.BOT_API_URL;
     if (!botUrl) {
@@ -17,14 +16,13 @@ const notifyBot = async (phone, message) => {
             message
         }, {
             headers: { 'x-api-key': process.env.BOT_API_KEY },
-            timeout: 5000 // Timeout de 5 segundos para a requisição
+            timeout: 5000
         });
         console.log(`[BotNotify] ✅ Notificação para ${phone} enviada com sucesso para o bot.`);
     } catch (error) {
-        // Captura e exibe o erro detalhado da falha de comunicação.
         const errorMessage = error.response 
-            ? JSON.stringify(error.response.data) // Erro vindo da API do bot (ex: bot não pronto)
-            : error.message; // Erro de rede (ex: timeout, DNS, ngrok offline)
+            ? JSON.stringify(error.response.data)
+            : error.message;
         console.error(`[BotNotify] ❌ Falha ao notificar o bot: ${errorMessage}`);
     }
 };
@@ -127,6 +125,8 @@ module.exports = {
 
                 const order_id = order.id;
                 if (items && items.length > 0) {
+                    // #################### INÍCIO DA CORREÇÃO ####################
+                    // ARQUITETO: A lógica agora salva o objeto `details` completo.
                     const orderItemsToInsert = items.map(item => ({
                         order_id: order_id,
                         product_id: item.is_combo ? null : item.original_id,
@@ -134,8 +134,9 @@ module.exports = {
                         item_name: item.name,
                         quantity: item.quantity,
                         unit_price: item.price,
-                        item_details: JSON.stringify(item.selected_items || [])
+                        item_details: JSON.stringify(item.details || {})
                     }));
+                    // ##################### FIM DA CORREÇÃO ######################
                     await trx('order_items').insert(orderItemsToInsert);
                 }
                 const fullOrderDetails = { ...order, items };

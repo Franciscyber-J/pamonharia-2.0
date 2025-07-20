@@ -87,7 +87,6 @@ socket.on('data_updated', async () => {
     renderCart();
 });
 
-// ARQUITETO: Função de submissão atualizada para incluir os novos campos.
 async function handleOrderSubmit(e) {
     e.preventDefault();
     console.log('[Order] ➡️ Iniciando submissão de pedido.');
@@ -105,18 +104,22 @@ async function handleOrderSubmit(e) {
         client_name: document.getElementById('client-name').value,
         client_phone: document.getElementById('client-phone').value,
         client_address: deliveryType === 'delivery' ? dom.clientAddressInput.value : 'Retirada no local',
+        // #################### INÍCIO DA CORREÇÃO ####################
+        // ARQUITETO: O payload agora envia o objeto `details` completo,
+        // em vez do antigo `selected_items`.
         items: getCart().map(itemGroup => ({
             original_id: itemGroup.original_id,
             name: itemGroup.name,
             price: itemGroup.price,
             quantity: itemGroup.quantity,
             is_combo: !!itemGroup.is_combo,
-            selected_items: itemGroup.selected_items || []
+            details: itemGroup.details || { force_one_to_one: false, complements: [] }
         })),
+        // ##################### FIM DA CORREÇÃO ######################
         total_price: totalPrice,
         payment_method: paymentMethod,
-        observations: document.getElementById('order-observations').value, // Novo campo
-        needs_cutlery: document.getElementById('needs-cutlery').checked  // Novo campo
+        observations: document.getElementById('order-observations').value,
+        needs_cutlery: document.getElementById('needs-cutlery').checked
     };
 
     dom.submitOrderBtn.disabled = true;
