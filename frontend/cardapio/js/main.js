@@ -3,7 +3,7 @@ console.log('[main.js] Módulo iniciado.');
 import { apiFetch, fetchAndRenderAllData } from './api.js';
 import { initializeCart, getCart, clearCart } from './cart.js';
 import { dom, initializeUI, updateStoreStatus, renderItems, renderCart, showErrorModal, showSuccessScreen, showWhatsAppConfirmationModal } from './ui.js';
-import { initializeCardPaymentForm } from './payment.js';
+import { initializeCardPaymentForm, handleOnlinePaymentSelection } from './payment.js';
 
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 const API_BASE_URL = IS_LOCAL ? 'http://localhost:10000' : 'https://pamonhariasaborosa.expertbr.com';
@@ -87,6 +87,7 @@ socket.on('data_updated', async () => {
     renderCart();
 });
 
+// ARQUITETO: Função de submissão atualizada para incluir os novos campos.
 async function handleOrderSubmit(e) {
     e.preventDefault();
     console.log('[Order] ➡️ Iniciando submissão de pedido.');
@@ -105,7 +106,7 @@ async function handleOrderSubmit(e) {
         client_phone: document.getElementById('client-phone').value,
         client_address: deliveryType === 'delivery' ? dom.clientAddressInput.value : 'Retirada no local',
         items: getCart().map(itemGroup => ({
-            id: itemGroup.original_id,
+            original_id: itemGroup.original_id,
             name: itemGroup.name,
             price: itemGroup.price,
             quantity: itemGroup.quantity,
@@ -113,7 +114,9 @@ async function handleOrderSubmit(e) {
             selected_items: itemGroup.selected_items || []
         })),
         total_price: totalPrice,
-        payment_method: paymentMethod
+        payment_method: paymentMethod,
+        observations: document.getElementById('order-observations').value, // Novo campo
+        needs_cutlery: document.getElementById('needs-cutlery').checked  // Novo campo
     };
 
     dom.submitOrderBtn.disabled = true;
@@ -136,7 +139,7 @@ async function handleOrderSubmit(e) {
         dom.orderForm.style.display = 'none';
         dom.onlinePaymentMethodSelection.style.display = 'flex';
     } else {
-        console.log('[Order] Pagamento na entrega selecionado. A enviar pedido...');
+        console.log('[Order] Pagamento na entrega selecionado. A criar pré-pedido...');
         try {
             const newOrder = await apiFetch('/public/orders', { method: 'POST', body: JSON.stringify(state.orderData) });
             console.log('[Order] ✅ Pré-pedido criado com sucesso:', newOrder);
@@ -148,13 +151,15 @@ async function handleOrderSubmit(e) {
             showWhatsAppConfirmationModal(state.storeSettings.whatsapp_number, newOrder);
 
         } catch (error) {
-            console.error('[Order] ❌ Falha ao criar pedido:', error);
-            showErrorModal('Falha no Pedido', `Não foi possível criar seu pedido. Detalhe: ${error.message || 'Erro desconhecido'}`);
+            console.error('[Order] ❌ Falha ao criar pré-pedido:', error);
+            showErrorModal('Falha no Pedido', `Não foi possível criar seu pré-pedido. Detalhe: ${error.message || 'Erro desconhecido'}`);
+        } finally {
             dom.submitOrderBtn.disabled = false;
             dom.submitOrderBtn.textContent = 'Finalizar Pedido';
         }
     }
 }
+
 
 dom.orderForm.addEventListener('submit', handleOrderSubmit);
 

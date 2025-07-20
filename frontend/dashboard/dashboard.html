@@ -224,6 +224,14 @@
             </form>
         </div>
     </div>
+    
+    <div id="order-details-modal-overlay" class="modal-overlay">
+        <div class="modal-content" style="max-width: 600px;">
+            <button class="modal-close-btn">&times;</button>
+            <h3 id="order-details-title">Detalhes do Pedido</h3>
+            <div id="order-details-body" class="modal-body"></div>
+        </div>
+    </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -261,6 +269,7 @@
 
             let allProducts = [];
             let allProductsFlat = [];
+            let allOrdersCache = []; 
             let isProgrammaticallyUpdating = false;
 
             window.handleStockAdjust = (button, amount) => {
@@ -406,8 +415,7 @@
                 
                 await window.updateOrderStatus(orderToRejectId, 'Cancelado', {
                     isRejectFlow: true,
-                    reason: reasonText,
-                    reason_code: reasonValue
+                    reason: reasonText 
                 });
                 
                 if (reasonValue === 'stock_problem') {
@@ -509,7 +517,7 @@
                         if (options.reason) {
                             payload.reason = options.reason;
                         }
-                        await apiFetch(`/orders/${orderId}/status`, {
+                        await globalApiFetch(`/orders/${orderId}/status`, {
                             method: 'PATCH',
                             body: JSON.stringify(payload)
                         });
@@ -526,13 +534,31 @@
                 fetchAndRenderOrders();
             };
 
-            async function fetchAndRenderOrders() { try { const { activeOrders, finishedOrders, rejectedOrders } = await apiFetch('/orders'); document.querySelectorAll('.order-list').forEach(l => l.innerHTML = ''); [...activeOrders, ...finishedOrders, ...rejectedOrders].forEach(o => addOrderCard(o, false)); if (notificationAudio && !isAudioUnlocked) showAudioUnlockModal(); } catch (error) { console.error("Erro ao buscar pedidos:", error); } };
+            async function fetchAndRenderOrders() {
+                try {
+                    const { activeOrders, finishedOrders, rejectedOrders } = await apiFetch('/orders');
+                    allOrdersCache = [...activeOrders, ...finishedOrders, ...rejectedOrders];
+                    
+                    document.querySelectorAll('.order-list').forEach(l => l.innerHTML = '');
+                    allOrdersCache.forEach(o => addOrderCard(o, false));
+                    
+                    if (notificationAudio && !isAudioUnlocked) {
+                        showAudioUnlockModal();
+                    }
+                } catch (error) {
+                    console.error("Erro ao buscar pedidos:", error);
+                }
+            };
             
             function createOrderCard(order) {
                 const card = document.createElement('div');
                 card.className = 'order-card';
                 card.id = `order-${order.id}`;
-                card.onclick = () => stopNotification();
+                card.onclick = (event) => {
+                    if (event.target.tagName !== 'BUTTON') {
+                        openOrderDetailsModal(order);
+                    }
+                };
                 
                 let paymentTag = '';
                 if (order.status === 'Pago' || order.payment_status === 'approved') {
@@ -557,14 +583,67 @@
                 };
 
                 const actionsHtml = actionMap[order.status] || '';
-                const displayAddress = order.client_address === 'Retirada no Local' ? '<strong>Retirada no Local</strong>' : order.client_address;
-                const paymentStatusTranslations = { 'approved': 'Aprovado', 'pending': 'Pendente', 'in_process': 'Processando', 'rejected': 'Rejeitado', 'cancelled': 'Cancelado', 'refunded': 'Devolvido', 'charged_back': 'Estornado' };
-                const translatedStatus = paymentStatusTranslations[order.payment_status] || order.payment_status || 'N/A';
-                const paymentInfo = order.payment_id ? `<p class="order-details">Pgto. Online: ${translatedStatus} (ID: ${order.payment_id})</p>` : '';
+                const displayAddress = order.client_address;
                 
-                card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</span></div><div class="order-tags">${paymentTag}${deliveryTypeTag}</div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Contacto:</strong> ${order.client_phone || 'Não informado'}</p><p><strong>Destino:</strong> ${displayAddress}</p>${paymentInfo}</div><div class="order-card-actions">${actionsHtml}</div>`;
+                card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</span></div><div class="order-tags">${paymentTag}${deliveryTypeTag}</div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Destino:</strong> ${displayAddress}</p></div><div class="order-card-actions">${actionsHtml}</div>`;
                 return card;
             };
+
+            function openOrderDetailsModal(order) {
+                const modal = document.getElementById('order-details-modal-overlay');
+                const title = document.getElementById('order-details-title');
+                const body = document.getElementById('order-details-body');
+
+                title.textContent = `Detalhes do Pedido #${order.id}`;
+
+                let itemsHtml = '<h4>Itens do Pedido</h4><ul class="order-details-list">';
+                if (order.items && order.items.length > 0) {
+                    order.items.forEach(item => {
+                        itemsHtml += `<li><strong>${item.quantity}x ${item.item_name}</strong>`;
+                        if (item.item_details && item.item_details.length > 2) { 
+                            try {
+                                const details = JSON.parse(item.item_details);
+                                if(Array.isArray(details) && details.length > 0) {
+                                    itemsHtml += '<ul class="order-details-sublist">';
+                                    details.forEach(sub => {
+                                        itemsHtml += `<li>${sub.quantity}x ${sub.name}</li>`;
+                                    });
+                                    itemsHtml += '</ul>';
+                                }
+                            } catch (e) { console.error("Erro ao parsear item_details:", e); }
+                        }
+                        itemsHtml += '</li>';
+                    });
+                } else {
+                    itemsHtml += '<li>Nenhum item encontrado.</li>';
+                }
+                itemsHtml += '</ul>';
+                
+                const clientInfoHtml = `
+                    <h4>Informações do Cliente</h4>
+                    <p><strong>Nome:</strong> ${order.client_name}</p>
+                    <p><strong>Contacto:</strong> ${order.client_phone}</p>
+                    <p><strong>Destino:</strong> ${order.client_address}</p>
+                    <hr>
+                    <h4>Preferências e Observações</h4>
+                    <p><strong>Precisa de talher?</strong> ${order.needs_cutlery ? 'Sim' : 'Não'}</p>
+                    <p><strong>Observações:</strong> ${order.observations || 'Nenhuma'}</p>
+                    <hr>
+                    <h4>Financeiro</h4>
+                    <p><strong>Total:</strong> R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</p>
+                    <p><strong>Pagamento:</strong> ${order.payment_method === 'online' ? 'Pago Online' : 'Pagar na Entrega/Retirada'}</p>
+                `;
+
+                body.innerHTML = itemsHtml + clientInfoHtml;
+                modal.style.display = 'flex';
+
+                modal.querySelector('.modal-close-btn').onclick = () => modal.style.display = 'none';
+                modal.onclick = (e) => {
+                    if (e.target.id === 'order-details-modal-overlay') {
+                        modal.style.display = 'none';
+                    }
+                };
+            }
 
             function addOrderCard(order, prepend = true) { const statusMap = { 'Aguardando Pagamento': 'col-novo', 'Pago': 'col-novo', 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto-para-entrega', 'Finalizado': 'col-finalizado', 'Cancelado': 'col-cancelado' }; const columnId = statusMap[order.status]; if (!columnId) return; const column = document.getElementById(columnId); if (column) { const existingCard = document.getElementById(`order-${order.id}`); if (existingCard) existingCard.remove(); const card = createOrderCard(order); if (prepend) column.prepend(card); else column.appendChild(card); } };
 
@@ -573,21 +652,25 @@
             socket.on('disconnect', () => console.log('[Dashboard] 🔌 Socket.IO desconectado.'));
             socket.on('connect_error', (err) => console.error('[Dashboard] ❌ Erro de conexão Socket.IO:', err.message));
             
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: Simplificada a lógica de atualização. Qualquer evento de pedido
-            // agora aciona uma recarga completa dos pedidos, se a página estiver ativa.
             const isPedidosPageActive = () => document.querySelector('.orders-panel');
             
             socket.on('new_order', (order) => {
                 if (isPedidosPageActive()) {
+                    allOrdersCache.unshift(order);
                     addOrderCard(order, true);
                 }
                 playNotification(order.id);
             });
             
-            socket.on('order_status_updated', () => {
+            socket.on('order_status_updated', (data) => {
                 if (isPedidosPageActive()) {
-                    fetchAndRenderOrders();
+                    const index = allOrdersCache.findIndex(o => o.id === data.id);
+                    if (index !== -1) {
+                        allOrdersCache[index] = data.order;
+                    } else {
+                        allOrdersCache.unshift(data.order);
+                    }
+                    addOrderCard(data.order, true);
                 }
             });
             
@@ -596,7 +679,6 @@
                     fetchAndRenderOrders();
                 }
             });
-            // ##################### FIM DA CORREÇÃO ######################
             
             socket.on('stock_update', async () => { console.log('[Dashboard] 📥 Stock update recebido. Recarregando dados dos produtos para garantir consistência.'); await refreshCurrentProductView(); });
             socket.on('data_updated', async () => { if (isProgrammaticallyUpdating) return isProgrammaticallyUpdating = false; await refreshCurrentProductView(); });

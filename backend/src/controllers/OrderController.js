@@ -27,7 +27,7 @@ const notifyBot = async (phone, message) => {
 
 module.exports = {
     async index(request, response) {
-        console.log('[OrderController] Buscando lista de pedidos.');
+        console.log('[OrderController] Buscando lista de pedidos com detalhes.');
         const activeOrders = await connection('orders')
             .whereIn('status', ['Novo', 'Pago', 'Em Preparo', 'Pronto para Entrega'])
             .select('*')
@@ -35,7 +35,22 @@ module.exports = {
 
         const finishedOrders = await connection('orders').where('status', 'Finalizado').select('*').orderBy('updated_at', 'desc').limit(20);
         const cancelledOrders = await connection('orders').where('status', 'Cancelado').select('*').orderBy('updated_at', 'desc').limit(20);
-        return response.json({ activeOrders, finishedOrders, rejectedOrders: cancelledOrders });
+        
+        const allOrders = [...activeOrders, ...finishedOrders, ...cancelledOrders];
+        
+        const orderIds = allOrders.map(o => o.id);
+        if (orderIds.length > 0) {
+            const items = await connection('order_items').whereIn('order_id', orderIds);
+            allOrders.forEach(order => {
+                order.items = items.filter(item => item.order_id === order.id);
+            });
+        }
+
+        return response.json({ 
+            activeOrders: allOrders.filter(o => ['Novo', 'Pago', 'Em Preparo', 'Pronto para Entrega'].includes(o.status)),
+            finishedOrders: allOrders.filter(o => o.status === 'Finalizado'),
+            rejectedOrders: allOrders.filter(o => o.status === 'Cancelado')
+        });
     },
 
     async updateStatus(request, response) {
@@ -57,9 +72,12 @@ module.exports = {
             if (!updatedOrder) {
                 return response.status(404).json({ error: 'Falha ao atualizar o pedido.' });
             }
+            
+            const items = await connection('order_items').where('order_id', updatedOrder.id);
+            const fullOrder = { ...updatedOrder, items };
 
             const io = getIO();
-            io.emit('order_status_updated', { id: Number(id), status: newStatus, order: updatedOrder });
+            io.emit('order_status_updated', { id: Number(id), status: newStatus, order: fullOrder });
 
             if (updatedOrder.client_phone) {
                 let message = '';
@@ -89,13 +107,24 @@ module.exports = {
 
     async create(request, response) {
         try {
-            const { client_name, client_phone, client_address, total_price, items, payment_method } = request.body;
+            // ARQUITETO: Extraímos os novos campos do corpo da requisição.
+            const { client_name, client_phone, client_address, total_price, items, payment_method, observations, needs_cutlery } = request.body;
             const initialStatus = 'Novo';
+
             const newOrderData = await connection.transaction(async (trx) => {
                 const [order] = await trx('orders').insert({
-                    client_name, client_phone, client_address, total_price, status: initialStatus, payment_method
+                    client_name, 
+                    client_phone, 
+                    client_address, 
+                    total_price, 
+                    status: initialStatus, 
+                    payment_method,
+                    observations, // Campo novo
+                    needs_cutlery  // Campo novo
                 }).returning('*');
+
                 const order_id = order.id;
+
                 if (items && items.length > 0) {
                     const orderItemsToInsert = items.map(item => ({
                         order_id: order_id,
@@ -108,6 +137,7 @@ module.exports = {
                     }));
                     await trx('order_items').insert(orderItemsToInsert);
                 }
+                
                 const fullOrderDetails = { ...order, items };
                 console.log(`[OrderController] ✅ Pré-pedido #${order_id} criado. Aguardando confirmação.`);
                 return fullOrderDetails;
@@ -123,24 +153,49 @@ module.exports = {
         const { id } = request.params;
         const { whatsapp } = request.body;
         const apiKey = request.headers['x-api-key'];
+
         if (!apiKey || apiKey !== process.env.BOT_API_KEY) {
             return response.status(403).json({ error: 'Acesso não autorizado.' });
         }
+        
         try {
             const [order] = await connection('orders')
                 .where({ id: id, status: 'Novo' })
                 .update({ client_phone: whatsapp })
                 .returning('*');
+
             if (!order) {
-                console.log(`[OrderController] Tentativa de confirmar pedido #${id}, mas não foi encontrado ou já foi confirmado.`);
+                console.log(`[OrderController] Tentativa de confirmar pedido #${id}, mas não foi encontrado.`);
                 return response.status(404).json({ error: 'Pedido não encontrado ou já processado.' });
             }
+            
+            const items = await connection('order_items').where('order_id', order.id);
+            const fullOrder = { ...order, items };
+
             console.log(`[OrderController] 🚀 Pedido #${id} confirmado pelo bot. Emitindo 'new_order'.`);
-            getIO().emit('new_order', order);
-            return response.status(200).json({ message: 'Pedido confirmado com sucesso.' });
+            getIO().emit('new_order', fullOrder);
+
+            return response.status(200).json(fullOrder);
+
         } catch (error) {
             console.error(`[OrderController] ❌ ERRO AO CONFIRMAR PEDIDO #${id}:`, error);
             return response.status(500).json({ error: 'Falha ao confirmar o pedido.' });
+        }
+    },
+    
+    async getDetails(request, response) {
+        const { id } = request.params;
+        try {
+            const order = await connection('orders').where('id', id).first();
+            if (!order) {
+                return response.status(404).json({ error: 'Pedido não encontrado.' });
+            }
+            const items = await connection('order_items').where('order_id', id);
+            const fullOrder = { ...order, items };
+            return response.json(fullOrder);
+        } catch (error) {
+            console.error(`[OrderController] Erro ao buscar detalhes do pedido #${id}:`, error);
+            return response.status(500).json({ error: 'Falha ao buscar detalhes do pedido.' });
         }
     },
 

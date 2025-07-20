@@ -490,6 +490,12 @@ input:checked+.slider:before {
     padding: 15px;
     border-left: 4px solid var(--primary-color);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.order-card:hover {
+    background-color: rgba(255, 255, 255, 0.05);
 }
 
 .order-card-header {
@@ -1150,4 +1156,51 @@ input:checked+.slider:before {
 .actions-menu a.danger:hover {
     background-color: var(--danger-color);
     color: white;
+}
+
+#order-details-body h4 {
+    font-size: 1.1rem;
+    color: var(--secondary-color);
+    margin-top: 20px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 5px;
+}
+#order-details-body h4:first-child {
+    margin-top: 0;
+}
+
+#order-details-body p {
+    margin-bottom: 8px;
+    line-height: 1.6;
+}
+
+.order-details-list, .order-details-sublist {
+    list-style: none;
+    padding-left: 0;
+}
+
+.order-details-list > li {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+.order-details-list > li:last-child {
+    border-bottom: none;
+}
+
+.order-details-sublist {
+    padding-left: 20px;
+    margin-top: 5px;
+}
+
+.order-details-sublist li {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+#order-details-body hr {
+    border: none;
+    height: 1px;
+    background-color: var(--border-color);
+    margin: 20px 0;
 }

@@ -29,7 +29,6 @@ module.exports = {
     return response.json(settings);
   },
 
-  // Rota completa, apenas para admins
   async update(request, response) {
     const settingsData = request.body;
     if (settingsData.operating_hours && typeof settingsData.operating_hours === 'object') {
@@ -39,9 +38,7 @@ module.exports = {
     emitDataUpdated();
     return response.status(200).json({ message: 'Settings updated successfully.' });
   },
-
-  // #################### INÍCIO DA CORREÇÃO ####################
-  // ARQUITETO: Nova rota para o operador atualizar APENAS o status da loja.
+  
   async updateStatus(request, response) {
     const { is_open_manual_override } = request.body;
     
@@ -53,11 +50,10 @@ module.exports = {
       is_open_manual_override
     });
 
-    emitDataUpdated(); // Notifica o cardápio sobre a mudança
+    emitDataUpdated();
     return response.status(200).json({ message: 'Status da loja atualizado com sucesso.' });
   },
 
-  // ARQUITETO: Nova rota segura que fornece apenas os dados necessários para o dashboard de qualquer utilizador logado.
   async getDashboardConfig(request, response) {
     const settings = await connection('store_settings')
       .select('is_open_manual_override', 'notification_sound_url')
@@ -69,7 +65,6 @@ module.exports = {
     }
     return response.json(settings);
   },
-  // ##################### FIM DA CORREÇÃO ######################
 
   generateCloudinarySignature(request, response) {
     const timestamp = Math.round((new Date()).getTime() / 1000);
@@ -88,5 +83,45 @@ module.exports = {
     return response.json({
       mercadoPagoPublicKey: publicKey,
     });
+  },
+
+  // ARQUITETO: Novo método para o bot consultar o status da loja em tempo real.
+  async getStoreStatus(request, response) {
+    try {
+        const settings = await connection('store_settings').where('id', 1).first();
+        if (!settings) {
+            return response.status(404).json({ error: 'Configurações da loja não encontradas.' });
+        }
+
+        const now = new Date();
+        const dayOfWeek = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'][now.getDay()];
+        const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        let isOpen = false;
+        let message = 'No momento, estamos fechados.';
+
+        if (settings.is_open_manual_override !== null) {
+            isOpen = settings.is_open_manual_override;
+            message = isOpen ? 'Estamos abertos por controlo manual!' : 'Estamos fechados por controlo manual.';
+        } else {
+            const hours = typeof settings.operating_hours === 'string' ? JSON.parse(settings.operating_hours) : settings.operating_hours;
+            const schedule = hours?.[dayOfWeek];
+            if (schedule && schedule.enabled) {
+                isOpen = currentTime >= schedule.open && currentTime <= schedule.close;
+                message = isOpen ? `Estamos abertos! Nosso horário hoje é das ${schedule.open} às ${schedule.close}.` : `Estamos fechados. Nosso próximo horário de funcionamento é amanhã.`;
+            } else {
+                message = 'Hoje não abrimos. Consulte nosso cardápio para ver os horários da semana.';
+            }
+        }
+        
+        return response.json({
+            status: isOpen ? 'aberto' : 'fechado',
+            message: message,
+            full_settings: settings // Enviamos tudo para o bot ter mais contexto se precisar.
+        });
+
+    } catch (error) {
+        console.error('[SettingsController] Erro ao buscar status da loja:', error);
+        return response.status(500).json({ error: 'Erro ao verificar o status da loja.' });
+    }
   }
 };

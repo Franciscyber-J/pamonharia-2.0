@@ -19,10 +19,16 @@ router.get('/public/products', ProductController.indexPublic);
 router.get('/public/combos', ComboController.indexPublic);
 router.get('/public/settings', SettingsController.show);
 router.post('/public/orders', OrderController.create);
-router.post('/public/orders/:id/confirm', OrderController.confirmOrder); // Nova rota de confirmação
+router.post('/public/orders/:id/confirm', OrderController.confirmOrder);
 router.get('/public/payment-settings', SettingsController.getPaymentSettings);
 router.post('/payments/process', PaymentController.processPayment);
 router.post('/payments/webhook', PaymentController.receiveWebhook);
+
+// ARQUITETO: Novos endpoints para o bot concierge
+router.get('/public/orders/:id/details', OrderController.getDetails);
+router.get('/public/store-status', SettingsController.getStoreStatus);
+router.get('/public/product-query', ProductController.queryByName);
+
 
 router.use(authMiddleware);
 

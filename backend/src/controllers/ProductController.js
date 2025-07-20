@@ -171,11 +171,7 @@ module.exports = {
         }
       });
 
-      // #################### INÍCIO DA CORREÇÃO ####################
-      // ARQUITETO: Removido o `emitDataUpdated()` para prevenir o reordenamento indesejado da UI.
-      // A função abaixo já emite o evento `stock_update`, que é suficiente e mais eficiente.
       await request.triggerInventoryReload(); 
-      // ##################### FIM DA CORREÇÃO ######################
       
       return response.status(200).json({ message: 'Estoque atualizado com sucesso.' });
 
@@ -247,6 +243,38 @@ module.exports = {
     } catch (error) {
         console.error(`[ProductController] Erro ao duplicar produto ID ${id}:`, error);
         return response.status(500).json({ error: 'Falha ao duplicar o produto.' });
+    }
+  },
+
+  async queryByName(request, response) {
+    const { q } = request.query;
+
+    if (!q || q.length < 3) {
+      return response.status(400).json({ error: 'A consulta deve ter pelo menos 3 caracteres.' });
+    }
+
+    try {
+      const product = await connection('products')
+        .where('name', 'ilike', `%${q}%`)
+        .andWhere('status', true)
+        .first();
+
+      if (!product) {
+        return response.json({ encontrado: false });
+      }
+
+      const isOutOfStock = product.stock_enabled && (product.stock_quantity === null || product.stock_quantity <= 0);
+
+      return response.json({
+        encontrado: true,
+        emEstoque: !isOutOfStock,
+        nome: product.name,
+        mensagemEspecial: null 
+      });
+
+    } catch (error) {
+      console.error('[ProductController] Erro na consulta de produto:', error);
+      return response.status(500).json({ error: 'Falha ao consultar o produto.' });
     }
   }
 };

@@ -260,6 +260,7 @@ export function resetForNewOrder() {
     renderCart();
 }
 
+// ARQUITETO: Função atualizada para gerar o código no formato 'P-XXXX'.
 export function showWhatsAppConfirmationModal(storePhoneNumber, order) {
     const confirmModal = dom.confirmModal;
     const confirmMessage = dom.confirmModalMessage;
@@ -268,9 +269,11 @@ export function showWhatsAppConfirmationModal(storePhoneNumber, order) {
 
     confirmMessage.textContent = 'O seu pedido foi reservado. Para o enviar para a cozinha, por favor, clique em "Confirmar" para abrir o WhatsApp e enviar a mensagem de confirmação.';
     
-    const confirmationCode = order.id.toString(36);
+    // Gera um código alfanumérico de 4 caracteres (ex: a2f9, 8b1c)
+    const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const confirmationCode = `P-${order.id}-${randomCode}`;
 
-    const message = `Olá! Quero confirmar o meu pedido.
+    const message = `Olá! Gostaria de confirmar o meu pedido.
 Código de Confirmação: *${confirmationCode}*
 
 _(Por favor, não edite esta mensagem.)_`;
