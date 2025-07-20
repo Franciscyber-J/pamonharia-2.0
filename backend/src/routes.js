@@ -24,10 +24,16 @@ router.get('/public/payment-settings', SettingsController.getPaymentSettings);
 router.post('/payments/process', PaymentController.processPayment);
 router.post('/payments/webhook', PaymentController.receiveWebhook);
 
-// ARQUITETO: Novos endpoints para o bot concierge
 router.get('/public/orders/:id/details', OrderController.getDetails);
 router.get('/public/store-status', SettingsController.getStoreStatus);
 router.get('/public/product-query', ProductController.queryByName);
+
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Adicionado um endpoint de "health check" para aquecer o servidor em cold starts.
+router.get('/public/health', (req, res) => {
+  res.status(200).send('OK');
+});
+// ##################### FIM DA CORREÇÃO ######################
 
 
 router.use(authMiddleware);

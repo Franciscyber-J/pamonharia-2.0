@@ -129,16 +129,22 @@ export function renderCart() {
         const originalProduct = state.allItems.find(p => p.id === itemGroup.original_id);
         const isLockedGroup = itemGroup.is_combo || (originalProduct && originalProduct.force_one_to_one_complement);
         
+        // #################### INÍCIO DA CORREÇÃO ####################
+        // ARQUITETO: A lógica agora lê a nova estrutura de dados `details` para renderizar os complementos.
         let subItemsHtml = '';
-        if (itemGroup.selected_items && itemGroup.selected_items.length > 0) {
+        const detailsWrapper = itemGroup.details || {};
+        const complements = detailsWrapper.complements || [];
+
+        if (complements.length > 0) {
             subItemsHtml = '<div class="cart-sub-items">';
             const complementCounts = {};
-            itemGroup.selected_items.forEach(sub => {
+            complements.forEach(sub => {
                 complementCounts[sub.name] = (complementCounts[sub.name] || 0) + sub.quantity;
             });
             subItemsHtml += Object.entries(complementCounts).map(([name, count]) => `<div class="cart-sub-item"><span>${count}x ${name}</span></div>`).join('');
             subItemsHtml += '</div>';
         }
+        // ##################### FIM DA CORREÇÃO ######################
         
         let mainControlsHtml = isLockedGroup 
             ? `<div class="quantity-control-cart"><button data-action="adjust-group" data-cart-index="${cartIndex}" data-amount="-1">-</button><span>${itemGroup.quantity}</span><button data-action="adjust-group" data-cart-index="${cartIndex}" data-amount="1">+</button></div>`
@@ -260,7 +266,6 @@ export function resetForNewOrder() {
     renderCart();
 }
 
-// ARQUITETO: Função atualizada para gerar o código no formato 'P-XXXX'.
 export function showWhatsAppConfirmationModal(storePhoneNumber, order) {
     const confirmModal = dom.confirmModal;
     const confirmMessage = dom.confirmModalMessage;
@@ -269,7 +274,6 @@ export function showWhatsAppConfirmationModal(storePhoneNumber, order) {
 
     confirmMessage.textContent = 'O seu pedido foi reservado. Para o enviar para a cozinha, por favor, clique em "Confirmar" para abrir o WhatsApp e enviar a mensagem de confirmação.';
     
-    // Gera um código alfanumérico de 4 caracteres (ex: a2f9, 8b1c)
     const randomCode = Math.random().toString(36).substring(2, 6).toUpperCase();
     const confirmationCode = `P-${order.id}-${randomCode}`;
 

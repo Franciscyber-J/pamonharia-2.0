@@ -48,6 +48,11 @@ export function stopCartTimeout() {
 async function main() {
     console.log('[main.js] Função main() iniciada.');
     try {
+        // #################### INÍCIO DA CORREÇÃO ####################
+        // ARQUITETO: Adicionada uma chamada "fire-and-forget" para aquecer o servidor.
+        apiFetch('/public/health').catch(err => console.warn('[Health Check] Ping inicial para o servidor falhou (isso pode ser normal em cold starts):', err.message));
+        // ##################### FIM DA CORREÇÃO ######################
+
         const paymentSettings = await apiFetch('/public/payment-settings');
         if (paymentSettings && paymentSettings.mercadoPagoPublicKey) {
             console.log('[main.js] Chave do Mercado Pago recebida. A inicializar SDK.');
@@ -104,9 +109,6 @@ async function handleOrderSubmit(e) {
         client_name: document.getElementById('client-name').value,
         client_phone: document.getElementById('client-phone').value,
         client_address: deliveryType === 'delivery' ? dom.clientAddressInput.value : 'Retirada no local',
-        // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: O payload agora envia o objeto `details` completo,
-        // em vez do antigo `selected_items`.
         items: getCart().map(itemGroup => ({
             original_id: itemGroup.original_id,
             name: itemGroup.name,
@@ -115,7 +117,6 @@ async function handleOrderSubmit(e) {
             is_combo: !!itemGroup.is_combo,
             details: itemGroup.details || { force_one_to_one: false, complements: [] }
         })),
-        // ##################### FIM DA CORREÇÃO ######################
         total_price: totalPrice,
         payment_method: paymentMethod,
         observations: document.getElementById('order-observations').value,
