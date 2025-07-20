@@ -588,9 +588,9 @@
                 card.innerHTML = `<div class="order-card-header"><span>Pedido #${order.id}</span><span>R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</span></div><div class="order-tags">${paymentTag}${deliveryTypeTag}</div><div class="order-card-body"><p><strong>Cliente:</strong> ${order.client_name}</p><p><strong>Destino:</strong> ${displayAddress}</p></div><div class="order-card-actions">${actionsHtml}</div>`;
                 return card;
             };
-            
+
             // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: Corrigido para não usar JSON.parse() em `item_details`, pois já é um objeto.
+            // ARQUITETO: Lógica de renderização do modal refatorada para exibir os complementos e lidar com "agrupadores".
             function openOrderDetailsModal(order) {
                 const modal = document.getElementById('order-details-modal-overlay');
                 const title = document.getElementById('order-details-title');
@@ -601,14 +601,17 @@
                 let itemsHtml = '<h4>Itens do Pedido</h4><ul class="order-details-list">';
                 if (order.items && order.items.length > 0) {
                     order.items.forEach(item => {
-                        const details = item.item_details || []; // `item_details` já é um objeto/array
+                        const details = item.item_details || [];
                         const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(details) && details.length > 0;
 
                         if (isContainerOnly) {
+                            // Se for um item 'agrupador' (ex: Bolinho de Milho), combinamos o nome do pai com o do filho.
                             details.forEach(sub => {
-                                itemsHtml += `<li><strong>${sub.quantity}x ${sub.name}</strong></li>`;
+                                const combinedName = `${item.item_name} - ${sub.name}`;
+                                itemsHtml += `<li><strong>${sub.quantity}x ${combinedName}</strong></li>`;
                             });
                         } else {
+                            // Para itens normais (ex: Curau) ou combos, mostramos o item principal e depois os complementos.
                             itemsHtml += `<li><strong>${item.quantity}x ${item.item_name}</strong>`;
                             if (Array.isArray(details) && details.length > 0) {
                                 itemsHtml += '<ul class="order-details-sublist">';

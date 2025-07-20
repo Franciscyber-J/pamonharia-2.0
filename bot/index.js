@@ -109,18 +109,20 @@ async function handleOrderConfirmation(msg, orderId) {
         });
         
         // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Corrigido para não usar JSON.parse() e para lidar com a lógica de "agrupadores".
+        // ARQUITETO: Lógica de formatação do resumo do pedido refatorada para incluir todos os detalhes
+        // e para lidar corretamente com itens "agrupadores".
         let resumo = `Pedido *P-${confirmedOrder.id}* confirmado com sucesso! ✅\n\n`;
         resumo += "Resumo do seu pedido:\n\n";
         
         confirmedOrder.items.forEach(item => {
-            const details = item.item_details || []; // `item_details` já é um objeto/array
+            const details = item.item_details || [];
             const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(details) && details.length > 0;
 
             if (isContainerOnly) {
-                // Se for um item 'agrupador', mostramos apenas os complementos.
+                // Se for um item 'agrupador', combinamos o nome do pai com o do filho.
                 details.forEach(det => {
-                    resumo += `*${det.quantity}x* ${det.name}\n`;
+                    const combinedName = `${item.item_name} - ${det.name}`;
+                    resumo += `*${det.quantity}x* ${combinedName}\n`;
                 });
             } else {
                 // Para itens normais, mostramos o item principal e depois os seus complementos.
