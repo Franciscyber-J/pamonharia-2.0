@@ -119,11 +119,11 @@ async function startServer() {
         console.log('[Cleanup] Executando rotina de limpeza de pedidos abandonados...');
         try {
             // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: O tempo de verificação foi reduzido para 2 minutos.
-            const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+            // ARQUITETO: O tempo de verificação foi reduzido para 1 minuto.
+            const oneMinuteAgo = new Date(Date.now() - 1 * 60 * 1000);
             const abandonedOrders = await connection('orders')
                 .where('status', 'Aguardando Confirmação')
-                .andWhere('created_at', '<', twoMinutesAgo);
+                .andWhere('created_at', '<', oneMinuteAgo);
             // ##################### FIM DA CORREÇÃO ######################
 
             if (abandonedOrders.length === 0) {
@@ -150,8 +150,8 @@ async function startServer() {
     };
     
     // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: O intervalo de execução da rotina foi ajustado para 2 minutos.
-    setInterval(cleanupAbandonedOrders, 2 * 60 * 1000);
+    // ARQUITETO: O intervalo de execução da rotina foi ajustado para 1 minuto (60.000 milissegundos).
+    setInterval(cleanupAbandonedOrders, 1 * 60 * 1000);
     // ##################### FIM DA CORREÇÃO ######################
     
     io.on('connection', (socket) => {
