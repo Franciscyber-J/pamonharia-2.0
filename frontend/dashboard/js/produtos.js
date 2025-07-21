@@ -3,14 +3,13 @@ import { globalApiFetch } from './api.js';
 import { state, setState } from './main.js';
 import { initSortable, showCustomConfirm, PLACEHOLDER_IMG_60, PLACEHOLDER_IMG_200 } from './ui.js';
 
-let allProducts = [];
-let allProductsFlat = [];
+// --- FUNÇÕES DE DADOS ---
 
 export async function fetchAllProducts() {
     try {
-        allProducts = await globalApiFetch('/products');
-        allProductsFlat = flattenProductsWithParentInfo(allProducts);
-        setState({ allProducts, allProductsFlat });
+        const products = await globalApiFetch('/products');
+        const flatProducts = flattenProductsWithParentInfo(products);
+        setState({ allProducts: products, allProductsFlat: flatProducts });
     } catch (error) {
         console.error("Não foi possível carregar os produtos.", error);
     }
@@ -27,6 +26,8 @@ function flattenProductsWithParentInfo(products) {
     });
     return flatList;
 }
+
+// --- FUNÇÕES DE RENDERIZAÇÃO ---
 
 export function renderProdutosPage(isComplementosPage = false) {
     const pageTitle = document.getElementById('page-title');
@@ -66,6 +67,7 @@ export function renderProdutosPage(isComplementosPage = false) {
         renderProdutosPageContent();
     }
     
+    // Listeners para o modal de produto, que é único
     document.getElementById('product-form').addEventListener('submit', saveProduct);
     document.getElementById('product-cancel-button').addEventListener('click', closeProductModal);
     document.getElementById('product-modal-close-btn').addEventListener('click', closeProductModal);
@@ -115,7 +117,7 @@ function renderProdutosPageContent() {
         }
     });
     
-    setupProductEventListeners(tbody);
+    setupProductEventListeners();
     initSortable('products-tbody', '/products/reorder', globalApiFetch);
 }
 
@@ -127,7 +129,7 @@ function renderComplementosPageContent() {
         tbody.insertAdjacentHTML('beforeend', createProductRow(item, false));
     });
     
-    setupProductEventListeners(tbody);
+    setupProductEventListeners();
     initSortable('complementos-tbody', '/products/reorder', globalApiFetch);
 }
 
@@ -209,13 +211,12 @@ function createProductRow(product, isChild = false, isSynced = false) {
         </tr>`;
 }
 
-// --- LÓGICA DE EVENTOS E MANIPULAÇÃO ---
+function setupProductEventListeners() {
+    const dashboardContent = document.getElementById('dashboard-content');
+    if (dashboardContent.dataset.eventsAttached) return;
+    dashboardContent.dataset.eventsAttached = 'true';
 
-function setupProductEventListeners(tbody) {
-    if (tbody.dataset.eventsAttached) return; // Previne múltiplos listeners
-    tbody.dataset.eventsAttached = 'true';
-
-    tbody.addEventListener('click', (event) => {
+    dashboardContent.addEventListener('click', (event) => {
         const target = event.target;
         const row = target.closest('.product-row');
         if (!row) return;
@@ -253,13 +254,13 @@ function setupProductEventListeners(tbody) {
         if (target.classList.contains('stock-save-btn')) handleStockSave(target);
     });
 
-    tbody.addEventListener('change', (event) => {
+    dashboardContent.addEventListener('change', (event) => {
         const target = event.target;
         if (target.classList.contains('stock-enabled-toggle')) handleStockEnableToggle(target);
         if (target.classList.contains('stock-sync-toggle')) handleStockSyncToggle(target);
     });
 
-    tbody.addEventListener('keydown', (event) => {
+    dashboardContent.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' && event.target.classList.contains('stock-input')) {
             event.preventDefault();
             handleStockSave(event.target);
@@ -483,7 +484,7 @@ async function handleStockSave(element) {
 
 async function handleStockEnableToggle(checkbox) {
     const row = checkbox.closest('.product-row');
-    const productId = row.dataset.id;
+    const productId = parseInt(row.dataset.id);
     const isEnabled = checkbox.checked;
     row.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn').forEach(el => {
         if (!el.classList.contains('stock-enabled-toggle')) {
@@ -495,7 +496,7 @@ async function handleStockEnableToggle(checkbox) {
 
 async function handleStockSyncToggle(checkbox) {
     const row = checkbox.closest('.product-row');
-    const id = row.dataset.id;
+    const id = parseInt(row.dataset.id);
     const enabled = checkbox.checked;
     try {
         await globalApiFetch(`/products/${id}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: enabled }) });

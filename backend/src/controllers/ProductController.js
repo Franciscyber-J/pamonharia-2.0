@@ -40,6 +40,16 @@ module.exports = {
         parentProducts.push(product);
       }
     });
+
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Garante que os complementos (children) sejam sempre ordenados.
+    parentProducts.forEach(parent => {
+        if (parent.children && parent.children.length > 0) {
+            parent.children.sort((a, b) => a.display_order - b.display_order);
+        }
+    });
+    // ##################### FIM DA CORREÇÃO ######################
+
     return response.json(parentProducts);
   },
 
@@ -64,6 +74,13 @@ module.exports = {
             }
         } else if (product.is_main_product) {
             finalList.push(product);
+        }
+    });
+
+    // Garante a ordenação dos filhos também na rota pública
+    finalList.forEach(parent => {
+        if (parent.children && parent.children.length > 0) {
+            parent.children.sort((a, b) => a.display_order - b.display_order);
         }
     });
 
