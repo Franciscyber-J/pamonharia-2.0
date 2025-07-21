@@ -10,27 +10,50 @@ const PORT = process.env.PORT || 9000;
 const API_KEY = process.env.BOT_API_KEY;
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:10000';
 const CARDAPIO_URL = process.env.CARDAPIO_URL || 'https://pamonhariasaborosa.expertbr.com/cardapio';
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Adicionadas variáveis de ambiente para a integração com o Telegram.
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+// ##################### FIM DA CORREÇÃO ######################
 
 const app = express();
 app.use(express.json());
 
 let isBotReady = false;
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Adicionado um Map para gerir o estado de cada conversa individualmente.
-// Isso permite funcionalidades como "Aguardando Localização" ou "Atendimento Humano".
 const chatStates = new Map();
 
-// Listas de palavras-chave para uma interpretação mais inteligente das mensagens.
 const PRODUCT_KEYWORDS = ["pamonha", "curau", "bolo", "bolinho", "chica", "caldo", "creme", "doce", "combo"];
 const DRINK_KEYWORDS = ["bebida", "refrigerante", "refri", "coca", "guarana", "suco", "agua", "água", "cerveja"];
 const CANCEL_KEYWORDS = ["cancelar", "cancela", "nao quero mais", "não quero mais"];
-// ##################### FIM DA CORREÇÃO ######################
 
 // --- FUNÇÃO DE LOG ---
 function log(level, context, message) {
     const timestamp = new Date().toLocaleTimeString('pt-BR');
     console.log(`[${timestamp}] [${level}] [${context}] ${message}`);
 }
+
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Nova função para enviar notificações para o Telegram.
+async function sendTelegramNotification(message) {
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+        log('WARN', 'Telegram', 'Token ou Chat ID do Telegram não configurados. A saltar notificação.');
+        return;
+    }
+    try {
+        const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+        await axios.post(url, {
+            chat_id: TELEGRAM_CHAT_ID,
+            text: message,
+            parse_mode: 'Markdown'
+        });
+        log('SUCCESS', 'Telegram', 'Notificação enviada com sucesso para o Telegram.');
+    } catch (error) {
+        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+        log('ERROR', 'Telegram', `Falha ao enviar notificação para o Telegram: ${errorMessage}`);
+    }
+}
+// ##################### FIM DA CORREÇÃO ######################
+
 
 // --- CONFIGURAÇÃO DO CLIENTE WHATSAPP-WEB.JS ---
 const client = new Client({
@@ -61,39 +84,21 @@ const client = new Client({
 client.on('qr', (qr) => {
     log('INFO', 'QRCode', 'QR Code recebido. A gerar URL de imagem...');
     qrcode.toDataURL(qr, (err, url) => {
-        if (err) {
-            console.error('Erro ao gerar URL do QR Code:', err);
-            return;
-        }
+        if (err) { console.error('Erro ao gerar URL do QR Code:', err); return; }
         console.log('--------------------------------------------------');
-        console.log('QR Code pronto! Use um leitor ou a câmara para ler a URL abaixo e abri-la no navegador:');
-        
-        qrcode.toString(url, { type: 'terminal', small: true }, (err, qrTerminal) => {
-            if (err) {
-                console.log('Não foi possível gerar o QR Code da URL, por favor, copie a URL manualmente.');
-            } else {
-                console.log(qrTerminal);
-            }
-            console.log('URL DIRETA (copie e cole no navegador):', url);
+        console.log('QR Code pronto!');
+        qrcode.toString(qr, { type: 'terminal', small: true }, (err, qrTerminal) => {
+            if (err) { console.log('Não foi possível gerar o QR Code, copie a URL manualmente.'); } 
+            else { console.log(qrTerminal); }
+            console.log('URL para login (copie e cole no navegador):', url);
             console.log('--------------------------------------------------');
         });
     });
 });
 
-client.on('ready', () => {
-    isBotReady = true;
-    log('SUCCESS', 'Client', 'Bot Concierge está online e pronto.');
-});
+client.on('ready', () => { isBotReady = true; log('SUCCESS', 'Client', 'Bot Concierge está online e pronto.'); });
+client.on('disconnected', (reason) => { isBotReady = false; log('WARN', 'Client', `Bot desconectado. Motivo: ${reason}.`); client.initialize(); });
 
-client.on('disconnected', (reason) => {
-    isBotReady = false;
-    log('WARN', 'Client', `Bot foi desconectado. Motivo: ${reason}. A tentar reconectar...`);
-    client.initialize();
-});
-
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: O listener de mensagens foi refatorado para usar um sistema de estados,
-// tornando o bot mais inteligente e contextual.
 client.on('message', async (msg) => {
     const chat = await msg.getChat();
     if (msg.fromMe || !isBotReady || msg.isStatus || chat.isGroup) return;
@@ -102,34 +107,31 @@ client.on('message', async (msg) => {
     const chatId = msg.from;
     const currentState = chatStates.get(chatId);
 
-    // MÁQUINA DE ESTADOS: Verifica se o chat está em um estado especial.
     if (currentState === 'AGUARDANDO_LOCALIZACAO') {
         if (msg.hasLocation || msg.type === 'location') {
-            await msg.reply('Localização recebida! Muito obrigado, isso ajudará bastante o nosso entregador. 👍');
+            await msg.reply('Localização recebida! Muito obrigado. 👍');
             chatStates.delete(chatId);
         } else if (CANCEL_KEYWORDS.some(kw => lowerBody.includes(kw))) {
-            await msg.reply('Entendido. A entrega seguirá para o endereço informado no pedido.');
+            await msg.reply('Entendido. A entrega seguirá para o endereço informado.');
             chatStates.delete(chatId);
         } else {
-            await msg.reply('Não consegui identificar uma localização. Para ajudar, por favor, use a função de anexo (📎) do WhatsApp e escolha "Localização". Se não quiser, é só digitar "cancelar".');
+            await msg.reply('Não identifiquei uma localização. Use o anexo (📎) e escolha "Localização". Para cancelar, digite *cancelar*.');
         }
-        return; // Finaliza o processamento aqui
+        return;
     }
 
     if (currentState === 'HUMANO_ATIVO') {
-        if (lowerBody === 'menu' || lowerBody === 'voltar') {
+        if (lowerBody === 'reiniciar') {
             chatStates.delete(chatId);
             await msg.reply('Ok, o atendimento automático foi reativado! 👋');
-            await sendDefaultMenu(msg); // Volta ao menu principal
+            await sendDefaultMenu(msg);
         }
-        return; // Ignora outras mensagens enquanto espera o atendente
+        return;
     }
 
-    // FLUXO NORMAL DE CONVERSA
     const confirmationMatch = msg.body.match(/Código de Confirmação: *\*P-(\d+)-([A-Z0-9]{4})\*/i);
     if (confirmationMatch) {
-        const orderId = confirmationMatch[1];
-        await handleOrderConfirmation(msg, orderId);
+        await handleOrderConfirmation(msg, confirmationMatch[1]);
         return;
     }
 
@@ -139,44 +141,33 @@ client.on('message', async (msg) => {
 async function handleOrderConfirmation(msg, orderId) {
     try {
         log('INFO', 'Confirmation', `Recebida confirmação para o Pedido #${orderId}`);
-        const { data: confirmedOrder } = await axios.post(`${BACKEND_URL}/api/public/orders/${orderId}/confirm`, {
-            whatsapp: msg.from
-        }, {
-            headers: { 'x-api-key': API_KEY }
-        });
+        const { data: order } = await axios.post(`${BACKEND_URL}/api/public/orders/${orderId}/confirm`, { whatsapp: msg.from }, { headers: { 'x-api-key': API_KEY } });
         
-        let resumo = `Pedido *P-${confirmedOrder.id}* confirmado com sucesso! ✅\n\nResumo do seu pedido:\n\n`;
-        confirmedOrder.items.forEach(item => {
-            const detailsWrapper = item.item_details || {};
-            const complements = detailsWrapper.complements || [];
-            if (parseFloat(item.unit_price) === 0 && complements.length > 0) {
-                complements.forEach(det => resumo += `*${det.quantity}x* ${item.item_name} - ${det.name}\n`);
-            } else {
-                resumo += `*${item.quantity}x* ${item.item_name}\n`;
-                if (complements.length > 0) {
-                    complements.forEach(det => resumo += `  ↳ _${(detailsWrapper.force_one_to_one ? det.quantity : (det.quantity * item.quantity))}x ${det.name}_\n`);
-                }
+        let resumo = `Pedido *P-${order.id}* confirmado! ✅\n\n*Resumo:*\n`;
+        order.items.forEach(item => {
+            const details = item.item_details || {};
+            resumo += `*${item.quantity}x* ${item.item_name}\n`;
+            if (details.complements?.length > 0) {
+                details.complements.forEach(sub => {
+                    resumo += `  ↳ _${sub.quantity}x ${sub.name}_\n`;
+                });
             }
         });
-        
-        resumo += `\n*TOTAL: R$ ${Number.parseFloat(confirmedOrder.total_price).toFixed(2).replace(".", ",")}*\n`;
-        resumo += `\n*Pagamento:* ${confirmedOrder.payment_method === 'online' ? 'Pago Online' : 'Pagar na Entrega/Retirada'}`;
-        resumo += `\n*Destino:* ${confirmedOrder.client_address}`;
+        resumo += `\n*TOTAL: R$ ${Number.parseFloat(order.total_price).toFixed(2).replace(".", ",")}*`;
+        resumo += `\n*Pagamento:* ${order.payment_method === 'online' ? 'Pago Online' : 'Pagar na Entrega'}`;
+        resumo += `\n*Destino:* ${order.client_address}`;
         resumo += `\n\nNossa equipe já foi notificada. Manteremos você atualizado!`;
         
         await msg.reply(resumo);
 
-        // Lógica para solicitar localização após a confirmação.
-        if (confirmedOrder.client_address !== 'Retirada no local') {
-            await new Promise(resolve => setTimeout(resolve, 1500)); // Pequena pausa
+        if (order.client_address !== 'Retirada no local') {
+            await new Promise(resolve => setTimeout(resolve, 1500));
             chatStates.set(msg.from, 'AGUARDANDO_LOCALIZACAO');
-            await msg.reply("Para facilitar a entrega, você poderia compartilhar sua localização conosco?\n\nBasta usar o anexo (📎) do WhatsApp e escolher *Localização* > *Localização Atual*. Se não quiser, é só digitar *cancelar*.");
+            await msg.reply("Para facilitar a entrega, poderia compartilhar sua localização?\n\nUse o anexo (📎) e escolha *Localização* > *Localização Atual*. Se não quiser, digite *cancelar*.");
         }
-
     } catch (error) {
-        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
-        log('ERROR', 'Confirmation', `Falha ao confirmar pedido #${orderId}: ${errorMessage}`);
-        await msg.reply('Ocorreu um erro ao confirmar seu pedido. Por favor, aguarde que um atendente irá verificar.');
+        log('ERROR', 'Confirmation', `Falha ao confirmar pedido #${orderId}: ${error.response?.data?.error || error.message}`);
+        await msg.reply('Ocorreu um erro ao confirmar seu pedido. Um atendente irá verificar.');
     }
 }
 
@@ -185,62 +176,90 @@ function cleanSearchQuery(text) {
     return text.toLowerCase().replace(/[?.,!]/g, "").split(" ").filter(word => !stopWords.includes(word)).join(" ").trim();
 }
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: A lógica do concierge foi atualizada para um menu numérico,
+// incluindo as novas opções e a transição para o estado 'HUMANO_ATIVO'.
 async function handleConcierge(msg, lowerBody) {
-    const keywords = {
-        menu: ["cardapio", "cardápio", "menu", "pedido", "pedir"],
-        endereco: ["endereço", "endereco", "local", "onde"],
-        horario: ["horário", "horario", "hora", "abre", "fecha", "aberto"],
-        atendente: ["atendente", "falar", "humano", "ajuda"],
-    };
-    const findKeyword = (text, kws) => kws.some(kw => text.includes(kw));
+    const choice = parseInt(lowerBody, 10);
 
     try {
-        if (findKeyword(lowerBody, keywords.menu)) {
-            await msg.reply(`Para ver nosso cardápio completo e fazer seu pedido, acesse o link:\n\n*${CARDAPIO_URL}*`);
-        } else if (findKeyword(lowerBody, keywords.endereco)) {
-            const { data } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
-            let response = `Nosso endereço para retirada é:\n*${data.full_settings.address}*`;
-            if (data.full_settings.location_link) response += `\n\n📍 Ver no mapa:\n${data.full_settings.location_link}`;
-            await msg.reply(response);
-        } else if (findKeyword(lowerBody, keywords.horario)) {
-            const { data } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
-            await msg.reply(`*Status atual:* ${data.status.toUpperCase()}\n\n${data.message}`);
-        } else if (findKeyword(lowerBody, keywords.atendente)) {
-            chatStates.set(msg.from, 'HUMANO_ATIVO');
-            await msg.reply("Ok, um de nossos atendentes irá te responder em instantes. Para reativar o atendimento automático, digite *menu*.");
-        } else if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
-            await msg.reply("Olá! No momento, focamos em oferecer as melhores pamonhas e derivados, e por isso não trabalhamos com a venda de bebidas. 😊");
-        } else if (PRODUCT_KEYWORDS.some(kw => lowerBody.includes(kw))) {
-            const cleanQuery = cleanSearchQuery(lowerBody);
-            const { data } = await axios.get(`${BACKEND_URL}/api/public/product-query`, { params: { q: cleanQuery } });
-            const response = data.encontrado
-                ? (data.emEstoque ? `Temos *${data.nome}* sim! 😊\n\nPode pedir diretamente em nosso cardápio online:\n*${CARDAPIO_URL}*` : `Poxa, nosso(a) *${data.nome}* esgotou por hoje! 😥\n\nVeja outras delícias em nosso cardápio:\n*${CARDAPIO_URL}*`)
-                : await sendDefaultMenu(msg); // Se não achou, manda o menu padrão
-            if (data.encontrado) await msg.reply(response);
-        } else {
-            await sendDefaultMenu(msg);
+        switch (choice) {
+            case 1:
+                await msg.reply(`Para ver nosso cardápio completo e fazer seu pedido, acesse o link:\n\n*${CARDAPIO_URL}*`);
+                break;
+            case 2:
+                const { data: statusData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
+                let addressResponse = `Nosso endereço para retirada é:\n*${statusData.full_settings.address}*`;
+                if (statusData.full_settings.location_link) addressResponse += `\n\n📍 Ver no mapa:\n${statusData.full_settings.location_link}`;
+                await msg.reply(addressResponse);
+                break;
+            case 3:
+                const { data: scheduleData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
+                await msg.reply(`*Status atual:* ${scheduleData.status.toUpperCase()}\n\n${scheduleData.message}`);
+                break;
+            case 4:
+                chatStates.set(msg.from, 'HUMANO_ATIVO');
+                await msg.reply("Ok, um de nossos atendentes irá te responder em instantes. Para reativar o atendimento automático, digite *reiniciar*.");
+                break;
+            case 5:
+                chatStates.set(msg.from, 'HUMANO_ATIVO');
+                await msg.reply("Entendido. Já notifiquei a nossa equipa. Um responsável entrará em contacto em breve. Para reativar o bot, digite *reiniciar*.");
+                await sendTelegramNotification(`🔔 *Novo Contacto de Fornecedor*\n\nUm possível fornecedor/parceiro entrou em contacto no WhatsApp.\n\n*Contacto:* ${msg.from.replace('@c.us', '')}\n\nPor favor, verifique a conversa.`);
+                break;
+            case 6:
+                chatStates.set(msg.from, 'HUMANO_ATIVO');
+                await msg.reply("Olá, parceiro! Nossa equipa de logística já foi notificada e irá responder em breve. Se quiser, pode adiantar sua dúvida. Para reativar o bot, digite *reiniciar*.");
+                await sendTelegramNotification(`🏍️ *Novo Contacto de Entregador*\n\nUm entregador/parceiro entrou em contacto no WhatsApp.\n\n*Contacto:* ${msg.from.replace('@c.us', '')}\n\nPor favor, verifique a conversa.`);
+                break;
+            default:
+                // Se não for um número válido, verifica por palavras-chave de produto/bebida
+                if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
+                    await msg.reply("Olá! No momento, focamos em oferecer as melhores pamonhas e derivados, por isso não trabalhamos com bebidas. 😊");
+                } else if (PRODUCT_KEYWORDS.some(kw => lowerBody.includes(kw))) {
+                    const cleanQuery = cleanSearchQuery(lowerBody);
+                    const { data } = await axios.get(`${BACKEND_URL}/api/public/product-query`, { params: { q: cleanQuery } });
+                    if(data.encontrado) {
+                        await msg.reply(data.emEstoque ? `Temos *${data.nome}* sim! 😊\n\nPode pedir em nosso cardápio:\n*${CARDAPIO_URL}*` : `Poxa, nosso(a) *${data.nome}* esgotou! 😥\n\nVeja outras delícias em:\n*${CARDAPIO_URL}*`);
+                    } else {
+                        await sendDefaultMenu(msg);
+                    }
+                } else {
+                    await sendDefaultMenu(msg);
+                }
+                break;
         }
     } catch (error) {
         log('ERROR', 'Concierge', `Falha ao processar mensagem: ${error.message}`);
-        await msg.reply("Desculpe, tive um problema para processar sua solicitação. Tente novamente ou digite 'ajuda' para falar com um atendente.");
+        await msg.reply("Desculpe, tive um problema. Tente novamente ou digite *4* para falar com um atendente.");
     }
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 async function sendDefaultMenu(msg) {
     const { data: status } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
     const menuMessage = status.status === 'aberto'
-        ? `*Estamos abertos!*\n\nPara ver o cardápio e fazer seu pedido, acesse:\n*${CARDAPIO_URL}*`
-        : `*No momento estamos fechados.*\n\n${status.message}\n\nVeja nosso cardápio para o próximo pedido:\n*${CARDAPIO_URL}*`;
+        ? `*Estamos abertos!*`
+        : `*No momento estamos fechados.*\n\n${status.message}`;
     
-    await msg.reply(`Olá! Bem-vindo(a) à *Pamonharia Saborosa do Goiás*! 🌽\n\n${menuMessage}\n\n--------------------\nOu, se preferir, digite uma das opções abaixo:\n\n*Endereço*\n*Horário*\n*Falar com um atendente*`);
+    await msg.reply(
+`Olá! Bem-vindo(a) à *Pamonharia Saborosa do Goiás*! 🌽
+${status.status === 'aberto' ? '' : `\n${status.message}\n`}
+Como posso ajudar? *Digite o número da opção desejada:*
+
+*1.* Ver Cardápio / Fazer Pedido
+*2.* Ver Endereço
+*3.* Ver Horário de Funcionamento
+*4.* Falar com Atendente
+*5.* Sou Fornecedor/Parceiro
+*6.* Sou Entregador/Parceiro`
+    );
 }
+// ##################### FIM DA CORREÇÃO ######################
 
 // --- API INTERNA PARA O BACKEND ---
 const apiKeyMiddleware = (req, res, next) => {
     const providedKey = req.headers['x-api-key'];
     if (!providedKey || providedKey !== API_KEY) {
-        log('WARN', 'API', 'Tentativa de acesso não autorizado bloqueada.');
+        log('WARN', 'API', 'Acesso não autorizado bloqueado.');
         return res.status(403).json({ error: 'Acesso não autorizado.' });
     }
     next();
@@ -249,13 +268,9 @@ const apiKeyMiddleware = (req, res, next) => {
 app.get('/status', (req, res) => res.status(200).json({ ready: isBotReady }));
 
 app.post('/send-message', apiKeyMiddleware, async (req, res) => {
-    if (!isBotReady) {
-        return res.status(503).json({ error: 'O bot não está pronto.' });
-    }
+    if (!isBotReady) { return res.status(503).json({ error: 'O bot não está pronto.' }); }
     const { phone, message } = req.body;
-    if (!phone || !message) {
-        return res.status(400).json({ error: 'Campos "phone" e "message" são obrigatórios.' });
-    }
+    if (!phone || !message) { return res.status(400).json({ error: '"phone" e "message" são obrigatórios.' }); }
     try {
         const chatId = phone.includes('@c.us') ? phone : `55${phone.replace(/\D/g, '')}@c.us`;
         await client.sendMessage(chatId, message);
@@ -267,35 +282,24 @@ app.post('/send-message', apiKeyMiddleware, async (req, res) => {
 });
 
 app.get('/groups', apiKeyMiddleware, async (req, res) => {
-    if (!isBotReady) {
-        return res.status(503).json({ error: 'O bot não está pronto para listar os grupos.' });
-    }
+    if (!isBotReady) { return res.status(503).json({ error: 'O bot não está pronto.' }); }
     try {
         const chats = await client.getChats();
-        const groups = chats
-            .filter(chat => chat.isGroup)
-            .map(chat => ({
-                id: chat.id._serialized,
-                name: chat.name,
-            }));
+        const groups = chats.filter(c => c.isGroup).map(c => ({ id: c.id._serialized, name: c.name }));
         res.status(200).json(groups);
     } catch (error) {
         log('ERROR', 'API', `Falha ao listar grupos: ${error.message}`);
-        res.status(500).json({ error: 'Falha ao obter a lista de grupos do WhatsApp.' });
+        res.status(500).json({ error: 'Falha ao obter lista de grupos.' });
     }
 });
 
 app.post('/send-group-message', apiKeyMiddleware, async (req, res) => {
-    if (!isBotReady) {
-        return res.status(503).json({ error: 'O bot não está pronto para enviar mensagens.' });
-    }
+    if (!isBotReady) { return res.status(503).json({ error: 'O bot não está pronto.' }); }
     const { groupId, message } = req.body;
-    if (!groupId || !message) {
-        return res.status(400).json({ error: 'Campos "groupId" e "message" são obrigatórios.' });
-    }
+    if (!groupId || !message) { return res.status(400).json({ error: '"groupId" e "message" são obrigatórios.' }); }
     try {
         await client.sendMessage(groupId, message);
-        log('SUCCESS', 'API', `Mensagem enviada com sucesso para o grupo ${groupId}.`);
+        log('SUCCESS', 'API', `Mensagem enviada para o grupo ${groupId}.`);
         res.status(200).json({ success: true });
     } catch (error) {
         log('ERROR', 'API', `Falha ao enviar mensagem para o grupo ${groupId}: ${error.message}`);
