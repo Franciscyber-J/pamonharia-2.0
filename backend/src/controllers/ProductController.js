@@ -2,7 +2,6 @@
 const connection = require('../database/connection');
 const { getIO } = require('../socket-manager');
 
-// Função auxiliar para buscar colunas de uma tabela, para evitar erros de inserção/atualização.
 async function getTableColumns(tableName) {
   try {
     const result = await connection.raw(`SELECT column_name FROM information_schema.columns WHERE table_name = '${tableName}'`);
@@ -150,9 +149,6 @@ module.exports = {
     }
   },
 
-  // #################### INÍCIO DA CORREÇÃO ####################
-  // ARQUITETO: Novo método seguro e específico para que operadores possam
-  // pausar ou ativar produtos sem ter permissão para editar outros campos.
   async updateStatus(request, response) {
     const { id } = request.params;
     const { status } = request.body;
@@ -177,7 +173,6 @@ module.exports = {
         return response.status(500).json({ error: 'Falha ao atualizar o status do produto.' });
     }
   },
-  // ##################### FIM DA CORREÇÃO ######################
 
   async destroy(request, response) {
     const { id } = request.params;
@@ -287,7 +282,11 @@ module.exports = {
         return response.status(500).json({ error: 'Falha ao duplicar o produto.' });
     }
   },
-
+  
+  // #################### INÍCIO DA CORREÇÃO ####################
+  // ARQUITETO: A lógica desta função foi completamente refeita para ser mais
+  // inteligente. Agora, ela entende a diferença entre produtos vendáveis e
+  // produtos "container", verificando o estoque dos filhos quando necessário.
   async queryByName(request, response) {
     const { q } = request.query;
 
@@ -299,17 +298,39 @@ module.exports = {
       const product = await connection('products')
         .where('name', 'ilike', `%${q}%`)
         .andWhere('status', true)
+        .orderBy('is_main_product', 'desc') // Prioriza produtos principais
         .first();
 
       if (!product) {
         return response.json({ encontrado: false });
       }
 
-      const isOutOfStock = product.stock_enabled && (product.stock_quantity === null || product.stock_quantity <= 0);
+      let isEffectivelyOutOfStock;
+
+      // Se o produto é um "container" (ex: "Pamonha Tradicional") que não é vendido diretamente,
+      // a disponibilidade depende do estoque dos seus filhos.
+      if (product.is_main_product && !product.sell_parent_product) {
+        const children = await connection('products')
+            .where('parent_product_id', product.id)
+            .andWhere('status', true);
+
+        if (children.length === 0) {
+            isEffectivelyOutOfStock = true; // Sem filhos ativos, está esgotado.
+        } else {
+            // Verifica se PELO MENOS UM filho tem estoque.
+            const isAnyChildInStock = children.some(child => 
+                !child.stock_enabled || (child.stock_quantity !== null && child.stock_quantity > 0)
+            );
+            isEffectivelyOutOfStock = !isAnyChildInStock;
+        }
+      } else {
+        // Para produtos normais ou complementos, a verificação é direta.
+        isEffectivelyOutOfStock = product.stock_enabled && (product.stock_quantity === null || product.stock_quantity <= 0);
+      }
 
       return response.json({
         encontrado: true,
-        emEstoque: !isOutOfStock,
+        emEstoque: !isEffectivelyOutOfStock,
         nome: product.name,
         mensagemEspecial: null 
       });
@@ -319,4 +340,5 @@ module.exports = {
       return response.status(500).json({ error: 'Falha ao consultar o produto.' });
     }
   }
+  // ##################### FIM DA CORREÇÃO ######################
 };
