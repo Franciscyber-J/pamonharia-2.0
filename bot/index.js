@@ -165,22 +165,14 @@ async function handleOrderConfirmation(msg, orderId) {
     }
 }
 
-function cleanSearchQuery(text) {
-    const stopWords = ["quero", "queria", "tem", "vcs", "voces", "de", "do", "da", "com", "um", "uma"];
-    return text.toLowerCase().replace(/[?.,!]/g, "").split(" ").filter(word => !stopWords.includes(word)).join(" ").trim();
-}
-
 async function handleConcierge(msg, lowerBody) {
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Adicionada uma verificação prioritária para perguntas genéricas sobre horário.
     const horarioKeywords = ["horário", "horario", "hora", "abre", "fecha", "aberto", "até que horas"];
     if (horarioKeywords.some(kw => lowerBody.includes(kw))) {
         log('INFO', 'Concierge', `Recebida pergunta sobre horário: "${lowerBody}"`);
         const { data: scheduleData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
-        await msg.reply(scheduleData.message); // A mensagem da API já vem completa
-        return; // Finaliza o processamento aqui
+        await msg.reply(scheduleData.message);
+        return;
     }
-    // ##################### FIM DA CORREÇÃO ######################
 
     const choice = parseInt(lowerBody, 10);
 
@@ -196,7 +188,6 @@ async function handleConcierge(msg, lowerBody) {
                 await msg.reply(addressResponse);
                 break;
             case 3:
-                // Esta opção agora se comporta da mesma forma que a pergunta genérica
                 const { data: scheduleData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
                 await msg.reply(scheduleData.message);
                 break;
@@ -217,14 +208,21 @@ async function handleConcierge(msg, lowerBody) {
             default:
                 if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     await msg.reply("Olá! No momento, focamos em oferecer as melhores pamonhas e derivados, por isso não trabalhamos com bebidas. 😊");
+                // #################### INÍCIO DA CORREÇÃO ####################
+                // ARQUITETO: A lógica de busca por produto foi aprimorada. Agora, ela
+                // extrai a primeira palavra-chave de produto encontrada na frase do cliente
+                // e usa apenas essa palavra na busca, tornando a consulta muito mais precisa.
                 } else if (PRODUCT_KEYWORDS.some(kw => lowerBody.includes(kw))) {
-                    const cleanQuery = cleanSearchQuery(lowerBody);
-                    const { data } = await axios.get(`${BACKEND_URL}/api/public/product-query`, { params: { q: cleanQuery } });
+                    const matchedKeyword = PRODUCT_KEYWORDS.find(kw => lowerBody.includes(kw));
+                    log('INFO', 'Concierge', `Palavra-chave de produto encontrada: "${matchedKeyword}".`);
+                    
+                    const { data } = await axios.get(`${BACKEND_URL}/api/public/product-query`, { params: { q: matchedKeyword } });
                     if(data.encontrado) {
                         await msg.reply(data.emEstoque ? `Temos *${data.nome}* sim! 😊\n\nPode pedir em nosso cardápio:\n*${CARDAPIO_URL}*` : `Poxa, nosso(a) *${data.nome}* esgotou! 😥\n\nVeja outras delícias em:\n*${CARDAPIO_URL}*`);
                     } else {
                         await sendDefaultMenu(msg);
                     }
+                // ##################### FIM DA CORREÇÃO ######################
                 } else {
                     await sendDefaultMenu(msg);
                 }
@@ -244,7 +242,8 @@ async function sendDefaultMenu(msg) {
         : `*No momento estamos fechados.*`;
     
     // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Adicionada uma frase para incentivar a interação por texto.
+    // ARQUITETO: A mensagem de encorajamento foi removida, conforme solicitado,
+    // para um menu mais direto.
     await msg.reply(
 `Olá! Bem-vindo(a) à *Pamonharia Saborosa do Goiás*! 🌽
 
@@ -254,7 +253,7 @@ Para ver o cardápio e fazer seu pedido, acesse o link abaixo:
 *${CARDAPIO_URL}*
 
 --------------------
-Se sua dúvida não está nas opções, pode perguntar diretamente! Ou, se preferir, *digite o número de uma das opções:*
+Ou, se preferir, *digite o número de uma das opções:*
 
 *1.* Ver Cardápio / Fazer Pedido
 *2.* Ver Endereço
