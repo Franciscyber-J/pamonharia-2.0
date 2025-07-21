@@ -97,26 +97,41 @@ module.exports = {
         const dayOfWeek = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'][now.getDay()];
         const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
         let isOpen = false;
-        let message = 'No momento, estamos fechados.';
+        let message = '';
+        const hours = typeof settings.operating_hours === 'string' ? JSON.parse(settings.operating_hours) : settings.operating_hours;
 
+        // #################### INÍCIO DA CORREÇÃO ####################
+        // ARQUITETO: A lógica de mensagem foi aprimorada para incluir
+        // a terminologia correta ("modo") e adicionar sempre os horários da semana.
         if (settings.is_open_manual_override !== null) {
             isOpen = settings.is_open_manual_override;
-            message = isOpen ? 'Estamos abertos por controlo manual!' : 'Estamos fechados por controlo manual.';
+            message = isOpen ? 'Estamos abertos por *modo manual*!' : 'Estamos fechados por *modo manual*.';
         } else {
-            const hours = typeof settings.operating_hours === 'string' ? JSON.parse(settings.operating_hours) : settings.operating_hours;
             const schedule = hours?.[dayOfWeek];
             if (schedule && schedule.enabled) {
                 isOpen = currentTime >= schedule.open && currentTime <= schedule.close;
-                message = isOpen ? `Estamos abertos! Nosso horário hoje é das ${schedule.open} às ${schedule.close}.` : `Estamos fechados. Nosso próximo horário de funcionamento é amanhã.`;
+                message = isOpen ? `Estamos abertos! Nosso horário hoje é das ${schedule.open} às ${schedule.close}.` : `Hoje já fechámos. Nosso próximo horário de funcionamento será amanhã.`;
             } else {
-                message = 'Hoje não abrimos. Consulte nosso cardápio para ver os horários da semana.';
+                message = 'Hoje não abrimos. Consulte nossos horários abaixo.';
             }
         }
+        
+        // Adiciona a lista de horários padrão à mensagem
+        const dayNames = { segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo' };
+        let scheduleString = '\n\n*Nosso horário padrão:*';
+        for (const day in dayNames) {
+            const dayInfo = hours[day];
+            const scheduleText = (dayInfo && dayInfo.enabled) ? `${dayInfo.open} - ${dayInfo.close}` : 'Fechado';
+            scheduleString += `\n*${dayNames[day]}:* ${scheduleText}`;
+        }
+        
+        message += scheduleString;
+        // ##################### FIM DA CORREÇÃO ######################
         
         return response.json({
             status: isOpen ? 'aberto' : 'fechado',
             message: message,
-            full_settings: settings // Enviamos tudo para o bot ter mais contexto se precisar.
+            full_settings: settings
         });
 
     } catch (error) {
