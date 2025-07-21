@@ -171,6 +171,17 @@ function cleanSearchQuery(text) {
 }
 
 async function handleConcierge(msg, lowerBody) {
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Adicionada uma verificação prioritária para perguntas genéricas sobre horário.
+    const horarioKeywords = ["horário", "horario", "hora", "abre", "fecha", "aberto", "até que horas"];
+    if (horarioKeywords.some(kw => lowerBody.includes(kw))) {
+        log('INFO', 'Concierge', `Recebida pergunta sobre horário: "${lowerBody}"`);
+        const { data: scheduleData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
+        await msg.reply(scheduleData.message); // A mensagem da API já vem completa
+        return; // Finaliza o processamento aqui
+    }
+    // ##################### FIM DA CORREÇÃO ######################
+
     const choice = parseInt(lowerBody, 10);
 
     try {
@@ -185,8 +196,9 @@ async function handleConcierge(msg, lowerBody) {
                 await msg.reply(addressResponse);
                 break;
             case 3:
+                // Esta opção agora se comporta da mesma forma que a pergunta genérica
                 const { data: scheduleData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
-                await msg.reply(`*Status atual:* ${scheduleData.status.toUpperCase()}\n\n${scheduleData.message}`);
+                await msg.reply(scheduleData.message);
                 break;
             case 4:
                 chatStates.set(msg.from, 'HUMANO_ATIVO');
@@ -224,9 +236,6 @@ async function handleConcierge(msg, lowerBody) {
     }
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: A mensagem principal foi reestruturada para sempre incluir
-// o link do cardápio de forma proeminente, melhorando a experiência do cliente.
 async function sendDefaultMenu(msg) {
     const { data: status } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
 
@@ -234,6 +243,8 @@ async function sendDefaultMenu(msg) {
         ? `*Estamos abertos!*`
         : `*No momento estamos fechados.*`;
     
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Adicionada uma frase para incentivar a interação por texto.
     await msg.reply(
 `Olá! Bem-vindo(a) à *Pamonharia Saborosa do Goiás*! 🌽
 
@@ -243,7 +254,7 @@ Para ver o cardápio e fazer seu pedido, acesse o link abaixo:
 *${CARDAPIO_URL}*
 
 --------------------
-Ou, se preferir, *digite o número de uma das opções:*
+Se sua dúvida não está nas opções, pode perguntar diretamente! Ou, se preferir, *digite o número de uma das opções:*
 
 *1.* Ver Cardápio / Fazer Pedido
 *2.* Ver Endereço
@@ -252,8 +263,8 @@ Ou, se preferir, *digite o número de uma das opções:*
 *5.* Sou Fornecedor/Parceiro
 *6.* Sou Entregador/Parceiro`
     );
+    // ##################### FIM DA CORREÇÃO ######################
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 
 // --- API INTERNA PARA O BACKEND ---
