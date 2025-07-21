@@ -109,17 +109,21 @@ client.on('message', async (msg) => {
             await msg.reply('Entendido. A entrega seguirá para o endereço informado.');
             chatStates.delete(chatId);
         } else {
-            await msg.reply('Não identifiquei uma localização. Use o anexo (📎) e escolha "Localização". Para cancelar, digite *cancelar*.');
+            // #################### INÍCIO DA CORREÇÃO ####################
+            await msg.reply(`🗺️ *Ainda aguardando a sua localização...*\n\nPara que o entregador encontre você facilmente, por favor, envie a sua localização.\n\n*Como fazer:*\n1. Toque no ícone de anexo (📎).\n2. Escolha a opção "Localização".\n3. Envie a sua "Localização Atual".\n\n_Se preferir não enviar, basta digitar *cancelar*._`);
+            // ##################### FIM DA CORREÇÃO ######################
         }
         return;
     }
 
     if (currentState === 'HUMANO_ATIVO') {
+        // #################### INÍCIO DA CORREÇÃO ####################
         if (lowerBody === 'reiniciar') {
             chatStates.delete(chatId);
-            await msg.reply('Ok, o atendimento automático foi reativado! 👋');
+            await msg.reply(`🤖 *Atendimento Automático Reativado*\n\nO bot está de volta! 👋 Como posso te ajudar agora?`);
             await sendDefaultMenu(msg);
         }
+        // ##################### FIM DA CORREÇÃO ######################
         return;
     }
 
@@ -132,9 +136,6 @@ client.on('message', async (msg) => {
     await handleConcierge(msg, lowerBody);
 });
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: A mensagem de confirmação do pedido foi reformatada
-// para se assemelhar a um recibo digital, melhorando a clareza para o cliente.
 async function handleOrderConfirmation(msg, orderId) {
     try {
         log('INFO', 'Confirmation', `Recebida confirmação para o Pedido #${orderId}`);
@@ -157,7 +158,7 @@ async function handleOrderConfirmation(msg, orderId) {
         resumo += `\n✅ *Detalhes do Pedido:*\n`;
         resumo += `  • *Pagamento:* ${order.payment_method === 'online' ? 'Pago Online' : 'Na Entrega'}\n`;
         resumo += `  • *Destino:* ${order.client_address}\n`;
-        resumo += `  • *Total:* R$ ${Number.parseFloat(order.total_price).toFixed(2).replace(".", ",")}\n\n`;
+        resumo += `  • *Total:* R$ ${Number.parseFloat(order.total_price).toFixed(2).replace(".", ",")}*\n\n`;
         resumo += `_Obrigado pela sua preferência! Manteremos você atualizado sobre o estado do seu pedido._`;
         
         await msg.reply(resumo);
@@ -169,10 +170,11 @@ async function handleOrderConfirmation(msg, orderId) {
         }
     } catch (error) {
         log('ERROR', 'Confirmation', `Falha ao confirmar pedido #${orderId}: ${error.response?.data?.error || error.message}`);
-        await msg.reply('Ocorreu um erro ao confirmar seu pedido. Um atendente irá verificar.');
+        // #################### INÍCIO DA CORREÇÃO ####################
+        await msg.reply(`⚠️ *Atenção: Falha na Confirmação*\n\nTivemos um problema ao tentar confirmar o seu pedido em nosso sistema.\n\n*Não se preocupe, a nossa equipe já foi alertada sobre isso e irá verificar a situação manualmente.* Um atendente entrará em contacto em breve.`);
+        // ##################### FIM DA CORREÇÃO ######################
     }
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 async function handleConcierge(msg, lowerBody) {
     const horarioKeywords = ["horário", "horario", "hora", "abre", "fecha", "aberto", "até que horas"];
@@ -200,10 +202,6 @@ async function handleConcierge(msg, lowerBody) {
                 const { data: scheduleData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
                 await msg.reply(scheduleData.message);
                 break;
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: As mensagens para os fluxos de atendimento foram reformatadas
-            // para serem mais claras, profissionais e informativas. A palavra "equipa"
-            // foi corrigida para "equipe".
             case 4:
                 chatStates.set(msg.from, 'HUMANO_ATIVO');
                 await msg.reply("Ok, um de nossos atendentes irá te responder em instantes.\n\n_Para reativar o atendimento automático, por favor, digite *reiniciar*._");
@@ -218,10 +216,11 @@ async function handleConcierge(msg, lowerBody) {
                 await msg.reply("*Atendimento a Entregadores/Parceiros*\n\nOlá, parceiro! A sua mensagem foi direcionada para a nossa equipe de logística.\n\nUm operador irá responder em breve. Se desejar, pode adiantar o motivo do seu contacto.\n\n_Para reativar o bot, digite *reiniciar*._");
                 await sendTelegramNotification(`🏍️ *Novo Contacto de Entregador*\n\nUm entregador ou parceiro de logística iniciou uma conversa no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e preste o suporte necessário.*`);
                 break;
-            // ##################### FIM DA CORREÇÃO ######################
             default:
+                // #################### INÍCIO DA CORREÇÃO ####################
                 if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
-                    await msg.reply("Olá! No momento, focamos em oferecer as melhores pamonhas e derivados, por isso não trabalhamos com bebidas. 😊");
+                    await msg.reply(`🥤 *Sobre Bebidas*\n\nNo momento, nosso foco é 100% em oferecer as melhores pamonhas e delícias de milho! Por isso, não trabalhamos com a venda de bebidas.\n\nAgradecemos a sua compreensão! 😊`);
+                // ##################### FIM DA CORREÇÃO ######################
                 } else if (PRODUCT_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     const matchedKeyword = PRODUCT_KEYWORDS.find(kw => lowerBody.includes(kw));
                     log('INFO', 'Concierge', `Palavra-chave de produto encontrada: "${matchedKeyword}".`);
@@ -239,7 +238,9 @@ async function handleConcierge(msg, lowerBody) {
         }
     } catch (error) {
         log('ERROR', 'Concierge', `Falha ao processar mensagem: ${error.message}`);
-        await msg.reply("Desculpe, tive um problema. Tente novamente ou digite *4* para falar com um atendente.");
+        // #################### INÍCIO DA CORREÇÃO ####################
+        await msg.reply(`⚠️ *Ops! Ocorreu um problema.*\n\nDesculpe, não consegui processar a sua última mensagem. Por favor, tente novamente.\n\nSe o erro persistir, digite *4* para falar diretamente com um de nossos atendentes.`);
+        // ##################### FIM DA CORREÇÃO ######################
     }
 }
 

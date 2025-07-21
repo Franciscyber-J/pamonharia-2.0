@@ -50,26 +50,17 @@ const enrichOrdersWithFinancials = async (orders) => {
 
 module.exports = {
     async index(request, response) {
-        console.log('[OrderController] Buscando lista de pedidos com detalhes.');
         const activeOrders = await connection('orders')
             .whereIn('status', ['Novo', 'Pago', 'Em Preparo', 'Pronto para Entrega'])
-            .select('*')
-            .orderBy('created_at', 'asc');
-
+            .select('*').orderBy('created_at', 'asc');
         const finishedOrders = await connection('orders').where('status', 'Finalizado').select('*').orderBy('updated_at', 'desc').limit(20);
         const cancelledOrders = await connection('orders').where('status', 'Cancelado').select('*').orderBy('updated_at', 'desc').limit(20);
-        
-        let allOrders = [...activeOrders, ...finishedOrders, ...cancelledOrders];
-        allOrders = await enrichOrdersWithFinancials(allOrders);
-
+        let allOrders = await enrichOrdersWithFinancials([...activeOrders, ...finishedOrders, ...cancelledOrders]);
         const orderIds = allOrders.map(o => o.id);
         if (orderIds.length > 0) {
             const items = await connection('order_items').whereIn('order_id', orderIds);
-            allOrders.forEach(order => {
-                order.items = items.filter(item => item.order_id === order.id);
-            });
+            allOrders.forEach(order => order.items = items.filter(item => item.order_id === order.id));
         }
-
         return response.json({ 
             activeOrders: allOrders.filter(o => ['Novo', 'Pago', 'Em Preparo', 'Pronto para Entrega'].includes(o.status)),
             finishedOrders: allOrders.filter(o => o.status === 'Finalizado'),
@@ -80,28 +71,16 @@ module.exports = {
     async updateStatus(request, response) {
         const { id } = request.params;
         const { status: newStatus, reason } = request.body;
-        console.log(`[OrderController] Pedido de atualização para pedido ${id}. Novo status: ${newStatus}, Motivo: ${reason || 'N/A'}`);
-
+        
         try {
-            const [updatedOrderRaw] = await connection('orders')
-                .where('id', id)
-                .update({ status: newStatus, updated_at: new Date() })
-                .returning('*');
-
-            if (!updatedOrderRaw) {
-                return response.status(404).json({ error: 'Pedido não encontrado.' });
-            }
+            const [updatedOrderRaw] = await connection('orders').where('id', id).update({ status: newStatus, updated_at: new Date() }).returning('*');
+            if (!updatedOrderRaw) return response.status(404).json({ error: 'Pedido não encontrado.' });
             
             const [updatedOrder] = await enrichOrdersWithFinancials([updatedOrderRaw]);
             const items = await connection('order_items').where('order_id', updatedOrder.id);
-            const fullOrder = { ...updatedOrder, items };
-
-            const io = getIO();
-            io.emit('order_status_updated', { id: Number(id), status: newStatus, order: fullOrder });
+            getIO().emit('order_status_updated', { id: Number(id), status: newStatus, order: { ...updatedOrder, items } });
 
             // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: As mensagens de notificação de status foram reformatadas
-            // para seguir o novo padrão visual, com emojis e texto mais claro.
             if (updatedOrder.client_phone) {
                 let message = '';
                 if (newStatus === 'Em Preparo') {
@@ -114,16 +93,12 @@ module.exports = {
                     const finalReason = reason ? `*Motivo:* ${reason}` : "Para mais detalhes, por favor, entre em contato com a loja.";
                     message = `⚠️ *Pedido Cancelado*\n\nOlá! Informamos que o seu pedido *P-${updatedOrder.id}* foi cancelado.\n\n${finalReason}\n\nLamentamos o inconveniente. Para tentar um novo pedido, por favor, fale com um de nossos atendentes.`;
                 }
-
-                if (message) {
-                    await notifyBot(updatedOrder.client_phone, message);
-                }
+                if (message) await notifyBot(updatedOrder.client_phone, message);
             }
             // ##################### FIM DA CORREÇÃO ######################
             return response.status(204).send();
-
         } catch (error) {
-            console.error(`[OrderController] Erro crítico ao atualizar status do pedido ${id}:`, error);
+            console.error(`[OrderController] Erro ao atualizar status do pedido ${id}:`, error);
             return response.status(500).json({ error: 'Erro interno do servidor.' });
         }
     },
@@ -149,13 +124,11 @@ module.exports = {
                     }));
                     await trx('order_items').insert(orderItems);
                 }
-                const fullOrder = { ...order, items };
-                console.log(`[OrderController] ✅ Pré-pedido #${order.id} criado.`);
-                return fullOrder;
+                return { ...order, items };
             });
             return response.status(201).json(newOrderData);
         } catch (error) {
-            console.error('[OrderController] ❌ ERRO AO CRIAR PRÉ-PEDIDO:', error.message, error.stack);
+            console.error('[OrderController] ❌ ERRO AO CRIAR PRÉ-PEDIDO:', error);
             return response.status(400).json({ error: 'Não foi possível registrar o pedido.' });
         }
     },
@@ -164,25 +137,16 @@ module.exports = {
         const { id } = request.params;
         const { whatsapp } = request.body;
         const apiKey = request.headers['x-api-key'];
-
-        if (!apiKey || apiKey !== process.env.BOT_API_KEY) {
-            return response.status(403).json({ error: 'Acesso não autorizado.' });
-        }
+        if (!apiKey || apiKey !== process.env.BOT_API_KEY) return response.status(403).json({ error: 'Acesso não autorizado.' });
         
         try {
             const [orderRaw] = await connection('orders').where({ id, status: 'Novo' }).update({ client_phone: whatsapp }).returning('*');
-            if (!orderRaw) {
-                return response.status(404).json({ error: 'Pedido não encontrado ou já processado.' });
-            }
+            if (!orderRaw) return response.status(404).json({ error: 'Pedido não encontrado ou já processado.' });
             
             const [order] = await enrichOrdersWithFinancials([orderRaw]);
             const items = await connection('order_items').where('order_id', order.id);
-            const fullOrder = { ...order, items };
-
-            console.log(`[OrderController] 🚀 Pedido #${id} confirmado. Emitindo 'new_order'.`);
-            getIO().emit('new_order', fullOrder);
-            return response.status(200).json(fullOrder);
-
+            getIO().emit('new_order', { ...order, items });
+            return response.status(200).json({ ...order, items });
         } catch (error) {
             console.error(`[OrderController] ❌ ERRO AO CONFIRMAR PEDIDO #${id}:`, error);
             return response.status(500).json({ error: 'Falha ao confirmar o pedido.' });
@@ -205,7 +169,6 @@ module.exports = {
 
     async clearHistory(request, response) {
         try {
-            console.log('[OrderController] Limpando histórico de pedidos.');
             await connection('orders').whereIn('status', ['Finalizado', 'Cancelado']).del();
             getIO().emit('history_cleared');
             return response.status(204).send();
