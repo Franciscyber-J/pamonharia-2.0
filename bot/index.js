@@ -10,11 +10,8 @@ const PORT = process.env.PORT || 9000;
 const API_KEY = process.env.BOT_API_KEY;
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:10000';
 const CARDAPIO_URL = process.env.CARDAPIO_URL || 'https://pamonhariasaborosa.expertbr.com/cardapio';
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Adicionadas variáveis de ambiente para a integração com o Telegram.
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-// ##################### FIM DA CORREÇÃO ######################
 
 const app = express();
 app.use(express.json());
@@ -32,8 +29,6 @@ function log(level, context, message) {
     console.log(`[${timestamp}] [${level}] [${context}] ${message}`);
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Nova função para enviar notificações para o Telegram.
 async function sendTelegramNotification(message) {
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
         log('WARN', 'Telegram', 'Token ou Chat ID do Telegram não configurados. A saltar notificação.');
@@ -52,7 +47,6 @@ async function sendTelegramNotification(message) {
         log('ERROR', 'Telegram', `Falha ao enviar notificação para o Telegram: ${errorMessage}`);
     }
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 
 // --- CONFIGURAÇÃO DO CLIENTE WHATSAPP-WEB.JS ---
@@ -176,9 +170,6 @@ function cleanSearchQuery(text) {
     return text.toLowerCase().replace(/[?.,!]/g, "").split(" ").filter(word => !stopWords.includes(word)).join(" ").trim();
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: A lógica do concierge foi atualizada para um menu numérico,
-// incluindo as novas opções e a transição para o estado 'HUMANO_ATIVO'.
 async function handleConcierge(msg, lowerBody) {
     const choice = parseInt(lowerBody, 10);
 
@@ -212,7 +203,6 @@ async function handleConcierge(msg, lowerBody) {
                 await sendTelegramNotification(`🏍️ *Novo Contacto de Entregador*\n\nUm entregador/parceiro entrou em contacto no WhatsApp.\n\n*Contacto:* ${msg.from.replace('@c.us', '')}\n\nPor favor, verifique a conversa.`);
                 break;
             default:
-                // Se não for um número válido, verifica por palavras-chave de produto/bebida
                 if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     await msg.reply("Olá! No momento, focamos em oferecer as melhores pamonhas e derivados, por isso não trabalhamos com bebidas. 😊");
                 } else if (PRODUCT_KEYWORDS.some(kw => lowerBody.includes(kw))) {
@@ -234,16 +224,26 @@ async function handleConcierge(msg, lowerBody) {
     }
 }
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: A mensagem principal foi reestruturada para sempre incluir
+// o link do cardápio de forma proeminente, melhorando a experiência do cliente.
 async function sendDefaultMenu(msg) {
     const { data: status } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
-    const menuMessage = status.status === 'aberto'
+
+    const statusMessage = status.status === 'aberto'
         ? `*Estamos abertos!*`
-        : `*No momento estamos fechados.*\n\n${status.message}`;
+        : `*No momento estamos fechados.*`;
     
     await msg.reply(
 `Olá! Bem-vindo(a) à *Pamonharia Saborosa do Goiás*! 🌽
-${status.status === 'aberto' ? '' : `\n${status.message}\n`}
-Como posso ajudar? *Digite o número da opção desejada:*
+
+${statusMessage}
+
+Para ver o cardápio e fazer seu pedido, acesse o link abaixo:
+*${CARDAPIO_URL}*
+
+--------------------
+Ou, se preferir, *digite o número de uma das opções:*
 
 *1.* Ver Cardápio / Fazer Pedido
 *2.* Ver Endereço
@@ -254,6 +254,7 @@ Como posso ajudar? *Digite o número da opção desejada:*
     );
 }
 // ##################### FIM DA CORREÇÃO ######################
+
 
 // --- API INTERNA PARA O BACKEND ---
 const apiKeyMiddleware = (req, res, next) => {
