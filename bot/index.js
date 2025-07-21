@@ -22,6 +22,10 @@ const chatStates = new Map();
 const PRODUCT_KEYWORDS = ["pamonha", "curau", "bolo", "bolinho", "chica", "caldo", "creme", "doce", "combo"];
 const DRINK_KEYWORDS = ["bebida", "refrigerante", "refri", "coca", "guarana", "suco", "agua", "água", "cerveja"];
 const CANCEL_KEYWORDS = ["cancelar", "cancela", "nao quero mais", "não quero mais"];
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Nova lista de palavras-chave para o encerramento da conversa.
+const END_KEYWORDS = ["sair", "parar", "encerrar", "obrigado", "obg", "vlw", "tchau"];
+// ##################### FIM DA CORREÇÃO ######################
 
 // --- FUNÇÃO DE LOG ---
 function log(level, context, message) {
@@ -36,11 +40,7 @@ async function sendTelegramNotification(message) {
     }
     try {
         const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-        await axios.post(url, {
-            chat_id: TELEGRAM_CHAT_ID,
-            text: message,
-            parse_mode: 'Markdown'
-        });
+        await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: 'Markdown' });
         log('SUCCESS', 'Telegram', 'Notificação enviada com sucesso para o Telegram.');
     } catch (error) {
         const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
@@ -51,42 +51,19 @@ async function sendTelegramNotification(message) {
 
 // --- CONFIGURAÇÃO DO CLIENTE WHATSAPP-WEB.JS ---
 const client = new Client({
-    authStrategy: new LocalAuth({
-        clientId: 'pamonharia-bot-concierge',
-        dataPath: './sessions',
-    }),
-    webVersionCache: {
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
-    },
+    authStrategy: new LocalAuth({ clientId: 'pamonharia-bot-concierge', dataPath: './sessions' }),
+    webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' },
     puppeteer: {
         headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
-            '--disable-gpu',
-            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
-        ],
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-accelerated-2d-canvas', '--no-first-run', '--no-zygote', '--single-process', '--disable-gpu', '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'],
     },
 });
 
 client.on('qr', (qr) => {
-    log('INFO', 'QRCode', 'QR Code recebido. A gerar URL de imagem...');
-    qrcode.toDataURL(qr, (err, url) => {
-        if (err) { console.error('Erro ao gerar URL do QR Code:', err); return; }
-        console.log('--------------------------------------------------');
-        console.log('QR Code pronto!');
-        qrcode.toString(qr, { type: 'terminal', small: true }, (err, qrTerminal) => {
-            if (err) { console.log('Não foi possível gerar o QR Code, copie a URL manualmente.'); } 
-            else { console.log(qrTerminal); }
-            console.log('URL para login (copie e cole no navegador):', url);
-            console.log('--------------------------------------------------');
-        });
+    log('INFO', 'QRCode', 'QR Code recebido...');
+    qrcode.toString(qr, { type: 'terminal', small: true }, (err, qrTerminal) => {
+        if (err) { console.log('Não foi possível gerar o QR Code.'); } 
+        else { console.log(qrTerminal); }
     });
 });
 
@@ -109,21 +86,17 @@ client.on('message', async (msg) => {
             await msg.reply('Entendido. A entrega seguirá para o endereço informado.');
             chatStates.delete(chatId);
         } else {
-            // #################### INÍCIO DA CORREÇÃO ####################
             await msg.reply(`🗺️ *Ainda aguardando a sua localização...*\n\nPara que o entregador encontre você facilmente, por favor, envie a sua localização.\n\n*Como fazer:*\n1. Toque no ícone de anexo (📎).\n2. Escolha a opção "Localização".\n3. Envie a sua "Localização Atual".\n\n_Se preferir não enviar, basta digitar *cancelar*._`);
-            // ##################### FIM DA CORREÇÃO ######################
         }
         return;
     }
 
     if (currentState === 'HUMANO_ATIVO') {
-        // #################### INÍCIO DA CORREÇÃO ####################
         if (lowerBody === 'reiniciar') {
             chatStates.delete(chatId);
             await msg.reply(`🤖 *Atendimento Automático Reativado*\n\nO bot está de volta! 👋 Como posso te ajudar agora?`);
             await sendDefaultMenu(msg);
         }
-        // ##################### FIM DA CORREÇÃO ######################
         return;
     }
 
@@ -144,17 +117,13 @@ async function handleOrderConfirmation(msg, orderId) {
         let resumo = `🎉 *Pedido Confirmado!* 🎉\n\n`;
         resumo += `Olá! O seu pedido *P-${order.id}* foi recebido com sucesso e a nossa cozinha já foi notificada.\n\n`;
         resumo += `🧾 *Resumo do Pedido:*\n`;
-        
         order.items.forEach(item => {
             resumo += `  • *${item.quantity}x* ${item.item_name}\n`;
             const details = item.item_details || {};
             if (details.complements?.length > 0) {
-                details.complements.forEach(sub => {
-                    resumo += `    ↳ _${sub.quantity}x ${sub.name}_\n`;
-                });
+                details.complements.forEach(sub => { resumo += `    ↳ _${sub.quantity}x ${sub.name}_\n`; });
             }
         });
-
         resumo += `\n✅ *Detalhes do Pedido:*\n`;
         resumo += `  • *Pagamento:* ${order.payment_method === 'online' ? 'Pago Online' : 'Na Entrega'}\n`;
         resumo += `  • *Destino:* ${order.client_address}\n`;
@@ -170,20 +139,27 @@ async function handleOrderConfirmation(msg, orderId) {
         }
     } catch (error) {
         log('ERROR', 'Confirmation', `Falha ao confirmar pedido #${orderId}: ${error.response?.data?.error || error.message}`);
-        // #################### INÍCIO DA CORREÇÃO ####################
         await msg.reply(`⚠️ *Atenção: Falha na Confirmação*\n\nTivemos um problema ao tentar confirmar o seu pedido em nosso sistema.\n\n*Não se preocupe, a nossa equipe já foi alertada sobre isso e irá verificar a situação manualmente.* Um atendente entrará em contacto em breve.`);
-        // ##################### FIM DA CORREÇÃO ######################
     }
 }
 
 async function handleConcierge(msg, lowerBody) {
     const horarioKeywords = ["horário", "horario", "hora", "abre", "fecha", "aberto", "até que horas"];
     if (horarioKeywords.some(kw => lowerBody.includes(kw))) {
-        log('INFO', 'Concierge', `Recebida pergunta sobre horário: "${lowerBody}"`);
         const { data: scheduleData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
         await msg.reply(scheduleData.message);
         return;
     }
+
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Adicionada verificação para palavras de encerramento.
+    // Se a mensagem do utilizador corresponder, o bot despede-se e encerra a interação.
+    if (END_KEYWORDS.some(kw => lowerBody.startsWith(kw))) {
+        log('INFO', 'Concierge', `Utilizador encerrou a conversa: "${lowerBody}"`);
+        await msg.reply("Entendido! Se precisar de algo mais, é só chamar. 😊");
+        return;
+    }
+    // ##################### FIM DA CORREÇÃO ######################
 
     const choice = parseInt(lowerBody, 10);
 
@@ -217,14 +193,11 @@ async function handleConcierge(msg, lowerBody) {
                 await sendTelegramNotification(`🏍️ *Novo Contacto de Entregador*\n\nUm entregador ou parceiro de logística iniciou uma conversa no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e preste o suporte necessário.*`);
                 break;
             default:
-                // #################### INÍCIO DA CORREÇÃO ####################
                 if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     await msg.reply(`🥤 *Sobre Bebidas*\n\nNo momento, nosso foco é 100% em oferecer as melhores pamonhas e delícias de milho! Por isso, não trabalhamos com a venda de bebidas.\n\nAgradecemos a sua compreensão! 😊`);
-                // ##################### FIM DA CORREÇÃO ######################
                 } else if (PRODUCT_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     const matchedKeyword = PRODUCT_KEYWORDS.find(kw => lowerBody.includes(kw));
                     log('INFO', 'Concierge', `Palavra-chave de produto encontrada: "${matchedKeyword}".`);
-                    
                     const { data } = await axios.get(`${BACKEND_URL}/api/public/product-query`, { params: { q: matchedKeyword } });
                     if(data.encontrado) {
                         await msg.reply(data.emEstoque ? `Temos *${data.nome}* sim! 😊\n\nPode pedir em nosso cardápio:\n*${CARDAPIO_URL}*` : `Poxa, nosso(a) *${data.nome}* esgotou! 😥\n\nVeja outras delícias em:\n*${CARDAPIO_URL}*`);
@@ -238,19 +211,13 @@ async function handleConcierge(msg, lowerBody) {
         }
     } catch (error) {
         log('ERROR', 'Concierge', `Falha ao processar mensagem: ${error.message}`);
-        // #################### INÍCIO DA CORREÇÃO ####################
         await msg.reply(`⚠️ *Ops! Ocorreu um problema.*\n\nDesculpe, não consegui processar a sua última mensagem. Por favor, tente novamente.\n\nSe o erro persistir, digite *4* para falar diretamente com um de nossos atendentes.`);
-        // ##################### FIM DA CORREÇÃO ######################
     }
 }
 
 async function sendDefaultMenu(msg) {
     const { data: status } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
-
-    const statusMessage = status.status === 'aberto'
-        ? `*Estamos abertos!*`
-        : `*No momento estamos fechados.*`;
-    
+    const statusMessage = status.status === 'aberto' ? `*Estamos abertos!*` : `*No momento estamos fechados.*`;
     await msg.reply(
 `Olá! Bem-vindo(a) à *Pamonharia Saborosa do Goiás*! 🌽
 
@@ -271,7 +238,6 @@ Ou, se preferir, *digite o número de uma das opções:*
     );
 }
 
-
 // --- API INTERNA PARA O BACKEND ---
 const apiKeyMiddleware = (req, res, next) => {
     const providedKey = req.headers['x-api-key'];
@@ -283,7 +249,6 @@ const apiKeyMiddleware = (req, res, next) => {
 };
 
 app.get('/status', (req, res) => res.status(200).json({ ready: isBotReady }));
-
 app.post('/send-message', apiKeyMiddleware, async (req, res) => {
     if (!isBotReady) { return res.status(503).json({ error: 'O bot não está pronto.' }); }
     const { phone, message } = req.body;
