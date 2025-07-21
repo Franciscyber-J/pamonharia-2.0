@@ -4,6 +4,8 @@ import { state, setState } from './main.js';
 import { showCustomConfirm } from './ui.js';
 
 let notificationAudio, isSoundEnabled = true, isAudioUnlocked = false;
+let rejectReasonModal, rejectReasonForm, rejectReasonSelect, orderToRejectId;
+let driverRequestModal, driverRequestGroupsList, currentOrderForDriver;
 
 export async function setupAudio() {
     try {
@@ -136,12 +138,7 @@ export function renderPedidosPage() {
         );
     });
 
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Movemos a inicialização dos event listeners para aqui,
-    // garantindo que os elementos do modal já existem no DOM.
     setupModalEventListeners();
-    // ##################### FIM DA CORREÇÃO ######################
-
     fetchAndRenderOrders();
 }
 
@@ -206,14 +203,14 @@ function createOrderCard(order) {
     
     let driverButton = '';
     if (order.status === 'Em Preparo' && !isPickup) {
-        driverButton = `<button onclick="openDriverRequestModal(${order.id})" class="driver-request">Solicitar Entregador</button>`;
+        driverButton = `<button onclick="window.openDriverRequestModal(${order.id})" class="driver-request">Solicitar Entregador</button>`;
     }
     
     const actionMap = {
-        'Novo': `<button onclick="updateOrderStatusWrapper(${order.id}, 'Em Preparo')">Aceitar Pedido</button><button onclick="updateOrderStatusWrapper(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`,
-        'Pago': `<button onclick="updateOrderStatusWrapper(${order.id}, 'Em Preparo')">Aceitar Pedido</button>`,
-        'Em Preparo': `<button onclick="updateOrderStatusWrapper(${order.id}, '${nextStatusFromPreparo}')">Pronto</button>${driverButton}`,
-        'Pronto para Entrega': `<button onclick="updateOrderStatusWrapper(${order.id}, 'Finalizado')">Finalizado</button>`
+        'Novo': `<button onclick="window.updateOrderStatusWrapper(${order.id}, 'Em Preparo')">Aceitar Pedido</button><button onclick="window.updateOrderStatusWrapper(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`,
+        'Pago': `<button onclick="window.updateOrderStatusWrapper(${order.id}, 'Em Preparo')">Aceitar Pedido</button>`,
+        'Em Preparo': `<button onclick="window.updateOrderStatusWrapper(${order.id}, '${nextStatusFromPreparo}')">Pronto</button>${driverButton}`,
+        'Pronto para Entrega': `<button onclick="window.updateOrderStatusWrapper(${order.id}, 'Finalizado')">Finalizado</button>`
     };
 
     const actionsHtml = actionMap[order.status] || '';
@@ -319,16 +316,56 @@ function openOrderDetailsModal(order) {
     };
 }
 
-let driverRequestModal, driverRequestGroupsList, currentOrderForDriver;
-
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Adicionada a lógica de gestão do modal de recusa que se tinha perdido.
 function setupModalEventListeners() {
-    driverRequestModal = document.getElementById('driver-request-modal-overlay');
-    driverRequestGroupsList = document.getElementById('driver-request-groups-list');
+    rejectReasonModal = document.getElementById('reject-reason-modal-overlay');
+    rejectReasonForm = document.getElementById('reject-reason-form');
+    rejectReasonSelect = document.getElementById('reject-reason-select');
     
+    if (rejectReasonModal) {
+        rejectReasonModal.querySelector('.modal-close-btn').addEventListener('click', closeRejectModal);
+        rejectReasonModal.querySelector('.modal-cancel-btn').addEventListener('click', closeRejectModal);
+        rejectReasonForm.addEventListener('submit', handleRejectSubmit);
+    }
+
+    driverRequestModal = document.getElementById('driver-request-modal-overlay');
     if (driverRequestModal) {
         driverRequestModal.querySelector('.modal-close-btn').addEventListener('click', closeDriverRequestModal);
         driverRequestModal.querySelector('.modal-cancel-btn').addEventListener('click', closeDriverRequestModal);
     }
+}
+
+function openRejectModal(orderId) {
+    orderToRejectId = orderId;
+    rejectReasonForm.reset();
+    rejectReasonModal.style.display = 'flex';
+}
+
+function closeRejectModal() {
+    orderToRejectId = null;
+    rejectReasonModal.style.display = 'none';
+}
+
+async function handleRejectSubmit(e) {
+    e.preventDefault();
+    const reasonValue = rejectReasonSelect.value;
+    const reasonText = rejectReasonSelect.options[rejectReasonSelect.selectedIndex].text;
+    if (!reasonValue) {
+        alert('Por favor, selecione um motivo.');
+        return;
+    }
+    
+    await updateOrderStatus(orderToRejectId, 'Cancelado', {
+        isRejectFlow: true,
+        reason: reasonText 
+    });
+    
+    if (reasonValue === 'stock_problem') {
+        document.getElementById('stock-alert-banner').style.display = 'block';
+        document.querySelector('.sidebar').classList.add('navigation-locked');
+    }
+    closeRejectModal();
 }
 
 function openDriverRequestModal(orderId) {
@@ -337,7 +374,8 @@ function openDriverRequestModal(orderId) {
         alert('Erro: Pedido não encontrado.');
         return;
     }
-
+    
+    driverRequestGroupsList = document.getElementById('driver-request-groups-list');
     driverRequestGroupsList.innerHTML = '<p>A buscar grupos...</p>';
     driverRequestModal.style.display = 'flex';
 
@@ -406,3 +444,4 @@ function closeDriverRequestModal() {
 // Wrappers para tornar funções acessíveis a partir do HTML
 window.updateOrderStatusWrapper = updateOrderStatus;
 window.openDriverRequestModal = openDriverRequestModal;
+// ##################### FIM DA CORREÇÃO ######################

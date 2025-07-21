@@ -7,6 +7,7 @@ import { renderConfiguracoesPage } from './configuracoes.js';
 
 const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
+// --- ESTADO GLOBAL E VARIÁVEIS ---
 export const state = {
     userRole: sessionStorage.getItem('userRole'),
     allProducts: [],
@@ -22,6 +23,7 @@ export function setState(newState) {
     Object.assign(state, newState);
 }
 
+// --- INICIALIZAÇÃO DO SOCKET.IO ---
 export const socket = io(API_BASE_URL_GLOBAL, { transports: ['websocket'] });
 
 function setupSocketListeners() {
@@ -31,16 +33,16 @@ function setupSocketListeners() {
     
     const isPedidosPageActive = () => document.querySelector('.orders-panel');
     
-    socket.on('new_order', (order) => {
+    socket.on('new_order', async (order) => {
         if (isPedidosPageActive()) {
             state.allOrdersCache.unshift(order);
-            const { addOrderCard } = require('./pedidos.js');
+            const { addOrderCard } = await import('./pedidos.js');
             addOrderCard(order, true);
         }
         playNotification(order.id);
     });
     
-    socket.on('order_status_updated', (data) => {
+    socket.on('order_status_updated', async (data) => {
         if (isPedidosPageActive()) {
             const index = state.allOrdersCache.findIndex(o => o.id === data.id);
             if (index !== -1) {
@@ -48,14 +50,14 @@ function setupSocketListeners() {
             } else {
                 state.allOrdersCache.unshift(data.order);
             }
-            const { addOrderCard } = require('./pedidos.js');
+            const { addOrderCard } = await import('./pedidos.js');
             addOrderCard(data.order, true);
         }
     });
     
-    socket.on('history_cleared', () => {
+    socket.on('history_cleared', async () => {
         if (isPedidosPageActive()) {
-            const { fetchAndRenderOrders } = require('./pedidos.js');
+            const { fetchAndRenderOrders } = await import('./pedidos.js');
             fetchAndRenderOrders();
         }
     });
@@ -74,6 +76,7 @@ function setupSocketListeners() {
     });
 }
 
+// --- NAVEGAÇÃO E RENDERIZAÇÃO DE PÁGINAS ---
 const navLinks = {
     pedidos: document.getElementById('nav-pedidos'),
     produtos: document.getElementById('nav-produtos'),
@@ -109,6 +112,7 @@ function handleNavigation(e) {
     }
 }
 
+// --- FUNÇÕES GERAIS E INICIALIZAÇÃO ---
 function applyRolePermissions() {
     if (state.userRole === 'operador') {
         navLinks.complementos.style.display = 'none';
@@ -156,9 +160,6 @@ async function initializeApp() {
     renderHeaderControls();
     setupSocketListeners();
     
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: O event listener global para fechar os menus de ação foi movido
-    // para a função `setupProductEventListeners` em `produtos.js`, que é o seu lugar correto.
     document.addEventListener('click', (event) => {
         if (!event.target.classList.contains('btn-actions-menu')) {
             document.querySelectorAll('.actions-menu.visible').forEach(openMenu => {
@@ -166,7 +167,6 @@ async function initializeApp() {
             });
         }
     });
-    // ##################### FIM DA CORREÇÃO ######################
 
     await Promise.all([
         fetchAllProducts(),

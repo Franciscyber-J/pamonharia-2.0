@@ -48,10 +48,7 @@ export function stopCartTimeout() {
 async function main() {
     console.log('[main.js] Função main() iniciada.');
     try {
-        // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Adicionada uma chamada "fire-and-forget" para aquecer o servidor.
         apiFetch('/public/health').catch(err => console.warn('[Health Check] Ping inicial para o servidor falhou (isso pode ser normal em cold starts):', err.message));
-        // ##################### FIM DA CORREÇÃO ######################
 
         const paymentSettings = await apiFetch('/public/payment-settings');
         if (paymentSettings && paymentSettings.mercadoPagoPublicKey) {
@@ -96,6 +93,26 @@ async function handleOrderSubmit(e) {
     e.preventDefault();
     console.log('[Order] ➡️ Iniciando submissão de pedido.');
     
+    dom.submitOrderBtn.disabled = true;
+    dom.submitOrderBtn.textContent = 'A aquecer servidor...';
+
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Implementado um "pre-flight check" para acordar o servidor antes de enviar o pedido.
+    try {
+        console.log('[Order] Executando pre-flight check para acordar o servidor...');
+        await apiFetch('/public/health');
+        console.log('[Order] ✅ Servidor acordado.');
+    } catch (error) {
+        console.error('[Order] ❌ Falha no pre-flight check:', error);
+        showErrorModal('Erro de Conexão', 'Não foi possível conectar ao servidor. Por favor, tente novamente.');
+        dom.submitOrderBtn.disabled = false;
+        dom.submitOrderBtn.textContent = 'Finalizar Pedido';
+        return;
+    }
+    // ##################### FIM DA CORREÇÃO ######################
+
+    dom.submitOrderBtn.textContent = 'A processar...';
+
     const paymentMethod = document.querySelector('input[name="payment-method"]:checked').value;
     const deliveryFee = state.storeSettings.delivery_fee || 0;
     const isDelivery = document.querySelector('input[name="delivery-type"]:checked').value === 'delivery';
@@ -122,9 +139,6 @@ async function handleOrderSubmit(e) {
         observations: document.getElementById('order-observations').value,
         needs_cutlery: document.getElementById('needs-cutlery').checked
     };
-
-    dom.submitOrderBtn.disabled = true;
-    dom.submitOrderBtn.textContent = 'A processar...';
 
     if (paymentMethod === 'online') {
         if (!state.mp) {
