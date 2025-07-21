@@ -7,9 +7,7 @@ const SettingsController = require('./controllers/SettingsController');
 const OrderController = require('./controllers/OrderController');
 const ComboController = require('./controllers/ComboController');
 const PaymentController = require('./controllers/PaymentController');
-// #################### INÍCIO DA CORREÇÃO ####################
-const BotController = require('./controllers/BotController'); // Novo controller
-// ##################### FIM DA CORREÇÃO ######################
+const BotController = require('./controllers/BotController'); 
 
 const authMiddleware = require('./middlewares/auth');
 const { checkRole } = require('./middlewares/authorization');
@@ -42,16 +40,17 @@ router.patch('/orders/:id/status', checkRole(['admin', 'operador']), OrderContro
 router.delete('/orders/history', checkRole(['admin', 'operador']), OrderController.clearHistory);
 
 router.patch('/products/:id/stock', checkRole(['admin', 'operador']), ProductController.updateStock);
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Nova rota segura para permitir que operadores e admins alterem o status.
+router.patch('/products/:id/status', checkRole(['admin', 'operador']), ProductController.updateStatus);
+// ##################### FIM DA CORREÇÃO ######################
 router.get('/products', checkRole(['admin', 'operador']), ProductController.index);
 
 router.get('/dashboard/config', checkRole(['admin', 'operador']), SettingsController.getDashboardConfig);
 router.patch('/settings/status', checkRole(['admin', 'operador']), SettingsController.updateStatus);
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Novas rotas para integração com o bot (logística).
 router.get('/bot/groups', checkRole(['admin', 'operador']), BotController.getGroups);
 router.post('/bot/request-driver', checkRole(['admin', 'operador']), BotController.requestDriver);
-// ##################### FIM DA CORREÇÃO ######################
 
 
 // --- ROTAS RESTRITAS (APENAS ADMIN) ---

@@ -41,16 +41,11 @@ module.exports = {
       }
     });
 
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Garante que os complementos (children) sejam sempre ordenados
-    // pela sua 'display_order' antes de serem enviados para o frontend.
-    // Isso resolve a instabilidade visual ao atualizar o estoque de um complemento.
     parentProducts.forEach(parent => {
         if (parent.children && parent.children.length > 0) {
             parent.children.sort((a, b) => a.display_order - b.display_order);
         }
     });
-    // ##################### FIM DA CORREÇÃO ######################
 
     return response.json(parentProducts);
   },
@@ -79,7 +74,6 @@ module.exports = {
         }
     });
 
-    // Garante a ordenação dos filhos também na rota pública
     finalList.forEach(parent => {
         if (parent.children && parent.children.length > 0) {
             parent.children.sort((a, b) => a.display_order - b.display_order);
@@ -156,6 +150,35 @@ module.exports = {
     }
   },
 
+  // #################### INÍCIO DA CORREÇÃO ####################
+  // ARQUITETO: Novo método seguro e específico para que operadores possam
+  // pausar ou ativar produtos sem ter permissão para editar outros campos.
+  async updateStatus(request, response) {
+    const { id } = request.params;
+    const { status } = request.body;
+
+    if (typeof status !== 'boolean') {
+        return response.status(400).json({ error: 'O campo "status" deve ser um booleano.' });
+    }
+
+    try {
+        const product = await connection('products').where('id', id).first();
+        if (!product) {
+            return response.status(404).json({ error: 'Produto não encontrado.' });
+        }
+
+        await connection('products').where('id', id).update({ status });
+
+        emitDataUpdated();
+        
+        return response.status(200).json({ message: 'Status do produto atualizado com sucesso.' });
+    } catch (error) {
+        console.error(`[ProductController] Erro ao atualizar status do produto ${id}:`, error);
+        return response.status(500).json({ error: 'Falha ao atualizar o status do produto.' });
+    }
+  },
+  // ##################### FIM DA CORREÇÃO ######################
+
   async destroy(request, response) {
     const { id } = request.params;
     const deleted_rows = await connection('products').where('id', id).delete();
@@ -181,18 +204,13 @@ module.exports = {
 
         const [product] = await trx('products').where('id', id).update(dataToUpdate).returning('*');
         if (!product) throw new Error('Produto não encontrado.');
-        
-        // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Garante que, ao atualizar o estoque de um produto pai
-        // com a sincronização ativa, o novo valor de estoque seja
-        // imediatamente propagado para todos os seus filhos.
+
         if (product.stock_sync_enabled && dataToUpdate.stock_quantity !== undefined) {
           console.log(`[ProductController] Sincronização ativa para o produto ${id}. Propagando estoque ${dataToUpdate.stock_quantity} para os filhos.`);
           await trx('products')
             .where('parent_product_id', id)
             .update({ stock_quantity: dataToUpdate.stock_quantity });
         }
-        // ##################### FIM DA CORREÇÃO ######################
       });
 
       await request.triggerInventoryReload(); 

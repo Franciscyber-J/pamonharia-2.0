@@ -67,7 +67,6 @@ export function renderProdutosPage(isComplementosPage = false) {
         renderProdutosPageContent();
     }
     
-    // Listeners para o modal de produto, que é único
     document.getElementById('product-form').addEventListener('submit', saveProduct);
     document.getElementById('product-cancel-button').addEventListener('click', closeProductModal);
     document.getElementById('product-modal-close-btn').addEventListener('click', closeProductModal);
@@ -211,12 +210,6 @@ function createProductRow(product, isChild = false, isSynced = false) {
         </tr>`;
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: A lógica de eventos foi consolidada e refatorada para garantir que
-// um único conjunto de listeners, anexado ao container principal, controle todas
-// as interações. O atributo 'data-events-attached' previne duplicações de listeners
-// que poderiam causar comportamentos inesperados. A função 'keydown' agora
-// funciona de forma fiável em todos os campos de estoque.
 function setupProductEventListeners() {
     const dashboardContent = document.getElementById('dashboard-content');
     if (dashboardContent.dataset.eventsAttached) return;
@@ -274,7 +267,6 @@ function setupProductEventListeners() {
         }
     });
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 function openProductModal(id = null, isMainProduct = true) {
     const modal = document.getElementById('product-modal-overlay');
@@ -436,11 +428,14 @@ function duplicateProduct(id) {
     }, 'btn-primary', 'Duplicar');
 }
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: A função agora chama a nova rota segura PATCH /products/:id/status,
+// que é acessível tanto para admins quanto para operadores.
 async function toggleProductStatus(productId, newStatus) {
     setState({ isProgrammaticallyUpdating: true });
     try {
-        await globalApiFetch(`/products/${productId}`, {
-            method: 'PUT',
+        await globalApiFetch(`/products/${productId}/status`, {
+            method: 'PATCH',
             body: JSON.stringify({ status: newStatus })
         });
         await refreshCurrentProductView();
@@ -452,6 +447,7 @@ async function toggleProductStatus(productId, newStatus) {
         setTimeout(() => { setState({ isProgrammaticallyUpdating: false }); }, 500);
     }
 }
+// ##################### FIM DA CORREÇÃO ######################
 
 function handleStockAdjust(button, amount) {
     const stockInput = button.closest('.stock-controls').querySelector('.stock-input');
