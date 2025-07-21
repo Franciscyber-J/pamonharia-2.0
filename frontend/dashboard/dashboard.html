@@ -233,6 +233,19 @@
         </div>
     </div>
 
+    <div id="driver-request-modal-overlay" class="modal-overlay">
+        <div class="modal-content" style="max-width: 500px;">
+            <button class="modal-close-btn">&times;</button>
+            <h3>Solicitar Entregador</h3>
+            <p style="opacity: 0.8; margin-bottom: 20px;">Selecione o grupo de WhatsApp para onde a solicitação de entrega deve ser enviada.</p>
+            <div id="driver-request-groups-list" class="modal-body" style="padding-right: 0;">
+            </div>
+            <div class="form-buttons">
+                <button type="button" class="btn btn-secondary modal-cancel-btn">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const userRole = sessionStorage.getItem('userRole');
@@ -259,7 +272,11 @@
                         const errorData = await response.json().catch(() => ({}));
                         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
                     }
-                    return response.status === 204 ? null : response.json();
+                    const contentType = response.headers.get("content-type");
+                    if (contentType && contentType.indexOf("application/json") !== -1) {
+                         return response.status === 204 ? null : response.json();
+                    }
+                    return response.text();
                 } catch (error) {
                     console.error(`Falha na chamada da API para ${endpoint}:`, error);
                     alert(`Erro de comunicação com o servidor: ${error.message}`);
@@ -549,13 +566,89 @@
                     console.error("Erro ao buscar pedidos:", error);
                 }
             };
+
+            const driverRequestModal = document.getElementById('driver-request-modal-overlay');
+            const driverRequestGroupsList = document.getElementById('driver-request-groups-list');
+            let currentOrderForDriver = null;
+
+            window.openDriverRequestModal = async (orderId) => {
+                currentOrderForDriver = allOrdersCache.find(o => o.id === orderId);
+                if (!currentOrderForDriver) {
+                    alert('Erro: Pedido não encontrado.');
+                    return;
+                }
+
+                driverRequestGroupsList.innerHTML = '<p>A buscar grupos...</p>';
+                driverRequestModal.style.display = 'flex';
+
+                try {
+                    const groups = await globalApiFetch('/bot/groups');
+                    if (groups && groups.length > 0) {
+                        driverRequestGroupsList.innerHTML = '';
+                        groups.forEach(group => {
+                            const groupButton = document.createElement('button');
+                            groupButton.className = 'btn btn-primary group-select-btn';
+                            groupButton.textContent = group.name;
+                            groupButton.onclick = () => sendDriverRequest(group.id);
+                            driverRequestGroupsList.appendChild(groupButton);
+                        });
+                    } else {
+                        driverRequestGroupsList.innerHTML = '<p>Nenhum grupo de WhatsApp encontrado. Verifique se o bot está em algum grupo.</p>';
+                    }
+                } catch (error) {
+                    driverRequestGroupsList.innerHTML = `<p style="color: var(--danger-color);">Erro ao buscar grupos: ${error.message}</p>`;
+                }
+            };
+
+            const sendDriverRequest = async (groupId) => {
+                const order = currentOrderForDriver;
+                if (!order) return;
+
+                let message = `🏍️ *SOLICITAÇÃO DE ENTREGA* 🏍️\n\n`;
+                message += `*Pedido:* #${order.id}\n`;
+                message += `*Cliente:* ${order.client_name}\n`;
+                message += `*Endereço:* ${order.client_address}\n\n`;
+                message += `*Valor Total:* R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}\n`;
+                
+                let paymentInfo = `Pagamento: *Pagar na Entrega/Retirada*`;
+                if (order.payment_method === 'online') {
+                    paymentInfo = `Pagamento: *JÁ PAGO* (Online)`;
+                }
+                message += `${paymentInfo}`;
+
+                try {
+                    driverRequestGroupsList.innerHTML = '<p>Enviando solicitação...</p>';
+                    await globalApiFetch('/bot/request-driver', {
+                        method: 'POST',
+                        body: JSON.stringify({ groupId, message })
+                    });
+                    closeDriverRequestModal();
+                    showCustomConfirm(
+                        'Solicitação enviada!', 
+                        () => {},
+                        'btn-primary', 
+                        'OK'
+                    );
+                } catch (error) {
+                    alert(`Erro ao enviar a solicitação: ${error.message}`);
+                    closeDriverRequestModal();
+                }
+            };
+
+            const closeDriverRequestModal = () => {
+                driverRequestModal.style.display = 'none';
+                currentOrderForDriver = null;
+            };
+
+            driverRequestModal.querySelector('.modal-close-btn').addEventListener('click', closeDriverRequestModal);
+            driverRequestModal.querySelector('.modal-cancel-btn').addEventListener('click', closeDriverRequestModal);
             
             function createOrderCard(order) {
                 const card = document.createElement('div');
                 card.className = 'order-card';
                 card.id = `order-${order.id}`;
                 card.onclick = (event) => {
-                    if (event.target.tagName !== 'BUTTON') {
+                    if (!event.target.closest('button')) {
                         openOrderDetailsModal(order);
                     }
                 };
@@ -565,8 +658,6 @@
                     paymentTag = `<span class="order-tag payment-paid">PAGO ONLINE</span>`;
                 } else if (order.payment_method === 'on_delivery') {
                     paymentTag = `<span class="order-tag payment-on-delivery">PAGAR NA ENTREGA</span>`;
-                } else if (order.status === 'Aguardando Pagamento') {
-                    paymentTag = `<span class="order-tag payment-pending">AGUARDANDO PAG.</span>`;
                 }
 
                 const isPickup = order.client_address === 'Retirada no local';
@@ -574,11 +665,15 @@
                 
                 const nextStatusFromPreparo = isPickup ? 'Finalizado' : 'Pronto para Entrega';
 
+                let driverButton = '';
+                if (order.status === 'Em Preparo' && !isPickup) {
+                    driverButton = `<button onclick="window.openDriverRequestModal(${order.id})" class="driver-request">Solicitar Entregador</button>`;
+                }
+
                 const actionMap = {
-                    'Aguardando Pagamento': `<button onclick="window.updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`,
-                    'Pago': `<button onclick="window.updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar Pedido</button>`,
                     'Novo': `<button onclick="window.updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar Pedido</button><button onclick="window.updateOrderStatus(${order.id}, 'Cancelado')" class="cancel">Recusar</button>`,
-                    'Em Preparo': `<button onclick="window.updateOrderStatus(${order.id}, '${nextStatusFromPreparo}')">Pronto</button>`,
+                    'Pago': `<button onclick="window.updateOrderStatus(${order.id}, 'Em Preparo')">Aceitar Pedido</button>`,
+                    'Em Preparo': `<button onclick="window.updateOrderStatus(${order.id}, '${nextStatusFromPreparo}')">Pronto</button>${driverButton}`,
                     'Pronto para Entrega': `<button onclick="window.updateOrderStatus(${order.id}, 'Finalizado')">Finalizado</button>`
                 };
 
@@ -589,8 +684,6 @@
                 return card;
             };
 
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: Lógica de renderização do modal refatorada para usar a nova estrutura de `item_details` e a regra de quantidade.
             function openOrderDetailsModal(order) {
                 const modal = document.getElementById('order-details-modal-overlay');
                 const title = document.getElementById('order-details-title');
@@ -676,7 +769,6 @@
                     }
                 };
             }
-            // ##################### FIM DA CORREÇÃO ######################
 
             function addOrderCard(order, prepend = true) { const statusMap = { 'Aguardando Pagamento': 'col-novo', 'Pago': 'col-novo', 'Novo': 'col-novo', 'Em Preparo': 'col-em-preparo', 'Pronto para Entrega': 'col-pronto-para-entrega', 'Finalizado': 'col-finalizado', 'Cancelado': 'col-cancelado' }; const columnId = statusMap[order.status]; if (!columnId) return; const column = document.getElementById(columnId); if (column) { const existingCard = document.getElementById(`order-${order.id}`); if (existingCard) existingCard.remove(); const card = createOrderCard(order); if (prepend) column.prepend(card); else column.appendChild(card); } };
 

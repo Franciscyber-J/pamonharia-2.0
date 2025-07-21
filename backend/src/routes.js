@@ -7,6 +7,9 @@ const SettingsController = require('./controllers/SettingsController');
 const OrderController = require('./controllers/OrderController');
 const ComboController = require('./controllers/ComboController');
 const PaymentController = require('./controllers/PaymentController');
+// #################### INÍCIO DA CORREÇÃO ####################
+const BotController = require('./controllers/BotController'); // Novo controller
+// ##################### FIM DA CORREÇÃO ######################
 
 const authMiddleware = require('./middlewares/auth');
 const { checkRole } = require('./middlewares/authorization');
@@ -27,14 +30,9 @@ router.post('/payments/webhook', PaymentController.receiveWebhook);
 router.get('/public/orders/:id/details', OrderController.getDetails);
 router.get('/public/store-status', SettingsController.getStoreStatus);
 router.get('/public/product-query', ProductController.queryByName);
-
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Adicionado um endpoint de "health check" para aquecer o servidor em cold starts.
 router.get('/public/health', (req, res) => {
   res.status(200).send('OK');
 });
-// ##################### FIM DA CORREÇÃO ######################
-
 
 router.use(authMiddleware);
 
@@ -48,6 +46,12 @@ router.get('/products', checkRole(['admin', 'operador']), ProductController.inde
 
 router.get('/dashboard/config', checkRole(['admin', 'operador']), SettingsController.getDashboardConfig);
 router.patch('/settings/status', checkRole(['admin', 'operador']), SettingsController.updateStatus);
+
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Novas rotas para integração com o bot (logística).
+router.get('/bot/groups', checkRole(['admin', 'operador']), BotController.getGroups);
+router.post('/bot/request-driver', checkRole(['admin', 'operador']), BotController.requestDriver);
+// ##################### FIM DA CORREÇÃO ######################
 
 
 // --- ROTAS RESTRITAS (APENAS ADMIN) ---

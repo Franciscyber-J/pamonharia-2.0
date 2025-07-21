@@ -82,7 +82,8 @@ client.on('disconnected', (reason) => {
 });
 
 client.on('message', async (msg) => {
-    if (msg.fromMe || !isBotReady || msg.isStatus) return;
+    const chat = await msg.getChat();
+    if (msg.fromMe || !isBotReady || msg.isStatus || chat.isGroup) return;
 
     const lowerBody = msg.body.trim().toLowerCase();
     
@@ -106,8 +107,6 @@ async function handleOrderConfirmation(msg, orderId) {
             headers: { 'x-api-key': API_KEY }
         });
         
-        // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Lógica de resumo do pedido corrigida para incluir o detalhamento financeiro.
         let resumo = `Pedido *P-${confirmedOrder.id}* confirmado com sucesso! ✅\n\n`;
         resumo += "Resumo do seu pedido:\n\n";
         
@@ -133,8 +132,7 @@ async function handleOrderConfirmation(msg, orderId) {
                 }
             }
         });
-
-        // Detalhamento Financeiro
+        
         resumo += "\n";
         if (confirmedOrder.delivery_fee && confirmedOrder.delivery_fee > 0) {
             resumo += `Subtotal: R$ ${Number.parseFloat(confirmedOrder.subtotal).toFixed(2).replace(".", ",")}\n`;
@@ -153,7 +151,6 @@ async function handleOrderConfirmation(msg, orderId) {
         resumo += `\n*Precisa de talher?* ${confirmedOrder.needs_cutlery ? 'Sim' : 'Não'}`;
         
         resumo += `\n\nNossa equipe já foi notificada e em breve começará a prepará-lo. Manteremos você atualizado!`;
-        // ##################### FIM DA CORREÇÃO ######################
         
         await msg.reply(resumo);
 
@@ -247,6 +244,46 @@ app.post('/send-message', apiKeyMiddleware, async (req, res) => {
         res.status(500).json({ error: 'Falha ao enviar a mensagem.' });
     }
 });
+
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Novos endpoints para a integração com o dashboard de logística.
+app.get('/groups', apiKeyMiddleware, async (req, res) => {
+    if (!isBotReady) {
+        return res.status(503).json({ error: 'O bot não está pronto para listar os grupos.' });
+    }
+    try {
+        const chats = await client.getChats();
+        const groups = chats
+            .filter(chat => chat.isGroup)
+            .map(chat => ({
+                id: chat.id._serialized,
+                name: chat.name,
+            }));
+        res.status(200).json(groups);
+    } catch (error) {
+        log('ERROR', 'API', `Falha ao listar grupos: ${error.message}`);
+        res.status(500).json({ error: 'Falha ao obter a lista de grupos do WhatsApp.' });
+    }
+});
+
+app.post('/send-group-message', apiKeyMiddleware, async (req, res) => {
+    if (!isBotReady) {
+        return res.status(503).json({ error: 'O bot não está pronto para enviar mensagens.' });
+    }
+    const { groupId, message } = req.body;
+    if (!groupId || !message) {
+        return res.status(400).json({ error: 'Campos "groupId" e "message" são obrigatórios.' });
+    }
+    try {
+        await client.sendMessage(groupId, message);
+        log('SUCCESS', 'API', `Mensagem enviada com sucesso para o grupo ${groupId}.`);
+        res.status(200).json({ success: true });
+    } catch (error) {
+        log('ERROR', 'API', `Falha ao enviar mensagem para o grupo ${groupId}: ${error.message}`);
+        res.status(500).json({ error: 'Falha ao enviar a mensagem para o grupo.' });
+    }
+});
+// ##################### FIM DA CORREÇÃO ######################
 
 // --- INICIALIZAÇÃO ---
 app.listen(PORT, () => {
