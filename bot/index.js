@@ -132,25 +132,33 @@ client.on('message', async (msg) => {
     await handleConcierge(msg, lowerBody);
 });
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: A mensagem de confirmação do pedido foi reformatada
+// para se assemelhar a um recibo digital, melhorando a clareza para o cliente.
 async function handleOrderConfirmation(msg, orderId) {
     try {
         log('INFO', 'Confirmation', `Recebida confirmação para o Pedido #${orderId}`);
         const { data: order } = await axios.post(`${BACKEND_URL}/api/public/orders/${orderId}/confirm`, { whatsapp: msg.from }, { headers: { 'x-api-key': API_KEY } });
         
-        let resumo = `Pedido *P-${order.id}* confirmado! ✅\n\n*Resumo:*\n`;
+        let resumo = `🎉 *Pedido Confirmado!* 🎉\n\n`;
+        resumo += `Olá! O seu pedido *P-${order.id}* foi recebido com sucesso e a nossa cozinha já foi notificada.\n\n`;
+        resumo += `🧾 *Resumo do Pedido:*\n`;
+        
         order.items.forEach(item => {
+            resumo += `  • *${item.quantity}x* ${item.item_name}\n`;
             const details = item.item_details || {};
-            resumo += `*${item.quantity}x* ${item.item_name}\n`;
             if (details.complements?.length > 0) {
                 details.complements.forEach(sub => {
-                    resumo += `  ↳ _${sub.quantity}x ${sub.name}_\n`;
+                    resumo += `    ↳ _${sub.quantity}x ${sub.name}_\n`;
                 });
             }
         });
-        resumo += `\n*TOTAL: R$ ${Number.parseFloat(order.total_price).toFixed(2).replace(".", ",")}*`;
-        resumo += `\n*Pagamento:* ${order.payment_method === 'online' ? 'Pago Online' : 'Pagar na Entrega'}`;
-        resumo += `\n*Destino:* ${order.client_address}`;
-        resumo += `\n\nNossa equipe já foi notificada. Manteremos você atualizado!`;
+
+        resumo += `\n✅ *Detalhes do Pedido:*\n`;
+        resumo += `  • *Pagamento:* ${order.payment_method === 'online' ? 'Pago Online' : 'Na Entrega'}\n`;
+        resumo += `  • *Destino:* ${order.client_address}\n`;
+        resumo += `  • *Total:* R$ ${Number.parseFloat(order.total_price).toFixed(2).replace(".", ",")}\n\n`;
+        resumo += `_Obrigado pela sua preferência! Manteremos você atualizado sobre o estado do seu pedido._`;
         
         await msg.reply(resumo);
 
@@ -164,6 +172,7 @@ async function handleOrderConfirmation(msg, orderId) {
         await msg.reply('Ocorreu um erro ao confirmar seu pedido. Um atendente irá verificar.');
     }
 }
+// ##################### FIM DA CORREÇÃO ######################
 
 async function handleConcierge(msg, lowerBody) {
     const horarioKeywords = ["horário", "horario", "hora", "abre", "fecha", "aberto", "até que horas"];
@@ -191,27 +200,28 @@ async function handleConcierge(msg, lowerBody) {
                 const { data: scheduleData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
                 await msg.reply(scheduleData.message);
                 break;
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // ARQUITETO: As mensagens para os fluxos de atendimento foram reformatadas
+            // para serem mais claras, profissionais e informativas. A palavra "equipa"
+            // foi corrigida para "equipe".
             case 4:
                 chatStates.set(msg.from, 'HUMANO_ATIVO');
-                await msg.reply("Ok, um de nossos atendentes irá te responder em instantes. Para reativar o atendimento automático, digite *reiniciar*.");
+                await msg.reply("Ok, um de nossos atendentes irá te responder em instantes.\n\n_Para reativar o atendimento automático, por favor, digite *reiniciar*._");
                 break;
             case 5:
                 chatStates.set(msg.from, 'HUMANO_ATIVO');
-                await msg.reply("Entendido. Já notifiquei a nossa equipa. Um responsável entrará em contacto em breve. Para reativar o bot, digite *reiniciar*.");
-                await sendTelegramNotification(`🔔 *Novo Contacto de Fornecedor*\n\nUm possível fornecedor/parceiro entrou em contacto no WhatsApp.\n\n*Contacto:* ${msg.from.replace('@c.us', '')}\n\nPor favor, verifique a conversa.`);
+                await msg.reply("*Atendimento a Fornecedores/Parceiros*\n\nEntendido. A sua mensagem foi encaminhada para a nossa equipe de gestão.\n\nUm responsável entrará em contacto assim que possível.\n\n_Para reativar o bot, digite *reiniciar*._");
+                await sendTelegramNotification(`🔔 *Novo Contacto de Fornecedor*\n\nUm possível fornecedor ou parceiro iniciou uma conversa no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e dê seguimento.*`);
                 break;
             case 6:
                 chatStates.set(msg.from, 'HUMANO_ATIVO');
-                await msg.reply("Olá, parceiro! Nossa equipa de logística já foi notificada e irá responder em breve. Se quiser, pode adiantar sua dúvida. Para reativar o bot, digite *reiniciar*.");
-                await sendTelegramNotification(`🏍️ *Novo Contacto de Entregador*\n\nUm entregador/parceiro entrou em contacto no WhatsApp.\n\n*Contacto:* ${msg.from.replace('@c.us', '')}\n\nPor favor, verifique a conversa.`);
+                await msg.reply("*Atendimento a Entregadores/Parceiros*\n\nOlá, parceiro! A sua mensagem foi direcionada para a nossa equipe de logística.\n\nUm operador irá responder em breve. Se desejar, pode adiantar o motivo do seu contacto.\n\n_Para reativar o bot, digite *reiniciar*._");
+                await sendTelegramNotification(`🏍️ *Novo Contacto de Entregador*\n\nUm entregador ou parceiro de logística iniciou uma conversa no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e preste o suporte necessário.*`);
                 break;
+            // ##################### FIM DA CORREÇÃO ######################
             default:
                 if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     await msg.reply("Olá! No momento, focamos em oferecer as melhores pamonhas e derivados, por isso não trabalhamos com bebidas. 😊");
-                // #################### INÍCIO DA CORREÇÃO ####################
-                // ARQUITETO: A lógica de busca por produto foi aprimorada. Agora, ela
-                // extrai a primeira palavra-chave de produto encontrada na frase do cliente
-                // e usa apenas essa palavra na busca, tornando a consulta muito mais precisa.
                 } else if (PRODUCT_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     const matchedKeyword = PRODUCT_KEYWORDS.find(kw => lowerBody.includes(kw));
                     log('INFO', 'Concierge', `Palavra-chave de produto encontrada: "${matchedKeyword}".`);
@@ -222,7 +232,6 @@ async function handleConcierge(msg, lowerBody) {
                     } else {
                         await sendDefaultMenu(msg);
                     }
-                // ##################### FIM DA CORREÇÃO ######################
                 } else {
                     await sendDefaultMenu(msg);
                 }
@@ -241,9 +250,6 @@ async function sendDefaultMenu(msg) {
         ? `*Estamos abertos!*`
         : `*No momento estamos fechados.*`;
     
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: A mensagem de encorajamento foi removida, conforme solicitado,
-    // para um menu mais direto.
     await msg.reply(
 `Olá! Bem-vindo(a) à *Pamonharia Saborosa do Goiás*! 🌽
 
@@ -262,7 +268,6 @@ Ou, se preferir, *digite o número de uma das opções:*
 *5.* Sou Fornecedor/Parceiro
 *6.* Sou Entregador/Parceiro`
     );
-    // ##################### FIM DA CORREÇÃO ######################
 }
 
 
