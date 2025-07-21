@@ -22,10 +22,7 @@ const chatStates = new Map();
 const PRODUCT_KEYWORDS = ["pamonha", "curau", "bolo", "bolinho", "chica", "caldo", "creme", "doce", "combo"];
 const DRINK_KEYWORDS = ["bebida", "refrigerante", "refri", "coca", "guarana", "suco", "agua", "água", "cerveja"];
 const CANCEL_KEYWORDS = ["cancelar", "cancela", "nao quero mais", "não quero mais"];
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Nova lista de palavras-chave para o encerramento da conversa.
 const END_KEYWORDS = ["sair", "parar", "encerrar", "obrigado", "obg", "vlw", "tchau"];
-// ##################### FIM DA CORREÇÃO ######################
 
 // --- FUNÇÃO DE LOG ---
 function log(level, context, message) {
@@ -151,15 +148,11 @@ async function handleConcierge(msg, lowerBody) {
         return;
     }
 
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Adicionada verificação para palavras de encerramento.
-    // Se a mensagem do utilizador corresponder, o bot despede-se e encerra a interação.
     if (END_KEYWORDS.some(kw => lowerBody.startsWith(kw))) {
         log('INFO', 'Concierge', `Utilizador encerrou a conversa: "${lowerBody}"`);
         await msg.reply("Entendido! Se precisar de algo mais, é só chamar. 😊");
         return;
     }
-    // ##################### FIM DA CORREÇÃO ######################
 
     const choice = parseInt(lowerBody, 10);
 
@@ -178,10 +171,14 @@ async function handleConcierge(msg, lowerBody) {
                 const { data: scheduleData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
                 await msg.reply(scheduleData.message);
                 break;
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // ARQUITETO: Adicionada a notificação via Telegram para a solicitação de atendimento humano geral.
             case 4:
                 chatStates.set(msg.from, 'HUMANO_ATIVO');
                 await msg.reply("Ok, um de nossos atendentes irá te responder em instantes.\n\n_Para reativar o atendimento automático, por favor, digite *reiniciar*._");
+                await sendTelegramNotification(`🗣️ *Solicitação de Atendimento Humano*\n\nUm cliente solicitou para falar com um atendente no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e inicie o atendimento.*`);
                 break;
+            // ##################### FIM DA CORREÇÃO ######################
             case 5:
                 chatStates.set(msg.from, 'HUMANO_ATIVO');
                 await msg.reply("*Atendimento a Fornecedores/Parceiros*\n\nEntendido. A sua mensagem foi encaminhada para a nossa equipe de gestão.\n\nUm responsável entrará em contacto assim que possível.\n\n_Para reativar o bot, digite *reiniciar*._");

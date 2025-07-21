@@ -48,13 +48,11 @@ async function startServer() {
             console.log('[Server] Recarregando inventário completo da base de dados...');
             
             const allProducts = await connection('products').select('id', 'stock_quantity', 'parent_product_id', 'stock_sync_enabled', 'is_main_product');
-            
             const productMap = new Map(allProducts.map(p => [p.id, p]));
             const newInventory = {};
 
             for (const product of allProducts) {
                 let finalStock = product.stock_quantity;
-                
                 if (product.parent_product_id) {
                     const parent = productMap.get(product.parent_product_id);
                     if (parent && parent.stock_sync_enabled) {
@@ -66,7 +64,7 @@ async function startServer() {
 
             liveInventory = newInventory;
             getIO().emit('stock_update', liveInventory);
-            console.log(`[Server] ✅ Inventário completo recarregado e transmitido com regras de sincronização aplicadas.`);
+            console.log(`[Server] ✅ Inventário completo recarregado e transmitido.`);
         } catch (error) { 
             console.error('[Server] ❌ Erro ao recarregar o inventário:', error); 
         }
@@ -85,77 +83,91 @@ async function startServer() {
 
     async function handleStockChange(items, operation) {
       try {
-          console.log(`[handleStockChange] Operação de estoque recebida: ${operation}. Itens:`, JSON.stringify(items, null, 2));
-    
+          if (!items || items.length === 0) return { success: true };
           const trx = await connection.transaction();
-          
           try {
               for (const item of items) {
                   if (!item.id || !item.quantity) continue;
-                  
                   const product = await trx('products').where({ id: item.id, stock_enabled: true }).first();
                   if (!product) continue;
-
-                  console.log(`[handleStockChange] Produto [ID: ${product.id}, Nome: ${product.name}] é válido para alteração de estoque.`);
-                  const changeAmount = operation === 'decrement' ? -item.quantity : item.quantity;
                   
-                  const currentStock = product.stock_quantity;
-                  if (operation === 'decrement' && (currentStock === null || currentStock < item.quantity)) {
+                  const changeAmount = operation === 'decrement' ? -item.quantity : item.quantity;
+                  if (operation === 'decrement' && (product.stock_quantity === null || product.stock_quantity < item.quantity)) {
                       throw new Error(`Estoque insuficiente para o produto "${product.name}".`);
                   }
-
                   await trx('products').where('id', product.id).increment('stock_quantity', changeAmount);
 
                   if (product.is_main_product && product.stock_sync_enabled) {
-                      console.log(`[handleStockChange] Sincronização ativa para ${product.name}. Propagando alteração para os filhos.`);
-                      await trx('products')
-                          .where('parent_product_id', product.id)
-                          .increment('stock_quantity', changeAmount);
+                      await trx('products').where('parent_product_id', product.id).increment('stock_quantity', changeAmount);
                   }
               }
               await trx.commit();
           } catch (err) {
               await trx.rollback();
-              console.error(`[Server] ❌ Falha na transação de estoque, revertendo. Erro:`, err.message);
               await triggerFullInventoryReload();
               throw err;
           }
-    
           await triggerFullInventoryReload();
           return { success: true };
-    
       } catch (error) {
           console.error(`[Server] ❌ Falha crítica na operação de estoque:`, error.message);
           return { success: false, message: error.message };
       }
     }
     
+    const cleanupAbandonedOrders = async () => {
+        console.log('[Cleanup] Executando rotina de limpeza de pedidos abandonados...');
+        try {
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // ARQUITETO: O tempo de verificação foi reduzido para 2 minutos.
+            const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+            const abandonedOrders = await connection('orders')
+                .where('status', 'Aguardando Confirmação')
+                .andWhere('created_at', '<', twoMinutesAgo);
+            // ##################### FIM DA CORREÇÃO ######################
+
+            if (abandonedOrders.length === 0) {
+                console.log('[Cleanup] Nenhum pedido abandonado encontrado.');
+                return;
+            }
+
+            console.log(`[Cleanup] ${abandonedOrders.length} pedido(s) abandonado(s) encontrado(s).`);
+
+            for (const order of abandonedOrders) {
+                const items = await connection('order_items').where('order_id', order.id);
+                const itemsToRelease = items.map(item => ({
+                    id: item.product_id || item.combo_id,
+                    quantity: item.quantity
+                }));
+                
+                await handleStockChange(itemsToRelease, 'increment');
+                await connection('orders').where('id', order.id).del();
+                console.log(`[Cleanup] Estoque do pedido #${order.id} foi devolvido e o pedido foi apagado.`);
+            }
+        } catch (error) {
+            console.error('[Cleanup] ❌ Erro durante a limpeza de pedidos abandonados:', error);
+        }
+    };
+    
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: O intervalo de execução da rotina foi ajustado para 2 minutos.
+    setInterval(cleanupAbandonedOrders, 2 * 60 * 1000);
+    // ##################### FIM DA CORREÇÃO ######################
+    
     io.on('connection', (socket) => {
         console.log(`[Server] ➡️ Cliente conectado: ${socket.id}`);
         socket.emit('stock_update', liveInventory);
 
         socket.on('reserve_stock', async (itemsToReserve, callback) => {
-            console.log(`[Socket.IO] Recebido 'reserve_stock' do cliente ${socket.id}`);
-            try {
-                const result = await handleStockChange(itemsToReserve, 'decrement');
-                if (typeof callback === 'function') {
-                    callback(result);
-                }
-            } catch (error) {
-                console.error(`[Socket.IO] Falha na reserva para ${socket.id}: ${error.message}.`);
-                if (typeof callback === 'function') {
-                    callback({ success: false, message: error.message });
-                }
-            }
+            const result = await handleStockChange(itemsToReserve, 'decrement');
+            if (typeof callback === 'function') callback(result);
         });
 
         socket.on('release_stock', async (itemsToRelease) => {
             await handleStockChange(itemsToRelease, 'increment');
         });
 
-        socket.on('disconnect', () => {
-            console.log(`[Server] ⬅️ Cliente desconectado: ${socket.id}`);
-        });
+        socket.on('disconnect', () => { console.log(`[Server] ⬅️ Cliente desconectado: ${socket.id}`); });
     });
 
     const PORT = process.env.PORT || 10000;
