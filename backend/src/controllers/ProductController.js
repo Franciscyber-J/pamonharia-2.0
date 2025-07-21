@@ -42,7 +42,9 @@ module.exports = {
     });
 
     // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Garante que os complementos (children) sejam sempre ordenados.
+    // ARQUITETO: Garante que os complementos (children) sejam sempre ordenados
+    // pela sua 'display_order' antes de serem enviados para o frontend.
+    // Isso resolve a instabilidade visual ao atualizar o estoque de um complemento.
     parentProducts.forEach(parent => {
         if (parent.children && parent.children.length > 0) {
             parent.children.sort((a, b) => a.display_order - b.display_order);
@@ -179,13 +181,18 @@ module.exports = {
 
         const [product] = await trx('products').where('id', id).update(dataToUpdate).returning('*');
         if (!product) throw new Error('Produto não encontrado.');
-
+        
+        // #################### INÍCIO DA CORREÇÃO ####################
+        // ARQUITETO: Garante que, ao atualizar o estoque de um produto pai
+        // com a sincronização ativa, o novo valor de estoque seja
+        // imediatamente propagado para todos os seus filhos.
         if (product.stock_sync_enabled && dataToUpdate.stock_quantity !== undefined) {
           console.log(`[ProductController] Sincronização ativa para o produto ${id}. Propagando estoque ${dataToUpdate.stock_quantity} para os filhos.`);
           await trx('products')
             .where('parent_product_id', id)
             .update({ stock_quantity: dataToUpdate.stock_quantity });
         }
+        // ##################### FIM DA CORREÇÃO ######################
       });
 
       await request.triggerInventoryReload(); 

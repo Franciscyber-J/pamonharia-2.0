@@ -211,6 +211,12 @@ function createProductRow(product, isChild = false, isSynced = false) {
         </tr>`;
 }
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: A lógica de eventos foi consolidada e refatorada para garantir que
+// um único conjunto de listeners, anexado ao container principal, controle todas
+// as interações. O atributo 'data-events-attached' previne duplicações de listeners
+// que poderiam causar comportamentos inesperados. A função 'keydown' agora
+// funciona de forma fiável em todos os campos de estoque.
 function setupProductEventListeners() {
     const dashboardContent = document.getElementById('dashboard-content');
     if (dashboardContent.dataset.eventsAttached) return;
@@ -268,6 +274,7 @@ function setupProductEventListeners() {
         }
     });
 }
+// ##################### FIM DA CORREÇÃO ######################
 
 function openProductModal(id = null, isMainProduct = true) {
     const modal = document.getElementById('product-modal-overlay');

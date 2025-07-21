@@ -316,8 +316,6 @@ function openOrderDetailsModal(order) {
     };
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Adicionada a lógica de gestão do modal de recusa que se tinha perdido.
 function setupModalEventListeners() {
     rejectReasonModal = document.getElementById('reject-reason-modal-overlay');
     rejectReasonForm = document.getElementById('reject-reason-form');
@@ -399,40 +397,34 @@ function openDriverRequestModal(orderId) {
     });
 }
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: A função agora envia o 'orderId' para o backend, em vez de uma
+// mensagem formatada. O backend terá a responsabilidade de construir a
+// mensagem completa com os detalhes da loja.
 async function sendDriverRequest(groupId) {
     const order = currentOrderForDriver;
     if (!order) return;
-
-    let message = `🏍️ *SOLICITAÇÃO DE ENTREGA* 🏍️\n\n`;
-    message += `*Pedido:* #${order.id}\n`;
-    message += `*Cliente:* ${order.client_name}\n`;
-    message += `*Endereço:* ${order.client_address}\n\n`;
-    message += `*Valor Total:* R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}\n`;
-    
-    let paymentInfo = `Pagamento: *Pagar na Entrega/Retirada*`;
-    if (order.payment_method === 'online') {
-        paymentInfo = `Pagamento: *JÁ PAGO* (Online)`;
-    }
-    message += `${paymentInfo}`;
 
     try {
         driverRequestGroupsList.innerHTML = '<p>Enviando solicitação...</p>';
         await globalApiFetch('/bot/request-driver', {
             method: 'POST',
-            body: JSON.stringify({ groupId, message })
+            body: JSON.stringify({ groupId, orderId: order.id })
         });
         closeDriverRequestModal();
+        // Usa showCustomConfirm para um feedback mais elegante e não bloqueante.
         showCustomConfirm(
-            'Solicitação enviada!', 
-            () => {},
+            'Solicitação enviada com sucesso!', 
+            () => {}, // Função vazia para o onConfirm, pois só queremos mostrar a mensagem.
             'btn-primary', 
             'OK'
         );
     } catch (error) {
         alert(`Erro ao enviar a solicitação: ${error.message}`);
-        closeDriverRequestModal();
+        closeDriverRequestModal(); // Fecha o modal mesmo em caso de erro.
     }
 }
+// ##################### FIM DA CORREÇÃO ######################
 
 function closeDriverRequestModal() {
     if (driverRequestModal) {
@@ -444,4 +436,3 @@ function closeDriverRequestModal() {
 // Wrappers para tornar funções acessíveis a partir do HTML
 window.updateOrderStatusWrapper = updateOrderStatus;
 window.openDriverRequestModal = openDriverRequestModal;
-// ##################### FIM DA CORREÇÃO ######################

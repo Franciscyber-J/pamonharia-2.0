@@ -15,6 +15,16 @@ const app = express();
 app.use(express.json());
 
 let isBotReady = false;
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Adicionado um Map para gerir o estado de cada conversa individualmente.
+// Isso permite funcionalidades como "Aguardando Localização" ou "Atendimento Humano".
+const chatStates = new Map();
+
+// Listas de palavras-chave para uma interpretação mais inteligente das mensagens.
+const PRODUCT_KEYWORDS = ["pamonha", "curau", "bolo", "bolinho", "chica", "caldo", "creme", "doce", "combo"];
+const DRINK_KEYWORDS = ["bebida", "refrigerante", "refri", "coca", "guarana", "suco", "agua", "água", "cerveja"];
+const CANCEL_KEYWORDS = ["cancelar", "cancela", "nao quero mais", "não quero mais"];
+// ##################### FIM DA CORREÇÃO ######################
 
 // --- FUNÇÃO DE LOG ---
 function log(level, context, message) {
@@ -81,12 +91,41 @@ client.on('disconnected', (reason) => {
     client.initialize();
 });
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: O listener de mensagens foi refatorado para usar um sistema de estados,
+// tornando o bot mais inteligente e contextual.
 client.on('message', async (msg) => {
     const chat = await msg.getChat();
     if (msg.fromMe || !isBotReady || msg.isStatus || chat.isGroup) return;
 
     const lowerBody = msg.body.trim().toLowerCase();
-    
+    const chatId = msg.from;
+    const currentState = chatStates.get(chatId);
+
+    // MÁQUINA DE ESTADOS: Verifica se o chat está em um estado especial.
+    if (currentState === 'AGUARDANDO_LOCALIZACAO') {
+        if (msg.hasLocation || msg.type === 'location') {
+            await msg.reply('Localização recebida! Muito obrigado, isso ajudará bastante o nosso entregador. 👍');
+            chatStates.delete(chatId);
+        } else if (CANCEL_KEYWORDS.some(kw => lowerBody.includes(kw))) {
+            await msg.reply('Entendido. A entrega seguirá para o endereço informado no pedido.');
+            chatStates.delete(chatId);
+        } else {
+            await msg.reply('Não consegui identificar uma localização. Para ajudar, por favor, use a função de anexo (📎) do WhatsApp e escolha "Localização". Se não quiser, é só digitar "cancelar".');
+        }
+        return; // Finaliza o processamento aqui
+    }
+
+    if (currentState === 'HUMANO_ATIVO') {
+        if (lowerBody === 'menu' || lowerBody === 'voltar') {
+            chatStates.delete(chatId);
+            await msg.reply('Ok, o atendimento automático foi reativado! 👋');
+            await sendDefaultMenu(msg); // Volta ao menu principal
+        }
+        return; // Ignora outras mensagens enquanto espera o atendente
+    }
+
+    // FLUXO NORMAL DE CONVERSA
     const confirmationMatch = msg.body.match(/Código de Confirmação: *\*P-(\d+)-([A-Z0-9]{4})\*/i);
     if (confirmationMatch) {
         const orderId = confirmationMatch[1];
@@ -100,59 +139,39 @@ client.on('message', async (msg) => {
 async function handleOrderConfirmation(msg, orderId) {
     try {
         log('INFO', 'Confirmation', `Recebida confirmação para o Pedido #${orderId}`);
-
         const { data: confirmedOrder } = await axios.post(`${BACKEND_URL}/api/public/orders/${orderId}/confirm`, {
             whatsapp: msg.from
         }, {
             headers: { 'x-api-key': API_KEY }
         });
         
-        let resumo = `Pedido *P-${confirmedOrder.id}* confirmado com sucesso! ✅\n\n`;
-        resumo += "Resumo do seu pedido:\n\n";
-        
+        let resumo = `Pedido *P-${confirmedOrder.id}* confirmado com sucesso! ✅\n\nResumo do seu pedido:\n\n`;
         confirmedOrder.items.forEach(item => {
             const detailsWrapper = item.item_details || {};
             const complements = detailsWrapper.complements || [];
-            const isOneToOne = detailsWrapper.force_one_to_one === true;
-            
-            const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(complements) && complements.length > 0;
-
-            if (isContainerOnly) {
-                complements.forEach(det => {
-                    const combinedName = `${item.item_name} - ${det.name}`;
-                    resumo += `*${det.quantity}x* ${combinedName}\n`;
-                });
+            if (parseFloat(item.unit_price) === 0 && complements.length > 0) {
+                complements.forEach(det => resumo += `*${det.quantity}x* ${item.item_name} - ${det.name}\n`);
             } else {
                 resumo += `*${item.quantity}x* ${item.item_name}\n`;
-                if (Array.isArray(complements) && complements.length > 0) {
-                    complements.forEach(det => {
-                        const finalQuantity = isOneToOne ? det.quantity : (det.quantity * item.quantity);
-                        resumo += `  ↳ _${finalQuantity}x ${det.name}_\n`;
-                    });
+                if (complements.length > 0) {
+                    complements.forEach(det => resumo += `  ↳ _${(detailsWrapper.force_one_to_one ? det.quantity : (det.quantity * item.quantity))}x ${det.name}_\n`);
                 }
             }
         });
         
-        resumo += "\n";
-        if (confirmedOrder.delivery_fee && confirmedOrder.delivery_fee > 0) {
-            resumo += `Subtotal: R$ ${Number.parseFloat(confirmedOrder.subtotal).toFixed(2).replace(".", ",")}\n`;
-            resumo += `Taxa de Entrega: R$ ${Number.parseFloat(confirmedOrder.delivery_fee).toFixed(2).replace(".", ",")}\n`;
-            resumo += `*TOTAL: R$ ${Number.parseFloat(confirmedOrder.total_price).toFixed(2).replace(".", ",")}*\n`;
-        } else {
-            resumo += `*TOTAL: R$ ${Number.parseFloat(confirmedOrder.total_price).toFixed(2).replace(".", ",")}*\n`;
-        }
-
+        resumo += `\n*TOTAL: R$ ${Number.parseFloat(confirmedOrder.total_price).toFixed(2).replace(".", ",")}*\n`;
         resumo += `\n*Pagamento:* ${confirmedOrder.payment_method === 'online' ? 'Pago Online' : 'Pagar na Entrega/Retirada'}`;
         resumo += `\n*Destino:* ${confirmedOrder.client_address}`;
-        
-        if (confirmedOrder.observations) {
-            resumo += `\n\n*Observações:* ${confirmedOrder.observations}`;
-        }
-        resumo += `\n*Precisa de talher?* ${confirmedOrder.needs_cutlery ? 'Sim' : 'Não'}`;
-        
-        resumo += `\n\nNossa equipe já foi notificada e em breve começará a prepará-lo. Manteremos você atualizado!`;
+        resumo += `\n\nNossa equipe já foi notificada. Manteremos você atualizado!`;
         
         await msg.reply(resumo);
+
+        // Lógica para solicitar localização após a confirmação.
+        if (confirmedOrder.client_address !== 'Retirada no local') {
+            await new Promise(resolve => setTimeout(resolve, 1500)); // Pequena pausa
+            chatStates.set(msg.from, 'AGUARDANDO_LOCALIZACAO');
+            await msg.reply("Para facilitar a entrega, você poderia compartilhar sua localização conosco?\n\nBasta usar o anexo (📎) do WhatsApp e escolher *Localização* > *Localização Atual*. Se não quiser, é só digitar *cancelar*.");
+        }
 
     } catch (error) {
         const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
@@ -161,15 +180,18 @@ async function handleOrderConfirmation(msg, orderId) {
     }
 }
 
+function cleanSearchQuery(text) {
+    const stopWords = ["quero", "queria", "tem", "vcs", "voces", "de", "do", "da", "com", "um", "uma"];
+    return text.toLowerCase().replace(/[?.,!]/g, "").split(" ").filter(word => !stopWords.includes(word)).join(" ").trim();
+}
+
 async function handleConcierge(msg, lowerBody) {
     const keywords = {
         menu: ["cardapio", "cardápio", "menu", "pedido", "pedir"],
         endereco: ["endereço", "endereco", "local", "onde"],
         horario: ["horário", "horario", "hora", "abre", "fecha", "aberto"],
         atendente: ["atendente", "falar", "humano", "ajuda"],
-        produtos: ["pamonha", "curau", "bolo", "bolinho", "chica", "caldo", "creme", "doce", "combo"]
     };
-
     const findKeyword = (text, kws) => kws.some(kw => text.includes(kw));
 
     try {
@@ -178,25 +200,23 @@ async function handleConcierge(msg, lowerBody) {
         } else if (findKeyword(lowerBody, keywords.endereco)) {
             const { data } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
             let response = `Nosso endereço para retirada é:\n*${data.full_settings.address}*`;
-            if (data.full_settings.location_link) {
-                response += `\n\n📍 Ver no mapa:\n${data.full_settings.location_link}`;
-            }
+            if (data.full_settings.location_link) response += `\n\n📍 Ver no mapa:\n${data.full_settings.location_link}`;
             await msg.reply(response);
         } else if (findKeyword(lowerBody, keywords.horario)) {
             const { data } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
             await msg.reply(`*Status atual:* ${data.status.toUpperCase()}\n\n${data.message}`);
         } else if (findKeyword(lowerBody, keywords.atendente)) {
-            await msg.reply("Ok, um de nossos atendentes irá te responder em instantes.");
-        } else if (findKeyword(lowerBody, keywords.produtos)) {
-            const { data } = await axios.get(`${BACKEND_URL}/api/public/product-query`, { params: { q: lowerBody } });
-            if (data.encontrado) {
-                const response = data.emEstoque
-                    ? `Temos *${data.nome}* sim! 😊\n\nPode pedir diretamente em nosso cardápio online:\n*${CARDAPIO_URL}*`
-                    : `Poxa, nosso(a) *${data.nome}* esgotou por hoje! 😥\n\nVeja outras delícias em nosso cardápio:\n*${CARDAPIO_URL}*`;
-                await msg.reply(response);
-            } else {
-                await sendDefaultMenu(msg);
-            }
+            chatStates.set(msg.from, 'HUMANO_ATIVO');
+            await msg.reply("Ok, um de nossos atendentes irá te responder em instantes. Para reativar o atendimento automático, digite *menu*.");
+        } else if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
+            await msg.reply("Olá! No momento, focamos em oferecer as melhores pamonhas e derivados, e por isso não trabalhamos com a venda de bebidas. 😊");
+        } else if (PRODUCT_KEYWORDS.some(kw => lowerBody.includes(kw))) {
+            const cleanQuery = cleanSearchQuery(lowerBody);
+            const { data } = await axios.get(`${BACKEND_URL}/api/public/product-query`, { params: { q: cleanQuery } });
+            const response = data.encontrado
+                ? (data.emEstoque ? `Temos *${data.nome}* sim! 😊\n\nPode pedir diretamente em nosso cardápio online:\n*${CARDAPIO_URL}*` : `Poxa, nosso(a) *${data.nome}* esgotou por hoje! 😥\n\nVeja outras delícias em nosso cardápio:\n*${CARDAPIO_URL}*`)
+                : await sendDefaultMenu(msg); // Se não achou, manda o menu padrão
+            if (data.encontrado) await msg.reply(response);
         } else {
             await sendDefaultMenu(msg);
         }
@@ -205,6 +225,7 @@ async function handleConcierge(msg, lowerBody) {
         await msg.reply("Desculpe, tive um problema para processar sua solicitação. Tente novamente ou digite 'ajuda' para falar com um atendente.");
     }
 }
+// ##################### FIM DA CORREÇÃO ######################
 
 async function sendDefaultMenu(msg) {
     const { data: status } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
@@ -245,8 +266,6 @@ app.post('/send-message', apiKeyMiddleware, async (req, res) => {
     }
 });
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Novos endpoints para a integração com o dashboard de logística.
 app.get('/groups', apiKeyMiddleware, async (req, res) => {
     if (!isBotReady) {
         return res.status(503).json({ error: 'O bot não está pronto para listar os grupos.' });
@@ -283,7 +302,6 @@ app.post('/send-group-message', apiKeyMiddleware, async (req, res) => {
         res.status(500).json({ error: 'Falha ao enviar a mensagem para o grupo.' });
     }
 });
-// ##################### FIM DA CORREÇÃO ######################
 
 // --- INICIALIZAÇÃO ---
 app.listen(PORT, () => {
