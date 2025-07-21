@@ -76,19 +76,170 @@
     </div>
 
     <div id="product-modal-overlay" class="modal-overlay">
+        <div class="modal-content">
+            <button id="product-modal-close-btn" class="modal-close-btn">&times;</button>
+            <h3 id="product-modal-title">Adicionar Novo Produto</h3>
+            <div class="modal-body">
+                <form id="product-form">
+                    <input type="hidden" id="product-id">
+                    <input type="hidden" id="product-image-url">
+                    <input type="hidden" id="parent-product-id">
+                    <input type="hidden" id="is-main-product-flag">
+
+                    <div id="parent-info-section" style="display: none; margin-bottom: 20px; background-color: rgba(0,0,0,0.2); padding: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span>Este item é um complemento de: </span>
+                            <strong id="parent-product-name"></strong>
+                        </div>
+                        <button type="button" id="unlink-parent-btn" class="btn btn-danger" style="padding: 5px 10px; font-size: 0.8rem;">Desvincular</button>
+                    </div>
+
+                    <div id="product-form-grid">
+                        <div class="image-upload-container" onclick="document.getElementById('product-image-input').click()">
+                            <img id="product-image-preview" class="image-preview" src="" alt="Pré-visualização da Imagem">
+                            <div id="product-upload-prompt" class="upload-prompt"><span>Clique para<br>selecionar imagem</span></div>
+                            <input type="file" id="product-image-input" class="image-input" accept="image/*">
+                        </div>
+                        <div class="product-form-inputs">
+                            <div class="form-group"><label for="product-name">Nome</label><input type="text" id="product-name" class="input-field" required></div>
+                            <div class="form-group"><label for="product-description">Descrição</label><input type="text" id="product-description" class="input-field"></div>
+                            <div class="form-group"><label for="product-price">Preço (R$)</label><input type="number" id="product-price" class="input-field" step="0.01" required></div>
+                            <div class="form-group"><label for="product-status">Status</label><select id="product-status" class="input-field"><option value="true">Ativo</option><option value="false">Inativo</option></select></div>
+                        </div>
+                    </div>
+                    <div id="addons-management-section" class="addons-section">
+                        <h4>Gerir Complementos deste Produto</h4>
+                        <p style="opacity: 0.7; font-size: 0.9rem; margin-bottom: 15px;">Vincule itens da aba "Itens de Complemento" para servirem como opções deste produto.</p>
+                        <div id="addons-list" class="addons-list"></div>
+                        <div class="addon-options">
+                            <div class="option-group">
+                                <label class="toggle-switch"><input type="checkbox" id="force-one-to-one-complement"><span class="slider"></span></label>
+                                <span>Obrigar 1 complemento por item</span>
+                            </div>
+                            <div class="option-group">
+                                <label class="toggle-switch"><input type="checkbox" id="sell-parent-product"><span class="slider"></span></label>
+                                <span>Vender este item (com preço próprio)</span>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="form-buttons">
+                <button type="button" id="product-cancel-button" class="btn btn-danger">Cancelar</button>
+                <button type="submit" id="save-product-button" class="btn btn-primary" form="product-form">Salvar</button>
+            </div>
         </div>
+    </div>
     <div id="combo-modal-overlay" class="modal-overlay">
+        <div class="modal-content">
+            <button id="combo-modal-close-btn" class="modal-close-btn">&times;</button>
+            <h3 id="combo-modal-title">Adicionar Novo Combo</h3>
+            <div class="modal-body">
+                <form id="combo-form">
+                    <input type="hidden" id="combo-id">
+                    <input type="hidden" id="combo-image-url">
+                    <div id="combo-form-grid">
+                        <div class="image-upload-container" onclick="document.getElementById('combo-image-input').click()">
+                            <img id="combo-image-preview" class="image-preview" src="" alt="Pré-visualização do Combo">
+                            <div id="combo-upload-prompt" class="upload-prompt"><span>Clique para<br>selecionar imagem</span></div>
+                            <input type="file" id="combo-image-input" class="image-input" accept="image/*">
+                        </div>
+                        <div class="product-form-inputs">
+                            <div class="form-group"><label for="combo-name">Nome do Combo</label><input type="text" id="combo-name" class="input-field" required></div>
+                            <div class="form-group"><label for="combo-description">Descrição</label><input type="text" id="combo-description" class="input-field"></div>
+                            <div class="form-group"><label for="combo-price">Preço Base (R$)</label><input type="number" id="combo-price" class="input-field" step="0.01" required></div>
+                            <div class="form-group"><label for="combo-status">Status</label><select id="combo-status" class="input-field"><option value="true">Ativo</option><option value="false">Inativo</option></select></div>
+                        </div>
+                    </div>
+                    <div class="combo-rules-grid">
+                        <div class="form-group">
+                            <label for="total-items-limit">Quantidade de Itens no Combo</label>
+                            <input type="number" id="total-items-limit" class="input-field" min="1" value="1" required>
+                        </div>
+                        <div class="form-group" style="display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 10px;">
+                            <label>Modo de Escolha do Cliente</label>
+                            <div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="allow-free-choice">
+                                    <span class="slider"></span>
+                                </label>
+                                <span>Permitir Escolha Livre</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="combo-products-section">
+                        <h4>Itens Disponíveis para o Combo</h4>
+                        <p style="opacity: 0.7; font-size: 0.9rem; margin-bottom: 15px;">Selecione os itens, defina a quantidade (se o modo for fixo) e ajuste o preço se necessário.</p>
+                        <div id="combo-products-list" class="combo-products-list"></div>
+                        <div id="combo-quantity-validator" style="display: none;"></div>
+                    </div>
+                </form>
+            </div>
+            <div class="form-buttons">
+                <button type="button" id="combo-cancel-button" class="btn btn-danger">Cancelar</button>
+                <button type="submit" id="save-combo-button" class="btn btn-primary" form="combo-form">Salvar Combo</button>
+            </div>
         </div>
-    <div id="confirm-modal-overlay" class="confirm-modal-overlay">
+    </div>
+    <div id="confirm-modal-overlay" class="confirm-modal-overlay" style="display: none;">
+        <div class="confirm-modal-content">
+            <p id="confirm-modal-message"></p>
+            <div class="confirm-modal-buttons">
+                <button id="confirm-modal-cancel" class="btn btn-secondary">Cancelar</button>
+                <button id="confirm-modal-confirm" class="btn btn-danger">Confirmar</button>
+            </div>
         </div>
-    <div id="audio-unlock-modal-overlay" class="confirm-modal-overlay">
+    </div>
+    <div id="audio-unlock-modal-overlay" class="confirm-modal-overlay" style="display: none;">
+        <div class="confirm-modal-content">
+            <h3>Notificações Sonoras</h3>
+            <p>Para garantir que você ouça os novos pedidos, por favor, ative o som.</p>
+            <div class="confirm-modal-buttons">
+                <button id="audio-unlock-confirm" class="btn btn-primary">Ativar Som</button>
+            </div>
         </div>
+    </div>
     <div id="reject-reason-modal-overlay" class="modal-overlay">
+        <div class="modal-content" style="max-width: 500px;">
+            <button class="modal-close-btn">&times;</button>
+            <h3>Motivo da Recusa</h3>
+            <p style="opacity: 0.8; margin-bottom: 20px;">Selecione o motivo pelo qual o pedido está a ser recusado. Esta ação não pode ser desfeita.</p>
+            <form id="reject-reason-form">
+                <div class="form-group">
+                    <label for="reject-reason-select">Motivo</label>
+                    <select id="reject-reason-select" class="input-field" required>
+                        <option value="" disabled selected>Selecione uma opção...</option>
+                        <option value="stock_problem">Problema com estoque</option>
+                        <option value="delivery_problem">Problema com entrega</option>
+                        <option value="operational_problem">Indisponibilidade operacional</option>
+                    </select>
+                </div>
+                <div class="form-buttons">
+                    <button type="button" class="btn btn-secondary modal-cancel-btn">Cancelar</button>
+                    <button type="submit" class="btn btn-danger">Confirmar Recusa</button>
+                </div>
+            </form>
         </div>
+    </div>
     <div id="order-details-modal-overlay" class="modal-overlay">
+        <div class="modal-content" style="max-width: 600px;">
+            <button class="modal-close-btn">&times;</button>
+            <h3 id="order-details-title">Detalhes do Pedido</h3>
+            <div id="order-details-body" class="modal-body"></div>
         </div>
+    </div>
     <div id="driver-request-modal-overlay" class="modal-overlay">
+        <div class="modal-content" style="max-width: 500px;">
+            <button class="modal-close-btn">&times;</button>
+            <h3>Solicitar Entregador</h3>
+            <p style="opacity: 0.8; margin-bottom: 20px;">Selecione o grupo de WhatsApp para onde a solicitação de entrega deve ser enviada.</p>
+            <div id="driver-request-groups-list" class="modal-body" style="padding-right: 0;">
+            </div>
+            <div class="form-buttons">
+                <button type="button" class="btn btn-secondary modal-cancel-btn">Cancelar</button>
+            </div>
         </div>
+    </div>
 
     <script type="module" src="/dashboard/js/main.js"></script>
 </body>

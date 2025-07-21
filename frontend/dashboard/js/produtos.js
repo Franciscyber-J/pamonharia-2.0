@@ -65,6 +65,28 @@ export function renderProdutosPage(isComplementosPage = false) {
         }
         renderProdutosPageContent();
     }
+    
+    document.getElementById('product-form').addEventListener('submit', saveProduct);
+    document.getElementById('product-cancel-button').addEventListener('click', closeProductModal);
+    document.getElementById('product-modal-close-btn').addEventListener('click', closeProductModal);
+    document.getElementById('product-modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'product-modal-overlay') closeProductModal(); });
+    document.getElementById('unlink-parent-btn').addEventListener('click', () => { 
+        document.getElementById('parent-product-id').value = ''; 
+        document.getElementById('parent-info-section').style.display = 'none'; 
+        document.getElementById('addons-management-section').style.display = 'block'; 
+    });
+    document.getElementById('product-image-input').addEventListener('change', (e) => {
+        const preview = document.getElementById('product-image-preview');
+        const prompt = document.getElementById('product-upload-prompt');
+        if (e.target.files[0]) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                preview.src = ev.target.result;
+                prompt.style.display = 'none';
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        }
+    });
 }
 
 function renderProdutosPageContent() {
@@ -76,10 +98,10 @@ function renderProdutosPageContent() {
     
     const mainProducts = state.allProducts.filter(p => p.is_main_product);
     mainProducts.forEach(p => {
-        tbody.innerHTML += createProductRow(p);
+        tbody.insertAdjacentHTML('beforeend', createProductRow(p));
         if (p.children?.length > 0) {
             p.children.forEach(c => {
-                tbody.innerHTML += createProductRow(c, true, p.stock_sync_enabled);
+                tbody.insertAdjacentHTML('beforeend', createProductRow(c, true, p.stock_sync_enabled));
             });
         }
     });
@@ -92,6 +114,8 @@ function renderProdutosPageContent() {
             document.querySelectorAll(`.product-row.is-child[data-parent-id='${id}']`).forEach(child => child.style.display = 'table-row');
         }
     });
+    
+    setupProductEventListeners(tbody);
     initSortable('products-tbody', '/products/reorder', globalApiFetch);
 }
 
@@ -100,17 +124,22 @@ function renderComplementosPageContent() {
     if (!tbody) return;
     tbody.innerHTML = '';
     state.allProductsFlat.filter(p => !p.is_main_product).forEach(item => {
-        tbody.innerHTML += createProductRow(item, false);
+        tbody.insertAdjacentHTML('beforeend', createProductRow(item, false));
     });
+    
+    setupProductEventListeners(tbody);
     initSortable('complementos-tbody', '/products/reorder', globalApiFetch);
 }
 
 export async function refreshCurrentProductView() {
     await fetchAllProducts();
-    const page = document.querySelector('nav a.active')?.id.split('-')[1];
-    if (page === 'produtos') {
+    const activePageLink = document.querySelector('nav a.active');
+    if (!activePageLink) return;
+
+    const pageKey = activePageLink.id.split('-')[1];
+    if (pageKey === 'produtos') {
         renderProdutosPageContent();
-    } else if (page === 'complementos') {
+    } else if (pageKey === 'complementos') {
         renderComplementosPageContent();
     }
 }
@@ -161,7 +190,7 @@ function createProductRow(product, isChild = false, isSynced = false) {
             </div>
         </div>` : '';
 
-    const rowHtml = `
+    return `
         <tr class="product-row ${isChild ? 'is-child' : ''}" data-id="${product.id}" data-parent-id="${product.parent_product_id || ''}">
             ${dragHandle}
             <td>
@@ -178,9 +207,302 @@ function createProductRow(product, isChild = false, isSynced = false) {
             ${stockControlsCell}
             <td class="action-buttons-cell">${actionButtons}</td>
         </tr>`;
-        
-    return rowHtml;
 }
 
+// --- LÓGICA DE EVENTOS E MANIPULAÇÃO ---
 
-// ... (O restante das funções e a inicialização dos eventos estarão em `main.js` ou em módulos específicos)
+function setupProductEventListeners(tbody) {
+    if (tbody.dataset.eventsAttached) return; // Previne múltiplos listeners
+    tbody.dataset.eventsAttached = 'true';
+
+    tbody.addEventListener('click', (event) => {
+        const target = event.target;
+        const row = target.closest('.product-row');
+        if (!row) return;
+        const productId = parseInt(row.dataset.id);
+
+        if (target.classList.contains('toggle-children-btn')) {
+            target.classList.toggle('expanded');
+            document.querySelectorAll(`.product-row.is-child[data-parent-id='${productId}']`).forEach(childRow => {
+                childRow.style.display = childRow.style.display === 'table-row' ? 'none' : 'table-row';
+            });
+        }
+        
+        if (target.classList.contains('btn-actions-menu')) {
+            event.stopPropagation();
+            const menu = target.nextElementSibling;
+            document.querySelectorAll('.actions-menu.visible').forEach(openMenu => {
+                if (openMenu !== menu) openMenu.classList.remove('visible');
+            });
+            menu.classList.toggle('visible');
+        }
+
+        if (target.closest('.actions-menu a')) {
+            event.preventDefault();
+            if (target.classList.contains('edit-product')) openProductModal(productId);
+            if (target.classList.contains('duplicate-product')) duplicateProduct(productId);
+            if (target.classList.contains('delete-product')) deleteProduct(productId);
+        }
+        
+        if (target.classList.contains('btn-status-toggle')) {
+            const currentStatus = state.allProductsFlat.find(p => p.id === productId)?.status;
+            toggleProductStatus(productId, !currentStatus);
+        }
+        if (target.classList.contains('stock-decrease')) handleStockAdjust(target, -1);
+        if (target.classList.contains('stock-increase')) handleStockAdjust(target, 1);
+        if (target.classList.contains('stock-save-btn')) handleStockSave(target);
+    });
+
+    tbody.addEventListener('change', (event) => {
+        const target = event.target;
+        if (target.classList.contains('stock-enabled-toggle')) handleStockEnableToggle(target);
+        if (target.classList.contains('stock-sync-toggle')) handleStockSyncToggle(target);
+    });
+
+    tbody.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && event.target.classList.contains('stock-input')) {
+            event.preventDefault();
+            handleStockSave(event.target);
+            event.target.blur();
+        }
+    });
+}
+
+function openProductModal(id = null, isMainProduct = true) {
+    const modal = document.getElementById('product-modal-overlay');
+    const form = document.getElementById('product-form');
+    form.reset();
+    document.getElementById('product-id').value = '';
+    document.getElementById('product-image-url').value = '';
+    document.getElementById('parent-product-id').value = '';
+    document.getElementById('is-main-product-flag').value = isMainProduct;
+    document.getElementById('product-image-preview').src = PLACEHOLDER_IMG_200;
+    document.getElementById('product-upload-prompt').style.display = 'block';
+    
+    const parentInfo = document.getElementById('parent-info-section');
+    const addonsMgmt = document.getElementById('addons-management-section');
+    parentInfo.style.display = 'none';
+
+    let currentProduct = null;
+    if (id) {
+        currentProduct = state.allProductsFlat.find(p => p.id === id);
+        if (!currentProduct) return;
+        
+        document.getElementById('product-modal-title').textContent = 'Editar Item';
+        document.getElementById('product-id').value = currentProduct.id;
+        document.getElementById('product-name').value = currentProduct.name;
+        document.getElementById('product-description').value = currentProduct.description || '';
+        document.getElementById('product-price').value = parseFloat(currentProduct.price).toFixed(2);
+        document.getElementById('product-status').value = String(currentProduct.status);
+        document.getElementById('force-one-to-one-complement').checked = currentProduct.force_one_to_one_complement;
+        document.getElementById('sell-parent-product').checked = currentProduct.sell_parent_product;
+        document.getElementById('is-main-product-flag').value = currentProduct.is_main_product;
+        document.getElementById('parent-product-id').value = currentProduct.parent_product_id || '';
+        
+        if (currentProduct.image_url) {
+            document.getElementById('product-image-preview').src = currentProduct.image_url;
+            document.getElementById('product-image-url').value = currentProduct.image_url;
+            document.getElementById('product-upload-prompt').style.display = 'none';
+        }
+        
+        if (currentProduct.parent_product_id) {
+            const parent = state.allProductsFlat.find(p => p.id === currentProduct.parent_product_id);
+            document.getElementById('parent-product-name').textContent = parent?.name || 'Desconhecido';
+            parentInfo.style.display = 'flex';
+            addonsMgmt.style.display = 'none';
+        } else {
+            addonsMgmt.style.display = currentProduct.is_main_product ? 'block' : 'none';
+        }
+    } else {
+        document.getElementById('product-modal-title').textContent = isMainProduct ? 'Adicionar Novo Produto Principal' : 'Adicionar Novo Item de Complemento';
+        addonsMgmt.style.display = isMainProduct ? 'block' : 'none';
+        document.getElementById('sell-parent-product').checked = true;
+        document.getElementById('force-one-to-one-complement').checked = false;
+    }
+    
+    const addonsList = document.getElementById('addons-list');
+    addonsList.innerHTML = '';
+    const parentWithChildren = state.allProducts.find(p => p.id === id);
+    const linkedIds = new Set((parentWithChildren?.children || []).map(c => c.id));
+    const potentialAddons = state.allProductsFlat.filter(p => !p.is_main_product);
+    potentialAddons.forEach(p => {
+        addonsList.innerHTML += `<div class="addon-item"><label class="addon-item-name"><input type="checkbox" data-addon-id="${p.id}" ${linkedIds.has(p.id) ? 'checked' : ''}><span>${p.name}</span></label></div>`;
+    });
+    
+    const sellToggle = document.getElementById('sell-parent-product');
+    const priceInput = document.getElementById('product-price');
+    const handleSellChange = () => { priceInput.disabled = !sellToggle.checked; };
+    sellToggle.removeEventListener('change', handleSellChange);
+    sellToggle.addEventListener('change', handleSellChange);
+    handleSellChange();
+    
+    modal.style.display = 'flex';
+}
+
+function closeProductModal() {
+    document.getElementById('product-modal-overlay').style.display = 'none';
+}
+
+async function saveProduct(e) {
+    e.preventDefault();
+    const btn = document.getElementById('save-product-button');
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+    let imageUrl = document.getElementById('product-image-url').value;
+    const input = document.getElementById('product-image-input');
+
+    if (input.files[0]) {
+        try {
+            const { timestamp, signature } = await globalApiFetch('/cloudinary-signature');
+            const fd = new FormData();
+            fd.append('file', input.files[0]);
+            fd.append('api_key', '351266855176353');
+            fd.append('timestamp', timestamp);
+            fd.append('signature', signature);
+            const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/image/upload`, { method: 'POST', body: fd });
+            const data = await res.json();
+            if (data.secure_url) {
+                imageUrl = data.secure_url;
+            } else {
+                throw new Error(data.error?.message || 'Falha no upload');
+            }
+        } catch (error) {
+            alert('Erro ao fazer upload da imagem.');
+            btn.disabled = false;
+            btn.textContent = 'Salvar';
+            return;
+        }
+    }
+
+    const id = document.getElementById('product-id').value;
+    const children = Array.from(document.querySelectorAll('#addons-list input:checked')).map(cb => ({ id: parseInt(cb.dataset.addonId) }));
+    const price = parseFloat(document.getElementById('product-price').value) || 0;
+    const data = {
+        name: document.getElementById('product-name').value,
+        description: document.getElementById('product-description').value,
+        price,
+        status: document.getElementById('product-status').value === 'true',
+        image_url: imageUrl,
+        force_one_to_one_complement: document.getElementById('force-one-to-one-complement').checked,
+        sell_parent_product: document.getElementById('sell-parent-product').checked,
+        parent_product_id: document.getElementById('parent-product-id').value || null,
+        is_main_product: document.getElementById('is-main-product-flag').value === 'true',
+        children
+    };
+
+    try {
+        await globalApiFetch(id ? `/products/${id}` : '/products', {
+            method: id ? 'PUT' : 'POST',
+            body: JSON.stringify(data)
+        });
+        closeProductModal();
+        await refreshCurrentProductView();
+    } catch (error) {
+        alert('Falha ao salvar o produto.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Salvar';
+    }
+}
+
+function deleteProduct(id) {
+    showCustomConfirm('Tem a certeza de que deseja apagar este item? Esta ação não pode ser desfeita.', async () => {
+        try {
+            await globalApiFetch(`/products/${id}`, { method: 'DELETE' });
+            await refreshCurrentProductView();
+        } catch (error) {
+            alert('Não foi possível apagar o item.');
+        }
+    });
+}
+
+function duplicateProduct(id) {
+    showCustomConfirm('Tem a certeza de que deseja duplicar este item?', async () => {
+        try {
+            await globalApiFetch(`/products/${id}/duplicate`, { method: 'POST' });
+            await refreshCurrentProductView();
+        } catch (error) {
+            console.error('Falha ao duplicar item:', error);
+            alert('Não foi possível duplicar o item.');
+        }
+    }, 'btn-primary', 'Duplicar');
+}
+
+async function toggleProductStatus(productId, newStatus) {
+    setState({ isProgrammaticallyUpdating: true });
+    try {
+        await globalApiFetch(`/products/${productId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ status: newStatus })
+        });
+        await refreshCurrentProductView();
+    } catch (error) {
+        console.error(`Falha ao atualizar o status do produto ${productId}:`, error);
+        alert('Não foi possível atualizar o status do produto. A recarregar a lista para garantir a consistência.');
+        await refreshCurrentProductView();
+    } finally {
+        setTimeout(() => { setState({ isProgrammaticallyUpdating: false }); }, 500);
+    }
+}
+
+function handleStockAdjust(button, amount) {
+    const stockInput = button.closest('.stock-controls').querySelector('.stock-input');
+    if (stockInput && !stockInput.disabled) {
+        let value = parseInt(stockInput.value) || 0;
+        stockInput.value = Math.max(0, value + amount);
+    }
+}
+
+async function handleStockSave(element) {
+    const row = element.closest('.product-row');
+    const stockInput = row.querySelector('.stock-input');
+    const productId = parseInt(row.dataset.id);
+    const feedbackSpan = row.querySelector('.stock-feedback');
+    if (!stockInput || stockInput.disabled || !feedbackSpan) return;
+
+    feedbackSpan.classList.remove('show', 'success', 'error');
+    feedbackSpan.textContent = 'Salvando...';
+    feedbackSpan.classList.add('show');
+
+    try {
+        await globalApiFetch(`/products/${productId}/stock`, {
+            method: 'PATCH',
+            body: JSON.stringify({ stock_quantity: parseInt(stockInput.value) })
+        });
+        feedbackSpan.textContent = 'Salvo!';
+        feedbackSpan.classList.add('success');
+    } catch (error) {
+        feedbackSpan.textContent = 'Falhou!';
+        feedbackSpan.classList.add('error');
+    } finally {
+        setTimeout(() => {
+            feedbackSpan.classList.remove('show', 'success', 'error');
+        }, 3000);
+    }
+}
+
+async function handleStockEnableToggle(checkbox) {
+    const row = checkbox.closest('.product-row');
+    const productId = row.dataset.id;
+    const isEnabled = checkbox.checked;
+    row.querySelectorAll('.stock-input, .stock-btn, .stock-save-btn').forEach(el => {
+        if (!el.classList.contains('stock-enabled-toggle')) {
+            el.disabled = !isEnabled;
+        }
+    });
+    await globalApiFetch(`/products/${productId}/stock`, { method: 'PATCH', body: JSON.stringify({ stock_enabled: isEnabled }) });
+}
+
+async function handleStockSyncToggle(checkbox) {
+    const row = checkbox.closest('.product-row');
+    const id = row.dataset.id;
+    const enabled = checkbox.checked;
+    try {
+        await globalApiFetch(`/products/${id}`, { method: 'PUT', body: JSON.stringify({ stock_sync_enabled: enabled }) });
+        await refreshCurrentProductView();
+    } catch (error) {
+        console.error(`Falha ao atualizar a sincronização de estoque para o produto ${id}:`, error);
+        alert('Não foi possível atualizar a configuração de sincronização.');
+        checkbox.checked = !enabled;
+    }
+}

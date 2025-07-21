@@ -20,7 +20,7 @@ export async function setupAudio() {
     document.getElementById('sound-status').addEventListener('click', toggleSound);
 }
 
-function updateSoundStatusButton() {
+export function updateSoundStatusButton() {
     const btn = document.getElementById('sound-status');
     if (btn) {
         btn.textContent = isSoundEnabled ? '🔊 Som Ligado' : '🔇 Som Desligado';
@@ -136,6 +136,12 @@ export function renderPedidosPage() {
         );
     });
 
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Movemos a inicialização dos event listeners para aqui,
+    // garantindo que os elementos do modal já existem no DOM.
+    setupModalEventListeners();
+    // ##################### FIM DA CORREÇÃO ######################
+
     fetchAndRenderOrders();
 }
 
@@ -227,5 +233,176 @@ function createOrderCard(order) {
     return card;
 }
 
-// Wrapper to make it accessible from HTML
+function openOrderDetailsModal(order) {
+    const modal = document.getElementById('order-details-modal-overlay');
+    const title = document.getElementById('order-details-title');
+    const body = document.getElementById('order-details-body');
+
+    title.textContent = `Detalhes do Pedido #${order.id}`;
+
+    let itemsHtml = '<h4>Itens do Pedido</h4><ul class="order-details-list">';
+    if (order.items && order.items.length > 0) {
+        order.items.forEach(item => {
+            const detailsWrapper = item.item_details || {};
+            const complements = detailsWrapper.complements || [];
+            const isOneToOne = detailsWrapper.force_one_to_one === true;
+            
+            const isContainerOnly = parseFloat(item.unit_price) === 0 && Array.isArray(complements) && complements.length > 0;
+
+            if (isContainerOnly) {
+                complements.forEach(sub => {
+                    const combinedName = `${item.item_name} - ${sub.name}`;
+                    itemsHtml += `<li><strong>${sub.quantity}x ${combinedName}</strong></li>`;
+                });
+            } else {
+                itemsHtml += `<li><strong>${item.quantity}x ${item.item_name}</strong>`;
+                if (Array.isArray(complements) && complements.length > 0) {
+                    itemsHtml += '<ul class="order-details-sublist">';
+                    complements.forEach(sub => {
+                        const finalQuantity = isOneToOne ? sub.quantity : (sub.quantity * item.quantity);
+                        itemsHtml += `<li>${finalQuantity}x ${sub.name}</li>`;
+                    });
+                    itemsHtml += '</ul>';
+                }
+                itemsHtml += '</li>';
+            }
+        });
+    } else {
+        itemsHtml += '<li>Nenhum item encontrado.</li>';
+    }
+    itemsHtml += '</ul>';
+    
+    const escapeHTML = (str) => str ? str.replace(/[&<>'"]/g, 
+        tag => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;',
+            "'": '&#39;', '"': '&quot;'
+        }[tag] || tag)
+    ) : '';
+    
+    const observationsText = order.observations ? escapeHTML(order.observations).replace(/\n/g, '<br>') : 'Nenhuma';
+    
+    let financialDetailsHtml = '';
+    if (order.delivery_fee && order.delivery_fee > 0) {
+        financialDetailsHtml = `
+            <p><strong>Subtotal:</strong> R$ ${parseFloat(order.subtotal).toFixed(2).replace('.', ',')}</p>
+            <p><strong>Taxa de Entrega:</strong> R$ ${parseFloat(order.delivery_fee).toFixed(2).replace('.', ',')}</p>
+            <p><strong>Total:</strong> R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</p>
+        `;
+    } else {
+        financialDetailsHtml = `<p><strong>Total:</strong> R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}</p>`;
+    }
+
+    const clientInfoHtml = `
+        <h4>Informações do Cliente</h4>
+        <p><strong>Nome:</strong> ${order.client_name}</p>
+        <p><strong>Contacto:</strong> ${order.client_phone}</p>
+        <p><strong>Destino:</strong> ${order.client_address}</p>
+        <hr>
+        <h4>Preferências e Observações</h4>
+        <p><strong>Precisa de talher?</strong> ${order.needs_cutlery ? 'Sim' : 'Não'}</p>
+        <p><strong>Observações:</strong></p>
+        <p class="order-details-observation">${observationsText}</p>
+        <hr>
+        <h4>Financeiro</h4>
+        ${financialDetailsHtml}
+        <p><strong>Pagamento:</strong> ${order.payment_method === 'online' ? 'Pago Online' : 'Pagar na Entrega/Retirada'}</p>
+    `;
+
+    body.innerHTML = itemsHtml + clientInfoHtml;
+    modal.style.display = 'flex';
+
+    modal.querySelector('.modal-close-btn').onclick = () => modal.style.display = 'none';
+    modal.onclick = (e) => {
+        if (e.target.id === 'order-details-modal-overlay') {
+            modal.style.display = 'none';
+        }
+    };
+}
+
+let driverRequestModal, driverRequestGroupsList, currentOrderForDriver;
+
+function setupModalEventListeners() {
+    driverRequestModal = document.getElementById('driver-request-modal-overlay');
+    driverRequestGroupsList = document.getElementById('driver-request-groups-list');
+    
+    if (driverRequestModal) {
+        driverRequestModal.querySelector('.modal-close-btn').addEventListener('click', closeDriverRequestModal);
+        driverRequestModal.querySelector('.modal-cancel-btn').addEventListener('click', closeDriverRequestModal);
+    }
+}
+
+function openDriverRequestModal(orderId) {
+    currentOrderForDriver = state.allOrdersCache.find(o => o.id === orderId);
+    if (!currentOrderForDriver) {
+        alert('Erro: Pedido não encontrado.');
+        return;
+    }
+
+    driverRequestGroupsList.innerHTML = '<p>A buscar grupos...</p>';
+    driverRequestModal.style.display = 'flex';
+
+    globalApiFetch('/bot/groups').then(groups => {
+        if (groups && groups.length > 0) {
+            driverRequestGroupsList.innerHTML = '';
+            groups.forEach(group => {
+                const groupButton = document.createElement('button');
+                groupButton.className = 'btn btn-primary group-select-btn';
+                groupButton.style.width = '100%';
+                groupButton.style.marginBottom = '10px';
+                groupButton.textContent = group.name;
+                groupButton.onclick = () => sendDriverRequest(group.id);
+                driverRequestGroupsList.appendChild(groupButton);
+            });
+        } else {
+            driverRequestGroupsList.innerHTML = '<p>Nenhum grupo de WhatsApp encontrado. Verifique se o bot está em algum grupo.</p>';
+        }
+    }).catch(error => {
+        driverRequestGroupsList.innerHTML = `<p style="color: var(--danger-color);">Erro ao buscar grupos: ${error.message}</p>`;
+    });
+}
+
+async function sendDriverRequest(groupId) {
+    const order = currentOrderForDriver;
+    if (!order) return;
+
+    let message = `🏍️ *SOLICITAÇÃO DE ENTREGA* 🏍️\n\n`;
+    message += `*Pedido:* #${order.id}\n`;
+    message += `*Cliente:* ${order.client_name}\n`;
+    message += `*Endereço:* ${order.client_address}\n\n`;
+    message += `*Valor Total:* R$ ${parseFloat(order.total_price).toFixed(2).replace('.', ',')}\n`;
+    
+    let paymentInfo = `Pagamento: *Pagar na Entrega/Retirada*`;
+    if (order.payment_method === 'online') {
+        paymentInfo = `Pagamento: *JÁ PAGO* (Online)`;
+    }
+    message += `${paymentInfo}`;
+
+    try {
+        driverRequestGroupsList.innerHTML = '<p>Enviando solicitação...</p>';
+        await globalApiFetch('/bot/request-driver', {
+            method: 'POST',
+            body: JSON.stringify({ groupId, message })
+        });
+        closeDriverRequestModal();
+        showCustomConfirm(
+            'Solicitação enviada!', 
+            () => {},
+            'btn-primary', 
+            'OK'
+        );
+    } catch (error) {
+        alert(`Erro ao enviar a solicitação: ${error.message}`);
+        closeDriverRequestModal();
+    }
+}
+
+function closeDriverRequestModal() {
+    if (driverRequestModal) {
+        driverRequestModal.style.display = 'none';
+    }
+    currentOrderForDriver = null;
+}
+
+// Wrappers para tornar funções acessíveis a partir do HTML
 window.updateOrderStatusWrapper = updateOrderStatus;
+window.openDriverRequestModal = openDriverRequestModal;

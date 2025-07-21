@@ -1,6 +1,6 @@
 // frontend/dashboard/js/combos.js
 import { globalApiFetch } from './api.js';
-import { state, setState } from './main.js';
+import { state } from './main.js';
 import { initSortable, showCustomConfirm, PLACEHOLDER_IMG_60, PLACEHOLDER_IMG_200 } from './ui.js';
 
 let allCombos = [];
@@ -69,20 +69,55 @@ async function fetchAndRenderCombos() {
                     <td><span class="status-badge ${c.status ? 'active' : 'inactive'}">${c.status ? 'Ativo' : 'Inativo'}</span></td>
                     <td class="action-buttons-cell">
                         <div class="actions-container">
-                            <button class="btn-icon btn-actions-menu" onclick="event.stopPropagation(); this.nextElementSibling.classList.toggle('visible');">⋮</button>
+                            <button class="btn-icon btn-actions-menu">⋮</button>
                             <div class="actions-menu">
-                                <a href="#" onclick="event.preventDefault(); openComboModal(${c.id})">Editar</a>
-                                <a href="#" class="danger" onclick="event.preventDefault(); deleteCombo(${c.id})">Apagar</a>
+                                <a href="#" class="edit-combo">Editar</a>
+                                <a href="#" class="danger delete-combo">Apagar</a>
                             </div>
                         </div>
                     </td>
                 </tr>`;
         });
+        setupComboEventListeners(tbody);
         initSortable('combos-tbody', '/combos/reorder', globalApiFetch);
     } catch (error) {
         console.error("Erro ao buscar combos:", error);
     }
 }
+
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Implementada a delegação de eventos para os botões da tabela de combos.
+function setupComboEventListeners(tbody) {
+    if (tbody.dataset.eventsAttached) return;
+    tbody.dataset.eventsAttached = 'true';
+
+    tbody.addEventListener('click', (event) => {
+        const target = event.target;
+        
+        if (target.classList.contains('btn-actions-menu')) {
+            event.stopPropagation();
+            const menu = target.nextElementSibling;
+            document.querySelectorAll('.actions-menu.visible').forEach(openMenu => {
+                if (openMenu !== menu) openMenu.classList.remove('visible');
+            });
+            menu.classList.toggle('visible');
+        }
+
+        const actionLink = target.closest('.actions-menu a');
+        if (actionLink) {
+            event.preventDefault();
+            const row = actionLink.closest('tr');
+            const comboId = parseInt(row.dataset.id);
+
+            if (actionLink.classList.contains('edit-combo')) {
+                openComboModal(comboId);
+            } else if (actionLink.classList.contains('delete-combo')) {
+                deleteCombo(comboId);
+            }
+        }
+    });
+}
+// ##################### FIM DA CORREÇÃO ######################
 
 function openComboModal(id = null) {
     const modal = document.getElementById('combo-modal-overlay');
@@ -207,7 +242,7 @@ async function saveCombo(e) {
             const { timestamp, signature } = await globalApiFetch('/cloudinary-signature');
             const fd = new FormData();
             fd.append('file', input.files[0]);
-            fd.append('api_key', '351266855176353'); // Substituir por variável de ambiente se possível
+            fd.append('api_key', '351266855176353');
             fd.append('timestamp', timestamp);
             fd.append('signature', signature);
             const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/image/upload`, { method: 'POST', body: fd });

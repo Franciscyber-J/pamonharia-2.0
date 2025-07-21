@@ -5,7 +5,8 @@ import { renderProdutosPage, fetchAllProducts, refreshCurrentProductView } from 
 import { renderCombosPage } from './combos.js';
 import { renderConfiguracoesPage } from './configuracoes.js';
 
-// --- ESTADO GLOBAL E VARIÁVEIS ---
+const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
 export const state = {
     userRole: sessionStorage.getItem('userRole'),
     allProducts: [],
@@ -21,7 +22,6 @@ export function setState(newState) {
     Object.assign(state, newState);
 }
 
-// --- INICIALIZAÇÃO DO SOCKET.IO ---
 export const socket = io(API_BASE_URL_GLOBAL, { transports: ['websocket'] });
 
 function setupSocketListeners() {
@@ -34,7 +34,7 @@ function setupSocketListeners() {
     socket.on('new_order', (order) => {
         if (isPedidosPageActive()) {
             state.allOrdersCache.unshift(order);
-            const { addOrderCard } = require('./pedidos.js'); // Importação dinâmica para evitar dependência circular
+            const { addOrderCard } = require('./pedidos.js');
             addOrderCard(order, true);
         }
         playNotification(order.id);
@@ -74,7 +74,6 @@ function setupSocketListeners() {
     });
 }
 
-// --- NAVEGAÇÃO E RENDERIZAÇÃO DE PÁGINAS ---
 const navLinks = {
     pedidos: document.getElementById('nav-pedidos'),
     produtos: document.getElementById('nav-produtos'),
@@ -86,7 +85,7 @@ const navLinks = {
 const pages = {
     pedidos: renderPedidosPage,
     produtos: renderProdutosPage,
-    complementos: () => renderProdutosPage(true), // Chama a mesma função com um flag
+    complementos: () => renderProdutosPage(true),
     combos: renderCombosPage,
     configuracoes: renderConfiguracoesPage
 };
@@ -110,7 +109,6 @@ function handleNavigation(e) {
     }
 }
 
-// --- FUNÇÕES GERAIS E INICIALIZAÇÃO ---
 function applyRolePermissions() {
     if (state.userRole === 'operador') {
         navLinks.complementos.style.display = 'none';
@@ -158,6 +156,18 @@ async function initializeApp() {
     renderHeaderControls();
     setupSocketListeners();
     
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: O event listener global para fechar os menus de ação foi movido
+    // para a função `setupProductEventListeners` em `produtos.js`, que é o seu lugar correto.
+    document.addEventListener('click', (event) => {
+        if (!event.target.classList.contains('btn-actions-menu')) {
+            document.querySelectorAll('.actions-menu.visible').forEach(openMenu => {
+                openMenu.classList.remove('visible');
+            });
+        }
+    });
+    // ##################### FIM DA CORREÇÃO ######################
+
     await Promise.all([
         fetchAllProducts(),
         setupAudio()
@@ -186,7 +196,6 @@ async function initializeApp() {
         });
     }
 
-    // Página inicial padrão
     (navLinks.pedidos).click();
 }
 
