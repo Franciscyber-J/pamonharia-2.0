@@ -55,9 +55,6 @@ async function notifyBackendHandover(contactId, type) {
     }
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Nova função para notificar o backend que um atendimento foi iniciado,
-// para que o alerta no dashboard possa ser cancelado.
 async function notifyBackendHandoverAcknowledged(contactId) {
     try {
         await axios.post(`${BACKEND_URL}/api/bot/cancel-handover-alert`, 
@@ -69,7 +66,6 @@ async function notifyBackendHandoverAcknowledged(contactId) {
         log('ERROR', 'HandoverAck', `Falha ao notificar o backend sobre o início do atendimento: ${error.message}`);
     }
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: 'pamonharia-bot-concierge', dataPath: './sessions' }),
@@ -91,24 +87,25 @@ client.on('qr', (qr) => {
 client.on('ready', () => { isBotReady = true; log('SUCCESS', 'Client', 'Bot Concierge está online e pronto.'); });
 client.on('disconnected', (reason) => { isBotReady = false; log('WARN', 'Client', `Bot desconectado. Motivo: ${reason}.`); client.initialize(); });
 
-client.on('message', async (msg) => {
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Alterado o evento de 'message' para 'message_create'.
+// Este evento captura TODAS as mensagens, incluindo as enviadas pelo operador
+// a partir de outros dispositivos, o que é essencial para a nossa lógica.
+client.on('message_create', async (msg) => {
+// ##################### FIM DA CORREÇÃO ######################
     const chat = await msg.getChat();
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Lógica para detetar a resposta de um operador e cancelar o alerta.
-    // A propriedade 'msg.id.fromMe' é true para qualquer mensagem enviada a partir de um
-    // dispositivo (telemóvel, web, etc.) ligado ao número do bot.
-    if (msg.id.fromMe && !chat.isGroup) {
+    
+    // Lógica para detetar a resposta de um operador e cancelar o alerta.
+    if (msg.fromMe && !chat.isGroup) {
         const chatState = chatStates.get(chat.id._serialized);
-        // Se o operador respondeu a um chat que estava aguardando atendimento,
-        // o bot notifica o backend para cancelar o alerta.
         if (chatState === 'HUMANO_ATIVO') {
             log('INFO', 'Handover', `Operador respondeu ao chat ${chat.id._serialized}. A cancelar alerta pendente.`);
             await notifyBackendHandoverAcknowledged(chat.id._serialized);
         }
         return; // Ignora o resto do processamento para mensagens do operador.
     }
-    // ##################### FIM DA CORREÇÃO ######################
-
+    
+    // Condição de guarda para ignorar mensagens irrelevantes (grupos, status, etc.)
     if (!isBotReady || msg.isStatus || chat.isGroup) return;
 
     const lowerBody = msg.body.trim().toLowerCase();
@@ -275,6 +272,7 @@ Ou, se preferir, *digite o número de uma das opções:*
     );
 }
 
+// --- API INTERNA PARA O BACKEND ---
 const apiKeyMiddleware = (req, res, next) => {
     const providedKey = req.headers['x-api-key'];
     if (!providedKey || providedKey !== API_KEY) {
