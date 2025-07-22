@@ -24,7 +24,6 @@ const DRINK_KEYWORDS = ["bebida", "refrigerante", "refri", "coca", "guarana", "s
 const CANCEL_KEYWORDS = ["cancelar", "cancela", "nao quero mais", "não quero mais"];
 const END_KEYWORDS = ["sair", "parar", "encerrar", "obrigado", "obg", "vlw", "tchau"];
 
-// --- FUNÇÃO DE LOG ---
 function log(level, context, message) {
     const timestamp = new Date().toLocaleTimeString('pt-BR');
     console.log(`[${timestamp}] [${level}] [${context}] ${message}`);
@@ -40,12 +39,10 @@ async function sendTelegramNotification(message) {
         await axios.post(url, { chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: 'Markdown' });
         log('SUCCESS', 'Telegram', 'Notificação enviada com sucesso para o Telegram.');
     } catch (error) {
-        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
-        log('ERROR', 'Telegram', `Falha ao enviar notificação para o Telegram: ${errorMessage}`);
+        log('ERROR', 'Telegram', `Falha ao enviar notificação para o Telegram: ${error.message}`);
     }
 }
 
-// ARQUITETO: Nova função para notificar o backend sobre um pedido de atendimento humano.
 async function notifyBackendHandover(contactId, type) {
     try {
         await axios.post(`${BACKEND_URL}/api/bot/human-handover`, 
@@ -57,6 +54,22 @@ async function notifyBackendHandover(contactId, type) {
         log('ERROR', 'Handover', `Falha ao notificar o backend: ${error.message}`);
     }
 }
+
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Nova função para notificar o backend que um atendimento foi iniciado,
+// para que o alerta no dashboard possa ser cancelado.
+async function notifyBackendHandoverAcknowledged(contactId) {
+    try {
+        await axios.post(`${BACKEND_URL}/api/bot/cancel-handover-alert`, 
+            { contactId },
+            { headers: { 'x-api-key': API_KEY } }
+        );
+        log('SUCCESS', 'HandoverAck', `Backend notificado que o atendimento para ${contactId} foi iniciado.`);
+    } catch (error) {
+        log('ERROR', 'HandoverAck', `Falha ao notificar o backend sobre o início do atendimento: ${error.message}`);
+    }
+}
+// ##################### FIM DA CORREÇÃO ######################
 
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: 'pamonharia-bot-concierge', dataPath: './sessions' }),
@@ -80,7 +93,23 @@ client.on('disconnected', (reason) => { isBotReady = false; log('WARN', 'Client'
 
 client.on('message', async (msg) => {
     const chat = await msg.getChat();
-    if (msg.fromMe || !isBotReady || msg.isStatus || chat.isGroup) return;
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Lógica para detetar a resposta de um operador e cancelar o alerta.
+    // A propriedade 'msg.id.fromMe' é true para qualquer mensagem enviada a partir de um
+    // dispositivo (telemóvel, web, etc.) ligado ao número do bot.
+    if (msg.id.fromMe && !chat.isGroup) {
+        const chatState = chatStates.get(chat.id._serialized);
+        // Se o operador respondeu a um chat que estava aguardando atendimento,
+        // o bot notifica o backend para cancelar o alerta.
+        if (chatState === 'HUMANO_ATIVO') {
+            log('INFO', 'Handover', `Operador respondeu ao chat ${chat.id._serialized}. A cancelar alerta pendente.`);
+            await notifyBackendHandoverAcknowledged(chat.id._serialized);
+        }
+        return; // Ignora o resto do processamento para mensagens do operador.
+    }
+    // ##################### FIM DA CORREÇÃO ######################
+
+    if (!isBotReady || msg.isStatus || chat.isGroup) return;
 
     const lowerBody = msg.body.trim().toLowerCase();
     const chatId = msg.from;

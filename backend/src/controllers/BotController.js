@@ -69,11 +69,7 @@ module.exports = {
         }
 
         try {
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: Antes de notificar, o sistema agora verifica se a
-            // funcionalidade está habilitada nas configurações da loja.
             const settings = await connection('store_settings').where('id', 1).first();
-
             if (settings && settings.handover_notifications_enabled) {
                 console.log(`[BotController] Notificações de atendimento ativadas. Emitindo para dashboards...`);
                 const io = getIO();
@@ -81,12 +77,30 @@ module.exports = {
             } else {
                 console.log(`[BotController] Notificações de atendimento desativadas. Pedido de ${contactId} ignorado.`);
             }
-            // ##################### FIM DA CORREÇÃO ######################
-            
             return response.status(200).json({ message: 'Notificação processada.' });
         } catch (error) {
             console.error(`[BotController] Erro ao processar notificação de handover: ${error.message}`);
             return response.status(500).json({ error: 'Erro interno ao processar a notificação.' });
         }
+    },
+
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: Novo método para receber o "reconhecimento" do bot e cancelar o alerta.
+    async cancelHandoverAlert(request, response) {
+        const { contactId } = request.body;
+        if (!contactId) {
+            return response.status(400).json({ error: 'contactId é obrigatório.' });
+        }
+
+        try {
+            console.log(`[BotController] Recebido reconhecimento de atendimento para ${contactId}. Cancelando alerta.`);
+            const io = getIO();
+            io.emit('handover_acknowledged', { contactId });
+            return response.status(200).json({ message: 'Alerta cancelado.' });
+        } catch (error) {
+            console.error(`[BotController] Erro ao cancelar alerta de handover: ${error.message}`);
+            return response.status(500).json({ error: 'Erro interno ao processar o cancelamento.' });
+        }
     }
+    // ##################### FIM DA CORREÇÃO ######################
 };

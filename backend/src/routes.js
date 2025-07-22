@@ -31,9 +31,12 @@ router.get('/public/health', (req, res) => {
   res.status(200).send('OK');
 });
 
-// ARQUITETO: Nova rota para o bot notificar o backend.
-// Note que esta rota não usa o 'authMiddleware' pois é autenticada pela API Key do bot.
 router.post('/bot/human-handover', BotController.notifyHumanHandover);
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Nova rota para o bot notificar o backend que um atendimento
+// foi iniciado, permitindo o cancelamento do alerta no dashboard.
+router.post('/bot/cancel-handover-alert', BotController.cancelHandoverAlert);
+// ##################### FIM DA CORREÇÃO ######################
 
 router.use(authMiddleware);
 
