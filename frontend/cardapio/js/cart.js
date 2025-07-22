@@ -94,7 +94,6 @@ export function addToCartSimple(itemId) {
         original_id: item.id, name: item.name, price: parseFloat(item.price),
         total_value: parseFloat(item.price), image_url: item.image_url,
         quantity: 1, is_combo: false, 
-        // ARQUITETO: Mantém a estrutura de dados consistente para itens simples.
         details: {
             force_one_to_one: false,
             complements: []
@@ -178,14 +177,10 @@ export function openProductWithOptionsModal(productId) {
             price: parseFloat(product.price),
             total_value: finalPrice, quantity: finalQuantity,
             is_combo: false,
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: A estrutura de dados dos detalhes foi alterada para um objeto
-            // que armazena a regra `force_one_to_one_complement`, resolvendo a ambiguidade.
             details: {
                 force_one_to_one: product.force_one_to_one_complement || false,
                 complements: selected_items_details
             },
-            // ##################### FIM DA CORREÇÃO ######################
             image_url: product.image_url
         };
         
@@ -281,9 +276,8 @@ export function openComboModal(comboId) {
         const itemData = { 
             original_id: combo.id, name: combo.name, price: finalPrice, 
             total_value: finalPrice, is_combo: true, quantity: 1, 
-            // ARQUITETO: Mantém a estrutura de dados consistente para combos.
             details: {
-                force_one_to_one: false, // Combos não usam esta regra
+                force_one_to_one: false,
                 complements: selected_items
             },
             image_url: combo.image_url 
@@ -424,38 +418,44 @@ export function adjustItemGroupQuantity(cartIndex, amount) {
 }
 
 export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
-    // Esta função pode ser simplificada ou removida se a edição direta de complementos for desativada no carrinho.
 }
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: A lógica foi refeita para lidar corretamente com produtos de
+// estoque sincronizado, garantindo que o estoque seja sempre devolvido
+// ao produto "pai", que é a fonte da verdade.
 function getItemsToReleaseFromGroup(itemGroup) {
     const itemsToRelease = [];
     const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
-
     if (!parentProduct) return [];
-    
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: A lógica agora lê a lista de complementos da nova estrutura `details.complements`.
-    const complements = (itemGroup.details && itemGroup.details.complements) ? itemGroup.details.complements : [];
 
+    // CASO 1: O estoque é sincronizado. Apenas o pai importa.
+    if (parentProduct.stock_sync_enabled && parentProduct.stock_enabled) {
+        itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
+        return itemsToRelease;
+    }
+
+    // CASO 2: O estoque não é sincronizado. Verificamos cada item individualmente.
+    const complements = (itemGroup.details && itemGroup.details.complements) ? itemGroup.details.complements : [];
     if (complements.length > 0) {
         complements.forEach(sub => {
             const fullProduct = state.allProductsFlat.find(p => p.id === (sub.id || sub.product_id));
             if (fullProduct && fullProduct.stock_enabled) {
-                // A lógica de quantidade precisa respeitar a regra one-to-one
                 const isOneToOne = itemGroup.details.force_one_to_one;
                 const quantityToRelease = isOneToOne ? sub.quantity : (sub.quantity * itemGroup.quantity);
                 itemsToRelease.push({ id: fullProduct.id, quantity: quantityToRelease });
             }
         });
     }
-    // ##################### FIM DA CORREÇÃO ######################
 
+    // Adiciona o pai se ele for vendido separadamente e tiver estoque controlado.
     if (parentProduct.stock_enabled && parentProduct.sell_parent_product) {
         itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
     }
     
     return itemsToRelease.filter(i => i.id && i.quantity > 0);
 }
+// ##################### FIM DA CORREÇÃO ######################
 
 export function removeItemGroup(cartIndex) {
     const itemToRemove = state.cart[cartIndex];
