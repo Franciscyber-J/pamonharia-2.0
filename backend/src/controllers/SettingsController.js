@@ -17,6 +17,7 @@ const emitDataUpdated = () => {
 };
 
 module.exports = {
+  // Rota completa, apenas para admins
   async show(request, response) {
     const settings = await connection('store_settings').where('id', 1).first();
     if (!settings) {
@@ -53,9 +54,11 @@ module.exports = {
     return response.status(200).json({ message: 'Status da loja atualizado com sucesso.' });
   },
 
+  // #################### INÍCIO DA CORREÇÃO ####################
+  // ARQUITETO: A configuração do dashboard agora também envia a URL do som de atendimento.
   async getDashboardConfig(request, response) {
     const settings = await connection('store_settings')
-      .select('is_open_manual_override', 'notification_sound_url')
+      .select('is_open_manual_override', 'notification_sound_url', 'handover_sound_url')
       .where('id', 1)
       .first();
       
@@ -64,6 +67,7 @@ module.exports = {
     }
     return response.json(settings);
   },
+  // ##################### FIM DA CORREÇÃO ######################
 
   generateCloudinarySignature(request, response) {
     const timestamp = Math.round((new Date()).getTime() / 1000);
@@ -98,9 +102,6 @@ module.exports = {
         let statusMessage = '';
         const hours = typeof settings.operating_hours === 'string' ? JSON.parse(settings.operating_hours) : settings.operating_hours;
         
-        // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: A lógica agora constrói a mensagem de "placa de horários" completa,
-        // tratando a exceção do modo manual de forma clara.
         const dayNames = { segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo' };
 
         if (settings.is_open_manual_override !== null) {
@@ -126,7 +127,6 @@ module.exports = {
             fullMessage += `  • *${dayNames[day]}:* ${scheduleText}\n`;
         }
         fullMessage += `\n_Os horários podem sofrer alterações. Para pedidos, acesse nosso cardápio online!_`;
-        // ##################### FIM DA CORREÇÃO ######################
         
         return response.json({
             status: isOpen ? 'aberto' : 'fechado',
