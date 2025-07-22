@@ -1,9 +1,27 @@
 // frontend/dashboard/js/configuracoes.js
 import { globalApiFetch } from './api.js';
 import { setupAudio } from './pedidos.js';
+import { state } from './main.js'; // ARQUITETO: Importa o estado global para verificar a role do utilizador.
 
 export function renderConfiguracoesPage() {
     document.getElementById('page-title').textContent = 'Configurações da Loja';
+
+    // ARQUITETO: A renderização do campo de atendimento agora é condicional (apenas para admin).
+    const handoverSoundSection = state.userRole === 'admin' ? `
+        <div class="form-group" style="margin-top: 25px; border-top: 1px solid var(--border-color); padding-top: 25px;">
+            <label for="handover_sound">Som de Atendimento Humano (MP3, WAV)</label>
+            <input type="file" id="handover_sound" accept="audio/*">
+            <div id="handover-sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;">
+                <p id="handover-sound-feedback"></p>
+                <button type="button" id="remove-handover-sound-btn" style="display: none;" class="btn btn-danger">Remover</button>
+            </div>
+        </div>
+        <div class="option-group">
+            <label class="toggle-switch"><input type="checkbox" id="handover_notifications_enabled"><span class="slider"></span></label>
+            <span>Ligar/Desligar notificações de atendimento no dashboard</span>
+        </div>
+    ` : '';
+
     document.getElementById('dashboard-content').innerHTML = `
         <form id="settings-form" class="settings-form">
             <div class="settings-card">
@@ -33,15 +51,8 @@ export function renderConfiguracoesPage() {
                         <button type="button" id="remove-sound-btn" style="display: none;" class="btn btn-danger">Remover</button>
                     </div>
                 </div>
-                <div class="form-group" style="margin-top: 25px; border-top: 1px solid var(--border-color); padding-top: 25px;">
-                    <label for="handover_sound">Som de Atendimento Humano (MP3, WAV)</label>
-                    <input type="file" id="handover_sound" accept="audio/*">
-                    <div id="handover-sound-info-container" style="display: flex; align-items: center; gap: 15px; margin-top: 10px;">
-                        <p id="handover-sound-feedback"></p>
-                        <button type="button" id="remove-handover-sound-btn" style="display: none;" class="btn btn-danger">Remover</button>
-                    </div>
-                </div>
-                </div>
+                ${handoverSoundSection}
+            </div>
             <div class="form-buttons">
                 <span id="save-feedback"></span>
                 <button type="submit" class="btn btn-primary">Salvar Alterações</button>
@@ -69,19 +80,21 @@ async function fetchAndPopulateSettings() {
             soundFeedback.textContent = 'Nenhum som configurado.';
             removeSoundBtn.style.display = 'none';
         }
-
-        // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: Popula as informações do novo som de atendimento.
-        const handoverSoundFeedback = document.getElementById('handover-sound-feedback');
-        const removeHandoverSoundBtn = document.getElementById('remove-handover-sound-btn');
-        if (settings.handover_sound_filename) {
-            handoverSoundFeedback.innerHTML = `Som atual: <strong>${settings.handover_sound_filename}</strong>`;
-            removeHandoverSoundBtn.style.display = 'inline-block';
-        } else {
-            handoverSoundFeedback.textContent = 'Nenhum som configurado.';
-            removeHandoverSoundBtn.style.display = 'none';
+        
+        if (state.userRole === 'admin') {
+            const handoverSoundFeedback = document.getElementById('handover-sound-feedback');
+            const removeHandoverSoundBtn = document.getElementById('remove-handover-sound-btn');
+            const handoverEnabledToggle = document.getElementById('handover_notifications_enabled');
+            
+            if (settings.handover_sound_filename) {
+                handoverSoundFeedback.innerHTML = `Som atual: <strong>${settings.handover_sound_filename}</strong>`;
+                removeHandoverSoundBtn.style.display = 'inline-block';
+            } else {
+                handoverSoundFeedback.textContent = 'Nenhum som configurado.';
+                removeHandoverSoundBtn.style.display = 'none';
+            }
+            handoverEnabledToggle.checked = settings.handover_notifications_enabled;
         }
-        // ##################### FIM DA CORREÇÃO ######################
 
         const hoursGrid = document.getElementById('hours-grid');
         hoursGrid.innerHTML = `<div class="grid-header">Dia</div><div class="grid-header">Abre</div><div class="grid-header">Fecha</div><div class="grid-header">Aberto?</div>`;
@@ -107,13 +120,7 @@ function addSettingsListeners(currentSettings) {
     const soundInput = document.getElementById('notification_sound');
     const soundFeedback = document.getElementById('sound-feedback');
     const removeSoundBtn = document.getElementById('remove-sound-btn');
-
-    // #################### INÍCIO DA CORREÇÃO ####################
-    const handoverSoundInput = document.getElementById('handover_sound');
-    const handoverSoundFeedback = document.getElementById('handover-sound-feedback');
-    const removeHandoverSoundBtn = document.getElementById('remove-handover-sound-btn');
-    // ##################### FIM DA CORREÇÃO ######################
-
+    
     removeSoundBtn.onclick = () => {
         currentSettings.notification_sound_url = null;
         currentSettings.notification_sound_filename = null;
@@ -122,15 +129,19 @@ function addSettingsListeners(currentSettings) {
         removeSoundBtn.style.display = 'none';
     };
 
-    // #################### INÍCIO DA CORREÇÃO ####################
-    removeHandoverSoundBtn.onclick = () => {
-        currentSettings.handover_sound_url = null;
-        currentSettings.handover_sound_filename = null;
-        handoverSoundInput.value = '';
-        handoverSoundFeedback.textContent = 'Som de atendimento removido ao salvar.';
-        removeHandoverSoundBtn.style.display = 'none';
-    };
-    // ##################### FIM DA CORREÇÃO ######################
+    if (state.userRole === 'admin') {
+        const handoverSoundInput = document.getElementById('handover_sound');
+        const handoverSoundFeedback = document.getElementById('handover-sound-feedback');
+        const removeHandoverSoundBtn = document.getElementById('remove-handover-sound-btn');
+
+        removeHandoverSoundBtn.onclick = () => {
+            currentSettings.handover_sound_url = null;
+            currentSettings.handover_sound_filename = null;
+            handoverSoundInput.value = '';
+            handoverSoundFeedback.textContent = 'Som de atendimento removido ao salvar.';
+            removeHandoverSoundBtn.style.display = 'none';
+        };
+    }
 
     form.addEventListener('submit', async e => {
         e.preventDefault();
@@ -141,18 +152,16 @@ function addSettingsListeners(currentSettings) {
 
         let soundUrlToSave = currentSettings.notification_sound_url;
         let soundFilenameToSave = currentSettings.notification_sound_filename;
-        // #################### INÍCIO DA CORREÇÃO ####################
         let handoverSoundUrlToSave = currentSettings.handover_sound_url;
         let handoverSoundFilenameToSave = currentSettings.handover_sound_filename;
-        // ##################### FIM DA CORREÇÃO ######################
 
         const uploadFile = async (fileInput) => {
-            if (!fileInput.files[0]) return null;
+            if (!fileInput || !fileInput.files[0]) return null;
             try {
                 const { timestamp, signature } = await globalApiFetch('/cloudinary-signature');
                 const formData = new FormData();
                 formData.append('file', fileInput.files[0]);
-                formData.append('api_key', '351266855176353'); // Substitua pela sua API Key
+                formData.append('api_key', '351266855176353');
                 formData.append('timestamp', timestamp);
                 formData.append('signature', signature);
                 const res = await fetch(`https://api.cloudinary.com/v1_1/dznox4s9b/video/upload`, { method: 'POST', body: formData });
@@ -172,10 +181,13 @@ function addSettingsListeners(currentSettings) {
                 soundFilenameToSave = newOrderSound.filename;
             }
 
-            const newHandoverSound = await uploadFile(handoverSoundInput);
-            if (newHandoverSound) {
-                handoverSoundUrlToSave = newHandoverSound.url;
-                handoverSoundFilenameToSave = newHandoverSound.filename;
+            if (state.userRole === 'admin') {
+                const handoverSoundInput = document.getElementById('handover_sound');
+                const newHandoverSound = await uploadFile(handoverSoundInput);
+                if (newHandoverSound) {
+                    handoverSoundUrlToSave = newHandoverSound.url;
+                    handoverSoundFilenameToSave = newHandoverSound.filename;
+                }
             }
         } catch {
             saveButton.disabled = false;
@@ -200,16 +212,18 @@ function addSettingsListeners(currentSettings) {
             operating_hours,
             notification_sound_url: soundUrlToSave,
             notification_sound_filename: soundFilenameToSave,
-            // #################### INÍCIO DA CORREÇÃO ####################
             handover_sound_url: handoverSoundUrlToSave,
             handover_sound_filename: handoverSoundFilenameToSave
-            // ##################### FIM DA CORREÇÃO ######################
         };
+        
+        if (state.userRole === 'admin') {
+            dataToSave.handover_notifications_enabled = document.getElementById('handover_notifications_enabled').checked;
+        }
 
         try {
             await globalApiFetch('/settings', { method: 'PUT', body: JSON.stringify(dataToSave) });
             feedback.textContent = 'Salvo!';
-            await setupAudio(); // Reinicializa ambos os áudios com as novas URLs
+            await setupAudio();
             setTimeout(() => feedback.textContent = '', 2000);
         } catch (error) {
             feedback.textContent = 'Erro ao salvar.';

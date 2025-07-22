@@ -3,17 +3,14 @@ import { globalApiFetch } from './api.js';
 import { state, setState } from './main.js';
 import { showCustomConfirm } from './ui.js';
 
-// ARQUITETO: Renomeado para maior clareza e adicionado o novo áudio de atendimento.
 let orderNotificationAudio, handoverNotificationAudio, isSoundEnabled = true, isAudioUnlocked = false;
 let rejectReasonModal, rejectReasonForm, rejectReasonSelect, orderToRejectId;
 let driverRequestModal, driverRequestGroupsList, currentOrderForDriver;
-// ARQUITETO: Variável para controlar o temporizador do alerta de atendimento.
 let handoverAlertTimeout = null;
 
 export async function setupAudio() {
     try {
         const config = await globalApiFetch('/dashboard/config');
-        // ARQUITETO: Carrega os dois áudios separadamente.
         orderNotificationAudio = config.notification_sound_url ? new Audio(config.notification_sound_url) : null;
         if (orderNotificationAudio) orderNotificationAudio.loop = true;
 
@@ -42,7 +39,6 @@ export function updateSoundStatusButton() {
 async function unlockAudio() {
     if (isAudioUnlocked) return true;
     try {
-        // Tenta dar "play" e "pause" em ambos os áudios para desbloqueá-los.
         if (orderNotificationAudio) {
             await orderNotificationAudio.play();
             orderNotificationAudio.pause();
@@ -62,7 +58,6 @@ async function unlockAudio() {
     }
 }
 
-// ARQUITETO: Função de tocar notificação agora aceita um parâmetro para escolher o som.
 export function playNotification(type = 'order', id = null) {
     let audioToPlay = type === 'order' ? orderNotificationAudio : handoverNotificationAudio;
     
@@ -70,7 +65,7 @@ export function playNotification(type = 'order', id = null) {
         unlockAudio().then(unlocked => {
             if(unlocked) {
                 console.log(`[Dashboard] 🎵 Tocando notificação do tipo '${type}'...`);
-                audioToPlay.loop = true; // Garante o loop
+                audioToPlay.loop = true;
                 audioToPlay.play().catch(e => console.warn("Erro ao tocar som:", e.message));
                 if (id) {
                     const card = document.getElementById(`order-${id}`);
@@ -362,7 +357,6 @@ function closeDriverRequestModal() {
     currentOrderForDriver = null;
 }
 
-// ARQUITETO: Nova função para exibir o alerta de atendimento humano.
 export function showHumanHandoverAlert({ contactId, type }) {
     if (handoverAlertTimeout) clearTimeout(handoverAlertTimeout);
     const modal = document.getElementById('handover-alert-overlay');
@@ -372,7 +366,6 @@ export function showHumanHandoverAlert({ contactId, type }) {
     message.textContent = `Um ${type} (${phoneNumber}) solicitou atendimento no WhatsApp.`;
     handoverAlertTimeout = setTimeout(() => {
         modal.style.display = 'flex';
-        // ARQUITETO: Toca o som específico de atendimento.
         playNotification('handover');
     }, 60 * 1000);
     confirmBtn.onclick = () => {

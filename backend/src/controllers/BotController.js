@@ -1,7 +1,6 @@
 // backend/src/controllers/BotController.js
 const axios = require('axios');
 const connection = require('../database/connection');
-// ARQUITETO: Importa o getIO para poder emitir eventos para o dashboard.
 const { getIO } = require('../socket-manager');
 
 const BOT_API_URL = process.env.BOT_API_URL;
@@ -63,8 +62,6 @@ module.exports = {
         }
     },
 
-    // ARQUITETO: Novo método para receber a notificação do bot e retransmiti-la
-    // para todos os dashboards conectados via Socket.IO.
     async notifyHumanHandover(request, response) {
         const { contactId, type } = request.body;
         if (!contactId || !type) {
@@ -72,10 +69,21 @@ module.exports = {
         }
 
         try {
-            console.log(`[BotController] Recebido pedido de atendimento para ${contactId} (Tipo: ${type}). Emitindo para dashboards.`);
-            const io = getIO();
-            io.emit('human_handover_request', { contactId, type });
-            return response.status(200).json({ message: 'Notificação recebida.' });
+            // #################### INÍCIO DA CORREÇÃO ####################
+            // ARQUITETO: Antes de notificar, o sistema agora verifica se a
+            // funcionalidade está habilitada nas configurações da loja.
+            const settings = await connection('store_settings').where('id', 1).first();
+
+            if (settings && settings.handover_notifications_enabled) {
+                console.log(`[BotController] Notificações de atendimento ativadas. Emitindo para dashboards...`);
+                const io = getIO();
+                io.emit('human_handover_request', { contactId, type });
+            } else {
+                console.log(`[BotController] Notificações de atendimento desativadas. Pedido de ${contactId} ignorado.`);
+            }
+            // ##################### FIM DA CORREÇÃO ######################
+            
+            return response.status(200).json({ message: 'Notificação processada.' });
         } catch (error) {
             console.error(`[BotController] Erro ao processar notificação de handover: ${error.message}`);
             return response.status(500).json({ error: 'Erro interno ao processar a notificação.' });
