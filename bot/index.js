@@ -24,6 +24,11 @@ const DRINK_KEYWORDS = ["bebida", "refrigerante", "refri", "coca", "guarana", "s
 const CANCEL_KEYWORDS = ["cancelar", "cancela", "nao quero mais", "não quero mais"];
 const END_KEYWORDS = ["sair", "parar", "encerrar", "obrigado", "obg", "vlw", "tchau"];
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Adicionado um novo dicionário de palavras-chave para perguntas sobre o tempo de entrega.
+const DELIVERY_TIME_KEYWORDS = ["demora", "demorando", "quanto tempo", "previsão", "que horas chega", "vai demorar", "tempo de entrega", "está a caminho"];
+// ##################### FIM DA CORREÇÃO ######################
+
 function log(level, context, message) {
     const timestamp = new Date().toLocaleTimeString('pt-BR');
     console.log(`[${timestamp}] [${level}] [${context}] ${message}`);
@@ -87,25 +92,18 @@ client.on('qr', (qr) => {
 client.on('ready', () => { isBotReady = true; log('SUCCESS', 'Client', 'Bot Concierge está online e pronto.'); });
 client.on('disconnected', (reason) => { isBotReady = false; log('WARN', 'Client', `Bot desconectado. Motivo: ${reason}.`); client.initialize(); });
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Alterado o evento de 'message' para 'message_create'.
-// Este evento captura TODAS as mensagens, incluindo as enviadas pelo operador
-// a partir de outros dispositivos, o que é essencial para a nossa lógica.
 client.on('message_create', async (msg) => {
-// ##################### FIM DA CORREÇÃO ######################
     const chat = await msg.getChat();
     
-    // Lógica para detetar a resposta de um operador e cancelar o alerta.
     if (msg.fromMe && !chat.isGroup) {
         const chatState = chatStates.get(chat.id._serialized);
         if (chatState === 'HUMANO_ATIVO') {
             log('INFO', 'Handover', `Operador respondeu ao chat ${chat.id._serialized}. A cancelar alerta pendente.`);
             await notifyBackendHandoverAcknowledged(chat.id._serialized);
         }
-        return; // Ignora o resto do processamento para mensagens do operador.
+        return;
     }
     
-    // Condição de guarda para ignorar mensagens irrelevantes (grupos, status, etc.)
     if (!isBotReady || msg.isStatus || chat.isGroup) return;
 
     const lowerBody = msg.body.trim().toLowerCase();
@@ -227,7 +225,21 @@ async function handleConcierge(msg, lowerBody) {
                 await notifyBackendHandover(msg.from, 'Entregador');
                 break;
             default:
-                if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
+                // #################### INÍCIO DA CORREÇÃO ####################
+                // ARQUITETO: Adicionada a nova lógica para responder a perguntas sobre o tempo de entrega
+                // antes de verificar as palavras-chave de produtos.
+                if (DELIVERY_TIME_KEYWORDS.some(kw => lowerBody.includes(kw))) {
+                    log('INFO', 'Concierge', `Utilizador perguntou sobre o tempo de entrega: "${lowerBody}"`);
+                    await msg.reply(
+`Olá! Nossas entregas costumam levar entre 15 a 30 minutos, dependendo da sua localização e do trânsito. 🛵
+
+Se o seu pedido estiver demorando mais do que o esperado, por favor, digite *4* para falar com um de nossos atendentes que verificará o status para você em tempo real.
+
+Agradecemos a sua paciência! 😊`
+                    );
+                } 
+                // ##################### FIM DA CORREÇÃO ######################
+                else if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     await msg.reply(`🥤 *Sobre Bebidas*\n\nNo momento, nosso foco é 100% em oferecer as melhores pamonhas e delícias de milho! Por isso, não trabalhamos com a venda de bebidas.\n\nAgradecemos a sua compreensão! 😊`);
                 } else if (PRODUCT_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     const matchedKeyword = PRODUCT_KEYWORDS.find(kw => lowerBody.includes(kw));
