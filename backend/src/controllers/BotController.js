@@ -18,7 +18,33 @@ const createBotApiClient = () => {
     });
 };
 
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Nova função (não é um handler de rota) para ser usada internamente por outros serviços.
+async function clearStateForPhone(phone) {
+    const apiClient = createBotApiClient();
+    if (!apiClient) {
+        console.error('[BotController] Não é possível limpar o estado: Serviço de Bot não configurado.');
+        return; // Falha silenciosamente se o bot não estiver configurado.
+    }
+    if (!phone) {
+        console.warn('[BotController] Tentativa de limpar o estado para um número de telemóvel nulo.');
+        return;
+    }
+    try {
+        await apiClient.post('/clear-state', { phone });
+        console.log(`[BotController] ✅ Solicitação para limpar o estado do chat para ${phone} enviada com sucesso.`);
+    } catch (error) {
+        const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
+        console.error(`[BotController] ❌ Falha ao solicitar a limpeza do estado do chat para ${phone}: ${errorMessage}`);
+        // Não lança o erro, pois é uma tarefa de fundo.
+    }
+}
+// ##################### FIM DA CORREÇÃO ######################
+
 module.exports = {
+    // Adiciona a nova função ao export para que outros controladores possam usá-la.
+    clearStateForPhone,
+
     async getGroups(request, response) {
         const apiClient = createBotApiClient();
         if (!apiClient) return response.status(500).json({ error: 'Serviço de Bot não configurado.' });
@@ -84,8 +110,6 @@ module.exports = {
         }
     },
 
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: Novo método para receber o "reconhecimento" do bot e cancelar o alerta.
     async cancelHandoverAlert(request, response) {
         const { contactId } = request.body;
         if (!contactId) {
@@ -102,5 +126,4 @@ module.exports = {
             return response.status(500).json({ error: 'Erro interno ao processar o cancelamento.' });
         }
     }
-    // ##################### FIM DA CORREÇÃO ######################
 };

@@ -18,21 +18,55 @@ app.use(express.json());
 
 let isBotReady = false;
 const chatStates = new Map();
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Adicionadas novas estruturas para gerir a ociosidade.
+const chatTimers = new Map();
+const IDLE_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 horas em milissegundos
+// ##################### FIM DA CORREÇÃO ######################
 
 const PRODUCT_KEYWORDS = ["pamonha", "curau", "bolo", "bolinho", "chica", "caldo", "creme", "doce", "combo"];
 const DRINK_KEYWORDS = ["bebida", "refrigerante", "refri", "coca", "guarana", "suco", "agua", "água", "cerveja"];
 const CANCEL_KEYWORDS = ["cancelar", "cancela", "nao quero mais", "não quero mais"];
 const END_KEYWORDS = ["sair", "parar", "encerrar", "obrigado", "obg", "vlw", "tchau"];
-
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: Adicionado um novo dicionário de palavras-chave para perguntas sobre o tempo de entrega.
 const DELIVERY_TIME_KEYWORDS = ["demora", "demorando", "quanto tempo", "previsão", "que horas chega", "vai demorar", "tempo de entrega", "está a caminho"];
-// ##################### FIM DA CORREÇÃO ######################
 
 function log(level, context, message) {
     const timestamp = new Date().toLocaleTimeString('pt-BR');
     console.log(`[${timestamp}] [${level}] [${context}] ${message}`);
 }
+
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Funções centralizadas para gerir o estado da conversa e os timeouts.
+function clearIdleTimeout(chatId) {
+    if (chatTimers.has(chatId)) {
+        clearTimeout(chatTimers.get(chatId));
+        chatTimers.delete(chatId);
+    }
+}
+
+function setIdleTimeout(chatId) {
+    clearIdleTimeout(chatId); // Garante que não haja timers duplicados.
+    const timer = setTimeout(() => {
+        chatStates.delete(chatId);
+        chatTimers.delete(chatId);
+        log('INFO', 'IdleTimer', `Estado ocioso para ${chatId} foi limpo após 2 horas.`);
+    }, IDLE_TIMEOUT_MS);
+    chatTimers.set(chatId, timer);
+    log('INFO', 'IdleTimer', `Timeout de ociosidade definido para ${chatId}.`);
+}
+
+function setState(chatId, state) {
+    log('INFO', 'State', `Definindo estado para ${chatId}: ${state}`);
+    chatStates.set(chatId, state);
+    setIdleTimeout(chatId); // Sempre que um estado é definido, o timer de ociosidade é iniciado/reiniciado.
+}
+
+function clearState(chatId) {
+    log('INFO', 'State', `Limpando estado para ${chatId}.`);
+    chatStates.delete(chatId);
+    clearIdleTimeout(chatId); // Remove também qualquer timer associado.
+}
+// ##################### FIM DA CORREÇÃO ######################
 
 async function sendTelegramNotification(message) {
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
@@ -108,24 +142,31 @@ client.on('message_create', async (msg) => {
 
     const lowerBody = msg.body.trim().toLowerCase();
     const chatId = msg.from;
+    
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // Reinicia o timer a cada nova mensagem do utilizador.
+    clearIdleTimeout(chatId);
+    // ##################### FIM DA CORREÇÃO ######################
+
     const currentState = chatStates.get(chatId);
 
     if (currentState === 'AGUARDANDO_LOCALIZACAO') {
         if (msg.hasLocation || msg.type === 'location') {
             await msg.reply('Localização recebida! Muito obrigado. 👍');
-            chatStates.delete(chatId);
+            clearState(chatId);
         } else if (CANCEL_KEYWORDS.some(kw => lowerBody.includes(kw))) {
             await msg.reply('Entendido. A entrega seguirá para o endereço informado.');
-            chatStates.delete(chatId);
+            clearState(chatId);
         } else {
             await msg.reply(`🗺️ *Ainda aguardando a sua localização...*\n\nPara que o entregador encontre você facilmente, por favor, envie a sua localização.\n\n*Como fazer:*\n1. Toque no ícone de anexo (📎).\n2. Escolha a opção "Localização".\n3. Envie a sua "Localização Atual".\n\n_Se preferir não enviar, basta digitar *cancelar*._`);
+            setIdleTimeout(chatId); // Reinicia o timer se o utilizador responder algo inválido.
         }
         return;
     }
 
     if (currentState === 'HUMANO_ATIVO') {
         if (lowerBody === 'reiniciar') {
-            chatStates.delete(chatId);
+            clearState(chatId);
             await msg.reply(`🤖 *Atendimento Automático Reativado*\n\nO bot está de volta! 👋 Como posso te ajudar agora?`);
             await sendDefaultMenu(msg);
         }
@@ -166,7 +207,9 @@ async function handleOrderConfirmation(msg, orderId) {
 
         if (order.client_address !== 'Retirada no local') {
             await new Promise(resolve => setTimeout(resolve, 1500));
-            chatStates.set(msg.from, 'AGUARDANDO_LOCALIZACAO');
+            // #################### INÍCIO DA CORREÇÃO ####################
+            setState(msg.from, 'AGUARDANDO_LOCALIZACAO');
+            // ##################### FIM DA CORREÇÃO ######################
             await msg.reply("Para facilitar a entrega, poderia compartilhar sua localização?\n\nUse o anexo (📎) e escolha *Localização* > *Localização Atual*. Se não quiser, digite *cancelar*.");
         }
     } catch (error) {
@@ -207,38 +250,36 @@ async function handleConcierge(msg, lowerBody) {
                 await msg.reply(scheduleData.message);
                 break;
             case 4:
-                chatStates.set(msg.from, 'HUMANO_ATIVO');
+                // #################### INÍCIO DA CORREÇÃO ####################
+                setState(msg.from, 'HUMANO_ATIVO');
+                // ##################### FIM DA CORREÇÃO ######################
                 await msg.reply("Ok, um de nossos atendentes irá te responder em instantes.\n\n_Para reativar o atendimento automático, por favor, digite *reiniciar*._");
                 await sendTelegramNotification(`🗣️ *Solicitação de Atendimento Humano*\n\nUm cliente solicitou para falar com um atendente no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e inicie o atendimento.*`);
                 await notifyBackendHandover(msg.from, 'Cliente');
                 break;
             case 5:
-                chatStates.set(msg.from, 'HUMANO_ATIVO');
+                setState(msg.from, 'HUMANO_ATIVO');
                 await msg.reply("*Atendimento a Fornecedores/Parceiros*\n\nEntendido. A sua mensagem foi encaminhada para a nossa equipe de gestão.\n\nUm responsável entrará em contacto assim que possível.\n\n_Para reativar o bot, digite *reiniciar*._");
                 await sendTelegramNotification(`🔔 *Novo Contacto de Fornecedor*\n\nUm possível fornecedor ou parceiro iniciou uma conversa no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e dê seguimento.*`);
                 await notifyBackendHandover(msg.from, 'Fornecedor');
                 break;
             case 6:
-                chatStates.set(msg.from, 'HUMANO_ATIVO');
+                setState(msg.from, 'HUMANO_ATIVO');
                 await msg.reply("*Atendimento a Entregadores/Parceiros*\n\nOlá, parceiro! A sua mensagem foi direcionada para a nossa equipe de logística.\n\nUm operador irá responder em breve. Se desejar, pode adiantar o motivo do seu contacto.\n\n_Para reativar o bot, digite *reiniciar*._");
                 await sendTelegramNotification(`🏍️ *Novo Contacto de Entregador*\n\nUm entregador ou parceiro de logística iniciou uma conversa no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e preste o suporte necessário.*`);
                 await notifyBackendHandover(msg.from, 'Entregador');
                 break;
             default:
-                // #################### INÍCIO DA CORREÇÃO ####################
-                // ARQUITETO: Adicionada a nova lógica para responder a perguntas sobre o tempo de entrega
-                // antes de verificar as palavras-chave de produtos.
                 if (DELIVERY_TIME_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     log('INFO', 'Concierge', `Utilizador perguntou sobre o tempo de entrega: "${lowerBody}"`);
                     await msg.reply(
-`Olá! Nossas entregas costumam levar entre 15 a 30 minutos, dependendo da sua localização e do trânsito. 🛵
+`Olá! Nossas entregas costumam levar entre 30 a 50 minutos, dependendo da sua localização e do trânsito. 🛵
 
 Se o seu pedido estiver demorando mais do que o esperado, por favor, digite *4* para falar com um de nossos atendentes que verificará o status para você em tempo real.
 
 Agradecemos a sua paciência! 😊`
                     );
                 } 
-                // ##################### FIM DA CORREÇÃO ######################
                 else if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
                     await msg.reply(`🥤 *Sobre Bebidas*\n\nNo momento, nosso foco é 100% em oferecer as melhores pamonhas e delícias de milho! Por isso, não trabalhamos com a venda de bebidas.\n\nAgradecemos a sua compreensão! 😊`);
                 } else if (PRODUCT_KEYWORDS.some(kw => lowerBody.includes(kw))) {
@@ -308,6 +349,24 @@ app.post('/send-message', apiKeyMiddleware, async (req, res) => {
         res.status(500).json({ error: 'Falha ao enviar a mensagem.' });
     }
 });
+
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Novo endpoint para o backend solicitar a limpeza de estado de um chat.
+app.post('/clear-state', apiKeyMiddleware, async (req, res) => {
+    if (!isBotReady) { return res.status(503).json({ error: 'O bot não está pronto.' }); }
+    const { phone } = req.body;
+    if (!phone) { return res.status(400).json({ error: '"phone" é obrigatório.' }); }
+    try {
+        const chatId = phone.includes('@c.us') ? phone : `55${phone.replace(/\D/g, '')}@c.us`;
+        clearState(chatId);
+        log('SUCCESS', 'API', `Estado limpo para ${chatId} via pedido da API.`);
+        res.status(200).json({ success: true });
+    } catch (error) {
+        log('ERROR', 'API', `Falha ao limpar estado para ${phone}: ${error.message}`);
+        res.status(500).json({ error: 'Falha ao limpar o estado.' });
+    }
+});
+// ##################### FIM DA CORREÇÃO ######################
 
 app.get('/groups', apiKeyMiddleware, async (req, res) => {
     if (!isBotReady) { return res.status(503).json({ error: 'O bot não está pronto.' }); }

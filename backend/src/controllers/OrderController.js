@@ -2,6 +2,11 @@
 const connection = require('../database/connection');
 const { getIO } = require('../socket-manager');
 const axios = require('axios');
+// #################### INÍCIO DA CORREÇÃO ####################
+// ARQUITETO: Importa a nova função do BotController.
+const { clearStateForPhone } = require('./BotController');
+// ##################### FIM DA CORREÇÃO ######################
+
 
 const notifyBot = async (phone, message) => {
     const botUrl = process.env.BOT_API_URL;
@@ -71,6 +76,11 @@ module.exports = {
                 else if (newStatus === 'Cancelado') {
                     const finalReason = reason ? `*Motivo:* ${reason}` : "Para mais detalhes, por favor, entre em contato com a loja.";
                     message = `⚠️ *Pedido Cancelado*\n\nOlá! Informamos que o seu pedido *P-${updatedOrder.id}* foi cancelado.\n\n${finalReason}\n\nLamentamos o inconveniente.`;
+                    
+                    // #################### INÍCIO DA CORREÇÃO ####################
+                    // ARQUITETO: Notifica o bot para limpar o estado desta conversa.
+                    await clearStateForPhone(updatedOrder.client_phone);
+                    // ##################### FIM DA CORREÇÃO ######################
                 }
                 if (message) await notifyBot(updatedOrder.client_phone, message);
             }
@@ -84,11 +94,7 @@ module.exports = {
     async create(request, response) {
         try {
             const { client_name, client_phone, client_address, total_price, items, payment_method, observations, needs_cutlery } = request.body;
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: O status inicial agora é 'Aguardando Confirmação'.
-            // Este pedido não será visível no dashboard até ser confirmado pelo bot.
             const initialStatus = 'Aguardando Confirmação';
-            // ##################### FIM DA CORREÇÃO ######################
 
             const newOrderData = await connection.transaction(async (trx) => {
                 const [order] = await trx('orders').insert({
@@ -125,14 +131,10 @@ module.exports = {
         if (!apiKey || apiKey !== process.env.BOT_API_KEY) return response.status(403).json({ error: 'Acesso não autorizado.' });
         
         try {
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: A lógica agora busca um pedido 'Aguardando Confirmação'
-            // e o promove para 'Novo', tornando-o visível no dashboard.
             const [orderRaw] = await connection('orders')
                 .where({ id: id, status: 'Aguardando Confirmação' })
                 .update({ client_phone: whatsapp, status: 'Novo' })
                 .returning('*');
-            // ##################### FIM DA CORREÇÃO ######################
 
             if (!orderRaw) {
                 return response.status(404).json({ error: 'Pedido não encontrado, já confirmado ou expirado.' });
@@ -168,12 +170,8 @@ module.exports = {
 
     async clearHistory(request, response) {
         try {
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: A limpeza agora também remove pedidos abandonados
-            // que nunca foram confirmados, mantendo a base de dados limpa.
             console.log('[OrderController] Limpando histórico de pedidos concluídos, cancelados e abandonados.');
             await connection('orders').whereIn('status', ['Finalizado', 'Cancelado', 'Aguardando Confirmação']).del();
-            // ##################### FIM DA CORREÇÃO ######################
             getIO().emit('history_cleared');
             return response.status(204).send();
         } catch (error) {
