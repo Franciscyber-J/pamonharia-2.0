@@ -87,8 +87,11 @@ async function startServer() {
           const trx = await connection.transaction();
           try {
               for (const item of items) {
-                  if (!item.id || !item.quantity) continue;
-                  const product = await trx('products').where({ id: item.id, stock_enabled: true }).first();
+                  // Pode ser product_id (de um item de pedido) ou id (de uma reserva de carrinho)
+                  const itemId = item.product_id || item.id;
+                  if (!itemId || !item.quantity) continue;
+                  
+                  const product = await trx('products').where({ id: itemId, stock_enabled: true }).first();
                   if (!product) continue;
                   
                   const changeAmount = operation === 'decrement' ? -item.quantity : item.quantity;
@@ -119,11 +122,12 @@ async function startServer() {
         console.log('[Cleanup] Executando rotina de limpeza de pedidos abandonados...');
         try {
             // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: O tempo de verificação foi reduzido para 1 minuto.
-            const oneMinuteAgo = new Date(Date.now() - 1 * 60 * 1000);
+            // ARQUITETO: O tempo de verificação foi ajustado para 2 minutos.
+            // Este é o tempo de espera para um cliente confirmar o pedido no WhatsApp.
+            const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
             const abandonedOrders = await connection('orders')
                 .where('status', 'Aguardando Confirmação')
-                .andWhere('created_at', '<', oneMinuteAgo);
+                .andWhere('created_at', '<', twoMinutesAgo);
             // ##################### FIM DA CORREÇÃO ######################
 
             if (abandonedOrders.length === 0) {
@@ -135,12 +139,8 @@ async function startServer() {
 
             for (const order of abandonedOrders) {
                 const items = await connection('order_items').where('order_id', order.id);
-                const itemsToRelease = items.map(item => ({
-                    id: item.product_id || item.combo_id,
-                    quantity: item.quantity
-                }));
                 
-                await handleStockChange(itemsToRelease, 'increment');
+                await handleStockChange(items, 'increment');
                 await connection('orders').where('id', order.id).del();
                 console.log(`[Cleanup] Estoque do pedido #${order.id} foi devolvido e o pedido foi apagado.`);
             }
@@ -149,10 +149,8 @@ async function startServer() {
         }
     };
     
-    // #################### INÍCIO DA CORREÇÃO ####################
-    // ARQUITETO: O intervalo de execução da rotina foi ajustado para 1 minuto (60.000 milissegundos).
+    // A rotina continua a ser executada a cada minuto para garantir a limpeza atempada.
     setInterval(cleanupAbandonedOrders, 1 * 60 * 1000);
-    // ##################### FIM DA CORREÇÃO ######################
     
     io.on('connection', (socket) => {
         console.log(`[Server] ➡️ Cliente conectado: ${socket.id}`);
