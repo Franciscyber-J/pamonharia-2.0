@@ -45,8 +45,19 @@ async function sendTelegramNotification(message) {
     }
 }
 
+// ARQUITETO: Nova função para notificar o backend sobre um pedido de atendimento humano.
+async function notifyBackendHandover(contactId, type) {
+    try {
+        await axios.post(`${BACKEND_URL}/api/bot/human-handover`, 
+            { contactId, type },
+            { headers: { 'x-api-key': API_KEY } }
+        );
+        log('SUCCESS', 'Handover', `Backend notificado sobre o pedido de atendimento para ${contactId}.`);
+    } catch (error) {
+        log('ERROR', 'Handover', `Falha ao notificar o backend: ${error.message}`);
+    }
+}
 
-// --- CONFIGURAÇÃO DO CLIENTE WHATSAPP-WEB.JS ---
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: 'pamonharia-bot-concierge', dataPath: './sessions' }),
     webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' },
@@ -171,23 +182,23 @@ async function handleConcierge(msg, lowerBody) {
                 const { data: scheduleData } = await axios.get(`${BACKEND_URL}/api/public/store-status`);
                 await msg.reply(scheduleData.message);
                 break;
-            // #################### INÍCIO DA CORREÇÃO ####################
-            // ARQUITETO: Adicionada a notificação via Telegram para a solicitação de atendimento humano geral.
             case 4:
                 chatStates.set(msg.from, 'HUMANO_ATIVO');
                 await msg.reply("Ok, um de nossos atendentes irá te responder em instantes.\n\n_Para reativar o atendimento automático, por favor, digite *reiniciar*._");
                 await sendTelegramNotification(`🗣️ *Solicitação de Atendimento Humano*\n\nUm cliente solicitou para falar com um atendente no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e inicie o atendimento.*`);
+                await notifyBackendHandover(msg.from, 'Cliente');
                 break;
-            // ##################### FIM DA CORREÇÃO ######################
             case 5:
                 chatStates.set(msg.from, 'HUMANO_ATIVO');
                 await msg.reply("*Atendimento a Fornecedores/Parceiros*\n\nEntendido. A sua mensagem foi encaminhada para a nossa equipe de gestão.\n\nUm responsável entrará em contacto assim que possível.\n\n_Para reativar o bot, digite *reiniciar*._");
                 await sendTelegramNotification(`🔔 *Novo Contacto de Fornecedor*\n\nUm possível fornecedor ou parceiro iniciou uma conversa no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e dê seguimento.*`);
+                await notifyBackendHandover(msg.from, 'Fornecedor');
                 break;
             case 6:
                 chatStates.set(msg.from, 'HUMANO_ATIVO');
                 await msg.reply("*Atendimento a Entregadores/Parceiros*\n\nOlá, parceiro! A sua mensagem foi direcionada para a nossa equipe de logística.\n\nUm operador irá responder em breve. Se desejar, pode adiantar o motivo do seu contacto.\n\n_Para reativar o bot, digite *reiniciar*._");
                 await sendTelegramNotification(`🏍️ *Novo Contacto de Entregador*\n\nUm entregador ou parceiro de logística iniciou uma conversa no WhatsApp.\n\n👤 *Contacto:*\n   • \`${msg.from.replace('@c.us', '')}\`\n\n*Ação Necessária: Por favor, verifique a conversa e preste o suporte necessário.*`);
+                await notifyBackendHandover(msg.from, 'Entregador');
                 break;
             default:
                 if (DRINK_KEYWORDS.some(kw => lowerBody.includes(kw))) {
@@ -235,7 +246,6 @@ Ou, se preferir, *digite o número de uma das opções:*
     );
 }
 
-// --- API INTERNA PARA O BACKEND ---
 const apiKeyMiddleware = (req, res, next) => {
     const providedKey = req.headers['x-api-key'];
     if (!providedKey || providedKey !== API_KEY) {
@@ -286,7 +296,6 @@ app.post('/send-group-message', apiKeyMiddleware, async (req, res) => {
     }
 });
 
-// --- INICIALIZAÇÃO ---
 app.listen(PORT, () => {
     log('INFO', 'Server', `API do Bot a rodar na porta ${PORT}.`);
     log('INFO', 'Client', 'A inicializar o cliente do WhatsApp...');

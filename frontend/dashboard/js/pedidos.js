@@ -6,6 +6,8 @@ import { showCustomConfirm } from './ui.js';
 let notificationAudio, isSoundEnabled = true, isAudioUnlocked = false;
 let rejectReasonModal, rejectReasonForm, rejectReasonSelect, orderToRejectId;
 let driverRequestModal, driverRequestGroupsList, currentOrderForDriver;
+// ARQUITETO: Variável para controlar o temporizador do alerta de atendimento.
+let handoverAlertTimeout = null;
 
 export async function setupAudio() {
     try {
@@ -46,14 +48,17 @@ async function unlockAudio() {
     }
 }
 
-export function playNotification(id) {
+export function playNotification(id, loop = true) {
     if (isSoundEnabled && notificationAudio) {
         unlockAudio().then(unlocked => {
             if(unlocked) {
                 console.log(`[Dashboard] 🎵 Tocando notificação para pedido #${id}...`);
+                notificationAudio.loop = loop;
                 notificationAudio.play().catch(e => console.warn("Erro ao tocar som:", e.message));
-                const card = document.getElementById(`order-${id}`);
-                if (card) card.classList.add('is-playing-sound');
+                if (id) {
+                    const card = document.getElementById(`order-${id}`);
+                    if (card) card.classList.add('is-playing-sound');
+                }
             }
         });
     }
@@ -270,10 +275,7 @@ function openOrderDetailsModal(order) {
     itemsHtml += '</ul>';
     
     const escapeHTML = (str) => str ? str.replace(/[&<>'"]/g, 
-        tag => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;',
-            "'": '&#39;', '"': '&quot;'
-        }[tag] || tag)
+        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
     ) : '';
     
     const observationsText = order.observations ? escapeHTML(order.observations).replace(/\n/g, '<br>') : 'Nenhuma';
@@ -397,10 +399,6 @@ function openDriverRequestModal(orderId) {
     });
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: A função agora envia o 'orderId' para o backend, em vez de uma
-// mensagem formatada. O backend terá a responsabilidade de construir a
-// mensagem completa com os detalhes da loja.
 async function sendDriverRequest(groupId) {
     const order = currentOrderForDriver;
     if (!order) return;
@@ -412,19 +410,17 @@ async function sendDriverRequest(groupId) {
             body: JSON.stringify({ groupId, orderId: order.id })
         });
         closeDriverRequestModal();
-        // Usa showCustomConfirm para um feedback mais elegante e não bloqueante.
         showCustomConfirm(
             'Solicitação enviada com sucesso!', 
-            () => {}, // Função vazia para o onConfirm, pois só queremos mostrar a mensagem.
+            () => {},
             'btn-primary', 
             'OK'
         );
     } catch (error) {
         alert(`Erro ao enviar a solicitação: ${error.message}`);
-        closeDriverRequestModal(); // Fecha o modal mesmo em caso de erro.
+        closeDriverRequestModal();
     }
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 function closeDriverRequestModal() {
     if (driverRequestModal) {
@@ -433,6 +429,30 @@ function closeDriverRequestModal() {
     currentOrderForDriver = null;
 }
 
-// Wrappers para tornar funções acessíveis a partir do HTML
+// ARQUITETO: Nova função para exibir o alerta de atendimento humano.
+export function showHumanHandoverAlert({ contactId, type }) {
+    if (handoverAlertTimeout) clearTimeout(handoverAlertTimeout);
+
+    const modal = document.getElementById('handover-alert-overlay');
+    const message = document.getElementById('handover-alert-message');
+    const confirmBtn = document.getElementById('handover-confirm-btn');
+    const phoneNumber = contactId.replace('@c.us', '');
+
+    message.textContent = `Um ${type} (${phoneNumber}) solicitou atendimento no WhatsApp.`;
+
+    handoverAlertTimeout = setTimeout(() => {
+        modal.style.display = 'flex';
+        playNotification(null, true);
+    }, 60 * 1000);
+
+    confirmBtn.onclick = () => {
+        clearTimeout(handoverAlertTimeout);
+        handoverAlertTimeout = null;
+        stopNotification();
+        modal.style.display = 'none';
+        window.open(`https://wa.me/${phoneNumber}`, '_blank');
+    };
+}
+
 window.updateOrderStatusWrapper = updateOrderStatus;
 window.openDriverRequestModal = openDriverRequestModal;

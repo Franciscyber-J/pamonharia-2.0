@@ -1,6 +1,6 @@
 // frontend/dashboard/js/main.js
 import { API_BASE_URL_GLOBAL, globalApiFetch } from './api.js';
-import { renderPedidosPage, setupAudio, stopNotification, updateSoundStatusButton, playNotification } from './pedidos.js';
+import { renderPedidosPage, setupAudio, stopNotification, updateSoundStatusButton, playNotification, showHumanHandoverAlert } from './pedidos.js';
 import { renderProdutosPage, fetchAllProducts, refreshCurrentProductView } from './produtos.js';
 import { renderCombosPage } from './combos.js';
 import { renderConfiguracoesPage } from './configuracoes.js';
@@ -73,6 +73,12 @@ function setupSocketListeners() {
             return;
         }
         await refreshCurrentProductView();
+    });
+
+    // ARQUITETO: Novo listener para o evento de atendimento humano.
+    socket.on('human_handover_request', (data) => {
+        console.log('[Dashboard] 🔔 Recebido pedido de atendimento humano:', data);
+        showHumanHandoverAlert(data);
     });
 }
 

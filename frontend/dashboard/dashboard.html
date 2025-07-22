@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Pamonharia 2.0</title>
     <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌽</text></svg>">
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100%22><text y=%22.9em%22 font-size=%2290%22>🌽</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
@@ -238,6 +238,14 @@
             <div class="form-buttons">
                 <button type="button" class="btn btn-secondary modal-cancel-btn">Cancelar</button>
             </div>
+        </div>
+    </div>
+
+    <div id="handover-alert-overlay" class="modal-overlay" style="z-index: 3000; display: none;">
+        <div class="handover-alert-content">
+            <h3>⚠️ Atenção: Novo Pedido de Atendimento!</h3>
+            <p id="handover-alert-message"></p>
+            <button id="handover-confirm-btn" class="btn btn-primary">Atender no WhatsApp</button>
         </div>
     </div>
 
