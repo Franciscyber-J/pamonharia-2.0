@@ -421,39 +421,58 @@ export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
 }
 
 // #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: A lógica foi refeita para lidar corretamente com produtos de
-// estoque sincronizado, garantindo que o estoque seja sempre devolvido
-// ao produto "pai", que é a fonte da verdade.
+// ARQUITETO: A lógica foi completamente reescrita para ser mais clara e robusta,
+// cobrindo todos os cenários de estoque corretamente, especialmente o caso de
+// produtos com estoque sincronizado e complemento obrigatório.
 function getItemsToReleaseFromGroup(itemGroup) {
     const itemsToRelease = [];
     const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
     if (!parentProduct) return [];
 
-    // CASO 1: O estoque é sincronizado. Apenas o pai importa.
-    if (parentProduct.stock_sync_enabled && parentProduct.stock_enabled) {
-        itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
-        return itemsToRelease;
-    }
+    // Lógica Unificada: Encontra a "fonte da verdade" para o estoque.
+    // Se o pai sincroniza, ele é a fonte. Se não, os filhos são.
+    let stockController = parentProduct;
 
-    // CASO 2: O estoque não é sincronizado. Verificamos cada item individualmente.
-    const complements = (itemGroup.details && itemGroup.details.complements) ? itemGroup.details.complements : [];
-    if (complements.length > 0) {
-        complements.forEach(sub => {
-            const fullProduct = state.allProductsFlat.find(p => p.id === (sub.id || sub.product_id));
-            if (fullProduct && fullProduct.stock_enabled) {
-                const isOneToOne = itemGroup.details.force_one_to_one;
-                const quantityToRelease = isOneToOne ? sub.quantity : (sub.quantity * itemGroup.quantity);
-                itemsToRelease.push({ id: fullProduct.id, quantity: quantityToRelease });
-            }
-        });
-    }
+    // Se o pai não controla o estoque diretamente (ex: é um container),
+    // mas sincroniza, a lógica ainda deve se basear nele.
+    // A chave é a flag `stock_sync_enabled`.
+    if (parentProduct.stock_sync_enabled) {
+        if (parentProduct.stock_enabled) {
+            itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
+        }
+    } 
+    // Se não há sincronização, tratamos cada parte individualmente.
+    else {
+        const complements = (itemGroup.details && itemGroup.details.complements) ? itemGroup.details.complements : [];
+        if (complements.length > 0) {
+            complements.forEach(sub => {
+                const fullProduct = state.allProductsFlat.find(p => p.id === (sub.id || sub.product_id));
+                if (fullProduct && fullProduct.stock_enabled) {
+                    const isOneToOne = itemGroup.details.force_one_to_one;
+                    // Para 1-para-1, a quantidade de complementos é igual à do item no carrinho, não à do grupo total.
+                    const quantityToRelease = isOneToOne ? itemGroup.quantity : (sub.quantity * itemGroup.quantity);
+                    itemsToRelease.push({ id: fullProduct.id, quantity: quantityToRelease });
+                }
+            });
+        }
 
-    // Adiciona o pai se ele for vendido separadamente e tiver estoque controlado.
-    if (parentProduct.stock_enabled && parentProduct.sell_parent_product) {
-        itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
+        // Adiciona o pai se ele for vendido separadamente E tiver seu próprio controle de estoque.
+        if (parentProduct.stock_enabled && parentProduct.sell_parent_product) {
+            itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
+        }
     }
     
-    return itemsToRelease.filter(i => i.id && i.quantity > 0);
+    // Remove duplicados para garantir que não estamos a devolver estoque a mais.
+    const uniqueItemsMap = new Map();
+    itemsToRelease.forEach(item => {
+        if (uniqueItemsMap.has(item.id)) {
+            uniqueItemsMap.get(item.id).quantity += item.quantity;
+        } else {
+            uniqueItemsMap.set(item.id, { ...item });
+        }
+    });
+    
+    return Array.from(uniqueItemsMap.values()).filter(i => i.id && i.quantity > 0);
 }
 // ##################### FIM DA CORREÇÃO ######################
 
