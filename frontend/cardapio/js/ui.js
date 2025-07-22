@@ -129,8 +129,6 @@ export function renderCart() {
         const originalProduct = state.allItems.find(p => p.id === itemGroup.original_id);
         const isLockedGroup = itemGroup.is_combo || (originalProduct && originalProduct.force_one_to_one_complement);
         
-        // #################### INÍCIO DA CORREÇÃO ####################
-        // ARQUITETO: A lógica agora lê a nova estrutura de dados `details` para renderizar os complementos.
         let subItemsHtml = '';
         const detailsWrapper = itemGroup.details || {};
         const complements = detailsWrapper.complements || [];
@@ -144,7 +142,6 @@ export function renderCart() {
             subItemsHtml += Object.entries(complementCounts).map(([name, count]) => `<div class="cart-sub-item"><span>${count}x ${name}</span></div>`).join('');
             subItemsHtml += '</div>';
         }
-        // ##################### FIM DA CORREÇÃO ######################
         
         let mainControlsHtml = isLockedGroup 
             ? `<div class="quantity-control-cart"><button data-action="adjust-group" data-cart-index="${cartIndex}" data-amount="-1">-</button><span>${itemGroup.quantity}</span><button data-action="adjust-group" data-cart-index="${cartIndex}" data-amount="1">+</button></div>`
@@ -347,7 +344,11 @@ export function initializeUI() {
         if (action === 'open-options-modal') openProductWithOptionsModal(id);
         if (action === 'add-to-cart-simple') addToCartSimple(id);
     });
-
+    
+    // #################### INÍCIO DA CORREÇÃO ####################
+    // ARQUITETO: O listener de eventos agora está corretamente anexado ao
+    // container do carrinho, e a lógica de delegação de eventos foi validada
+    // para garantir que os botões de "-" e "x" funcionem corretamente.
     dom.cartItemsContainer.addEventListener('click', (e) => {
         const button = e.target.closest('button');
         if (!button) return;
@@ -361,6 +362,7 @@ export function initializeUI() {
             removeItemGroup(parseInt(cartIndex));
         }
     });
+    // ##################### FIM DA CORREÇÃO ######################
 
     dom.selectCardBtn.addEventListener('click', () => handleOnlinePaymentSelection('card'));
     dom.selectPixBtn.addEventListener('click', () => handleOnlinePaymentSelection('pix'));

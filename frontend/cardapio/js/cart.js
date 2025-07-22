@@ -421,48 +421,74 @@ export function adjustCartItemQuantity(cartIndex, subItemIndex, amount) {
 }
 
 // #################### INÍCIO DA CORREÇÃO ####################
-// ARQUITETO: A lógica foi completamente reescrita para ser mais clara e robusta,
-// cobrindo todos os cenários de estoque corretamente, especialmente o caso de
-// produtos com estoque sincronizado e complemento obrigatório.
+// ARQUITETO: Lógica completamente refeita para ser mais robusta, cobrindo todos os cenários.
 function getItemsToReleaseFromGroup(itemGroup) {
     const itemsToRelease = [];
-    const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id);
-    if (!parentProduct) return [];
 
-    // Lógica Unificada: Encontra a "fonte da verdade" para o estoque.
-    // Se o pai sincroniza, ele é a fonte. Se não, os filhos são.
-    let stockController = parentProduct;
+    // --- CASO 1: O ITEM É UM COMBO ---
+    if (itemGroup.is_combo) {
+        console.log(`[Cart] Calculando devolução para COMBO: ${itemGroup.name}`);
+        const productsInCombo = itemGroup.details?.complements || [];
 
-    // Se o pai não controla o estoque diretamente (ex: é um container),
-    // mas sincroniza, a lógica ainda deve se basear nele.
-    // A chave é a flag `stock_sync_enabled`.
-    if (parentProduct.stock_sync_enabled) {
-        if (parentProduct.stock_enabled) {
-            itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
-        }
+        productsInCombo.forEach(productInCombo => {
+            const fullProductDetails = state.allProductsFlat.find(p => p.id === productInCombo.id);
+            if (fullProductDetails && fullProductDetails.stock_enabled) {
+                // Para produtos dentro de um combo, sempre verificamos suas próprias regras de estoque.
+                const parentId = state.productParentMap[fullProductDetails.id];
+                let stockController = fullProductDetails;
+
+                if (parentId) {
+                    const parent = state.allProductsFlat.find(p => p.id === parentId);
+                    if (parent && parent.stock_sync_enabled) {
+                        stockController = parent; // A fonte do estoque é o pai sincronizado.
+                    }
+                }
+                
+                // A quantidade a devolver é a do produto no combo multiplicada pela quantidade de combos no carrinho.
+                const quantityToRelease = productInCombo.quantity * itemGroup.quantity;
+                console.log(`[Cart] -> Combo: Devolvendo ${quantityToRelease} de ${stockController.name} (ID: ${stockController.id}).`);
+                itemsToRelease.push({ id: stockController.id, quantity: quantityToRelease });
+            }
+        });
     } 
-    // Se não há sincronização, tratamos cada parte individualmente.
+    // --- CASO 2: O ITEM É UM PRODUTO (com ou sem complementos) ---
     else {
-        const complements = (itemGroup.details && itemGroup.details.complements) ? itemGroup.details.complements : [];
-        if (complements.length > 0) {
+        const parentProduct = state.allItems.find(p => p.id === itemGroup.original_id && !p.is_combo);
+        if (!parentProduct) {
+            console.error(`[Cart] CRÍTICO: Produto original com ID ${itemGroup.original_id} não encontrado.`);
+            return [];
+        }
+        
+        console.log(`[Cart] Calculando devolução para PRODUTO: ${parentProduct.name} (Sincronização: ${parentProduct.stock_sync_enabled})`);
+
+        // Se o estoque for sincronizado, apenas o pai importa.
+        if (parentProduct.stock_sync_enabled) {
+            if (parentProduct.stock_enabled) {
+                console.log(`[Cart] -> Produto Sincronizado: Devolvendo ${itemGroup.quantity} de ${parentProduct.name} (ID: ${parentProduct.id}).`);
+                itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
+            }
+        } 
+        // Se não for sincronizado, tratamos cada parte.
+        else {
+            // Devolve estoque do pai, se aplicável.
+            if (parentProduct.sell_parent_product && parentProduct.stock_enabled) {
+                console.log(`[Cart] -> Produto Principal: Devolvendo ${itemGroup.quantity} de ${parentProduct.name} (ID: ${parentProduct.id}).`);
+                itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
+            }
+            // Devolve estoque dos complementos.
+            const complements = itemGroup.details?.complements || [];
             complements.forEach(sub => {
-                const fullProduct = state.allProductsFlat.find(p => p.id === (sub.id || sub.product_id));
+                const fullProduct = state.allProductsFlat.find(p => p.id === sub.id);
                 if (fullProduct && fullProduct.stock_enabled) {
-                    const isOneToOne = itemGroup.details.force_one_to_one;
-                    // Para 1-para-1, a quantidade de complementos é igual à do item no carrinho, não à do grupo total.
-                    const quantityToRelease = isOneToOne ? itemGroup.quantity : (sub.quantity * itemGroup.quantity);
+                    const quantityToRelease = sub.quantity * itemGroup.quantity;
+                    console.log(`[Cart] -> Complemento: Devolvendo ${quantityToRelease} de ${fullProduct.name} (ID: ${fullProduct.id}).`);
                     itemsToRelease.push({ id: fullProduct.id, quantity: quantityToRelease });
                 }
             });
         }
-
-        // Adiciona o pai se ele for vendido separadamente E tiver seu próprio controle de estoque.
-        if (parentProduct.stock_enabled && parentProduct.sell_parent_product) {
-            itemsToRelease.push({ id: parentProduct.id, quantity: itemGroup.quantity });
-        }
     }
-    
-    // Remove duplicados para garantir que não estamos a devolver estoque a mais.
+
+    // Agrupa e soma as quantidades para evitar emissões duplicadas ao servidor.
     const uniqueItemsMap = new Map();
     itemsToRelease.forEach(item => {
         if (uniqueItemsMap.has(item.id)) {
@@ -471,8 +497,10 @@ function getItemsToReleaseFromGroup(itemGroup) {
             uniqueItemsMap.set(item.id, { ...item });
         }
     });
-    
-    return Array.from(uniqueItemsMap.values()).filter(i => i.id && i.quantity > 0);
+
+    const finalItems = Array.from(uniqueItemsMap.values());
+    console.log('[Cart] -> Final de itens a devolver:', finalItems);
+    return finalItems;
 }
 // ##################### FIM DA CORREÇÃO ######################
 
