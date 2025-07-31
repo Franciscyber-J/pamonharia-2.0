@@ -159,7 +159,13 @@ function createProductRow(product, isChild = false, isSynced = false) {
     const hasChildren = !isChild && product.children && product.children.length > 0;
     const toggleButton = hasChildren ? `<span class="toggle-children-btn">▶</span>` : '<span style="width: 14px; display: inline-block;"></span>';
     const dragHandle = userRole === 'admin' && !isChild ? '<td><span class="drag-handle">⠿</span></td>' : '<td></td>';
-    const pausePlayButton = `<button class="btn-icon btn-status-toggle ${product.status ? 'paused' : 'playing'}" title="${product.status ? 'Pausar' : 'Ativar'}">${product.status ? '||' : '▶'}</button>`;
+    
+    // START OF MODIFICATION
+    let pausePlayButton = '';
+    if (userRole === 'admin') { // Only render for admin role
+        pausePlayButton = `<button class="btn-icon btn-status-toggle ${product.status ? 'paused' : 'playing'}" title="${product.status ? 'Pausar' : 'Ativar'}">${product.status ? '||' : '▶'}</button>`;
+    }
+    // END OF MODIFICATION
     
     let stockControlsCell = '';
     const isParentContainerOnly = !isChild && hasChildren && !product.sell_parent_product;
@@ -244,6 +250,7 @@ function setupProductEventListeners() {
             if (target.classList.contains('delete-product')) deleteProduct(productId);
         }
         
+        // Ensure that the status toggle is still handled, but the button is only rendered for admin
         if (target.classList.contains('btn-status-toggle')) {
             const currentStatus = state.allProductsFlat.find(p => p.id === productId)?.status;
             toggleProductStatus(productId, !currentStatus);
@@ -428,7 +435,6 @@ function duplicateProduct(id) {
     }, 'btn-primary', 'Duplicar');
 }
 
-// #################### INÍCIO DA CORREÇÃO ####################
 // ARQUITETO: A função agora chama a nova rota segura PATCH /products/:id/status,
 // que é acessível tanto para admins quanto para operadores.
 async function toggleProductStatus(productId, newStatus) {
@@ -447,7 +453,6 @@ async function toggleProductStatus(productId, newStatus) {
         setTimeout(() => { setState({ isProgrammaticallyUpdating: false }); }, 500);
     }
 }
-// ##################### FIM DA CORREÇÃO ######################
 
 function handleStockAdjust(button, amount) {
     const stockInput = button.closest('.stock-controls').querySelector('.stock-input');
